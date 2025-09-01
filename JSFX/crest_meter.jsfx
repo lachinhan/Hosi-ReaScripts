@@ -1,0 +1,143 @@
+desc:Hosi Crest Meter + Max Crest
+version:1.0
+author:Hosi Prod
+changelog:
++ v1.0 - Initial release
+// Copyright © 2025 Hosi Prod
+
+
+options:gfx_hz=60
+slider1:0<0,1,1>-Reset Max Crest
+slider2:1000<100,5000,100>RMS Window (ms)
+
+@init
+// RMS calculation using circular buffer
+buffer_size = 192000; // 4 seconds at 48kHz max
+rms_buffer = 0;
+buffer_pos = 0;
+rms_sum = 0;
+sample_count = 0;
+
+// Peak detection
+peak_l = 0;
+peak_r = 0;
+peak_combined = 0;
+
+// Crest factor
+current_crest = 0;
+max_crest = 0;
+
+// Sample rate dependent calculations
+window_samples = 0;
+
+// Initialize graphics
+gfx_clear = 0;
+
+@slider
+// Reset Max Crest
+slider1 ? (
+    max_crest = 0; 
+    slider1 = 0;
+);
+
+// Update window size based on sample rate
+window_samples = min(buffer_size, (slider2 * 0.001 * srate));
+
+@sample
+// Calculate RMS using sliding window
+abs_l = abs(spl0);
+abs_r = abs(spl1);
+
+// Use energy sum for RMS (L² + R²)
+current_energy = spl0*spl0 + spl1*spl1;
+
+// Circular buffer for RMS
+old_pos = buffer_pos;
+rms_buffer[buffer_pos] = current_energy;
+buffer_pos = (buffer_pos + 1) % window_samples;
+
+// Update RMS sum
+rms_sum += current_energy;
+sample_count < window_samples ? (
+    sample_count += 1;
+) : (
+    // Remove oldest sample when buffer is full
+    rms_sum -= rms_buffer[buffer_pos];
+);
+
+// Calculate current RMS
+rms = sample_count > 0 ? sqrt(rms_sum / sample_count) : 0;
+
+// Track peaks with same time window
+peak_l = max(peak_l, abs_l);
+peak_r = max(peak_r, abs_r);
+peak_combined = max(peak_l, peak_r);
+
+// Calculate crest factor (in dB)
+current_crest = (rms > 0) ? 20 * log10(peak_combined / rms) : 0;
+
+// Update max crest
+max_crest = max(max_crest, current_crest);
+
+// Reset peaks periodically (every window)
+buffer_pos == 0 ? (
+    peak_l = 0;
+    peak_r = 0;
+    peak_combined = 0;
+);
+
+@gfx 380 380
+gfx_clear = 0;
+gfx_x = 10; 
+gfx_y = 20;
+gfx_r = 1; gfx_g = 1; gfx_b = 1;
+gfx_setfont(1, "Arial", 16);
+
+gfx_printf("=== CREST FACTOR METER ===");
+gfx_x = 10; gfx_y += 30;
+
+gfx_printf("RMS Window: %d ms", slider2);
+gfx_x = 10; gfx_y += 25;
+
+gfx_printf("Samples in window: %d", floor(window_samples));
+gfx_x = 10; gfx_y += 30;
+
+gfx_printf("Current RMS: %.6f", rms);
+gfx_x = 10; gfx_y += 25;
+
+gfx_printf("Current RMS (dB): %.2f dB", rms > 0 ? 20*log10(rms) : -150);
+gfx_x = 10; gfx_y += 30;
+
+gfx_printf("Current Peak: %.6f", peak_combined);
+gfx_x = 10; gfx_y += 25;
+
+gfx_printf("Current Peak (dB): %.2f dB", peak_combined > 0 ? 20*log10(peak_combined) : -150);
+gfx_x = 10; gfx_y += 30;
+
+gfx_r = 0; gfx_g = 1; gfx_b = 0;
+gfx_printf("Current Crest: %.2f dB", current_crest);
+gfx_x = 10; gfx_y += 30;
+
+gfx_r = 1; gfx_g = 0; gfx_b = 0;
+gfx_printf("Max Crest: %.2f dB", max_crest);
+gfx_x = 10; gfx_y += 30;
+
+// Additional info
+gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.7;
+gfx_printf("Sample Rate: %.0f Hz", srate);
+gfx_x = 10; gfx_y += 25;
+
+gfx_printf("Buffer Fill: %d/%d samples", sample_count, floor(window_samples));
+
+// Reset button
+gfx_x = 10; gfx_y += 40;
+gfx_r = 1; gfx_g = 1; gfx_b = 0;
+gfx_rect(gfx_x, gfx_y, 135, 25);
+gfx_r = 0; gfx_g = 0; gfx_b = 0;
+gfx_x += 10; gfx_y += 5;
+gfx_printf("RESET MAX CREST");
+
+// Handle mouse click on reset button
+mouse_cap & 1 && mouse_x >= 10 && mouse_x <= 130 && mouse_y >= (gfx_y - 5) && mouse_y <= (gfx_y + 20) ? (
+    max_crest = 0;
+);
