@@ -163,29 +163,35 @@ Markdown
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
 \widowctrl\hyphauto
 
-{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 ReaPack Repository Template\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A template for GitHub-hosted ReaPack repositories with automated {\field{\*\fldinst{HYPERLINK "https://github.com/cfillion/reapack-index"}}{\fldrslt{\ul
-reapack-index
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Hosi's ReaScripts & JSFX for REAPER\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A collection of useful ReaScripts and JSFX plugins for REAPER (https://www.reaper.fm/), created by Hosi Prod.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Installation\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This repository is available for installation via ReaPack (https://reapack.com/).\par}
+{\pard \ql \f0 \sa180 \li360 \fi-360 1.\tx360\tab In REAPER, go to {\f1 Extensions > Reapack > Import repositories...}.\par}
+{\pard \ql \f0 \sa180 \li360 \fi-360 2.\tx360\tab Paste the following URL into the address field: {\field{\*\fldinst{HYPERLINK "https://github.com/lachinhan/Hosi-ReaScripts/raw/master/index.xml"}}{\fldrslt{\ul
+https://github.com/lachinhan/Hosi-ReaScripts/raw/master/index.xml
 }}}
- running from GitHub Actions.\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 Replace the name of the repository in {\field{\*\fldinst{HYPERLINK "/index.xml"}}{\fldrslt{\ul
-index.xml
+\par}
+{\pard \ql \f0 \sa180 \li360 \fi-360 3.\tx360\tab Click {\b OK}.\par}
+{\pard \ql \f0 \sa180 \li360 \fi-360 4.\tx360\tab Go to {\f1 Extensions > Reapack > Browse packages...}. You can now find, install, and update the scripts and plugins from this repository.\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Available Packages\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This repository includes a variety of tools to enhance your workflow.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel2 \b \fs28 ReaScripts\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b Freesound Search and Import (ReaImGui):} Search and import sounds directly from Freesound.org.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab ... and many other scripts\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel2 \b \fs28 JSFX Plugins\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b Hosi Master Limiter:} A mastering limiter combining features from various classic limiters.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b Hosi Simple Limiter:} A zero-latency brickwall limiter with gain reduction metering.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b HosiFX Compress:} A simple and effective compressor. *...and many more utility effects including Chorus, Delay, De-esser, EQ, and Reverb.\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Usage\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 After installation via ReaPack:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b ReaScripts} can be found and run from the REAPER Action List ({\f1 Actions > Show action list...}).\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b JSFX Plugins} will be available in your FX Browser.\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Author\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab {\b Hosi Prod} ({\field{\*\fldinst{HYPERLINK "https://github.com/lachinhan"}}{\fldrslt{\ul
+lachinhan
 }}}
- when using this template. This will be the name shown in ReaPack.\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 \f1 <index version="1" name="Name of your repository here">\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 Replace the contents of this file ({\field{\*\fldinst{HYPERLINK "/README.md"}}{\fldrslt{\ul
-README.md
-}}}
-). This will be the text shown when using ReaPack's "About this repository" feature.\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 reapack-index looks for package files in subfolders. The folder tree represents the package categories shown in ReaPack.\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 Each package file is expected to begin with a metadata header. See {\field{\*\fldinst{HYPERLINK "https://github.com/cfillion/reapack-index/wiki/Packaging-Documentation"}}{\fldrslt{\ul
-Packaging Documentation
-}}}
- on reapack-index's wiki.\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 The URL to import in ReaPack is {\field{\*\fldinst{HYPERLINK "https://github.com/cfillion/reapack-repository-template/raw/master/index.xml"}}{\fldrslt{\ul
-https://github.com/{\f1 <your username>}/{\f1 <repository name>}/raw/master/index.xml
-}}}
-.\par}
+)\sa180\par}
 }
 ]]></description>
   </metadata>
