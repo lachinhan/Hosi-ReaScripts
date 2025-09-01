@@ -5,6 +5,8 @@ on:
 jobs:
   reapack-index:
     runs-on: ubuntu-latest
+    permissions:
+    contents: write
     steps:
     - name: Fetch repository
       uses: actions/checkout@v4
