@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="ReaPack Repository Template" commit="58a3e39ba95bd0f35846aa1f39aa4cb2574295e1">
+<index version="1" name="ReaPack Repository Template" commit="8b27148dd6308de3b29961350504da4330ed1a17">
   <category name="Example">
     <reapack name="cfillion_Hello world.lua" type="script" desc="Hello world">
       <metadata>
-        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 Courier;}}
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
 \widowctrl\hyphauto
 
@@ -21,12 +21,149 @@ Markdown
       </version>
     </reapack>
   </category>
-  <metadata>
-    <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 Courier;}}
+  <category name="JSFX">
+    <reapack name="HosiFX_Chorus.jsfx" type="effect" desc="HosiFX Chorus">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
 \widowctrl\hyphauto
 
-{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs36 ReaPack Repository Template\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Chorus\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Chorus.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Chorus.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Compress.jsfx" type="effect" desc="HosiFX Compress">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Compress\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective compressor.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Compress.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_De_ess.jsfx" type="effect" desc="HosiFX De-Ess">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX De-Ess\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective De-Ess.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_De_ess.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Delay.jsfx" type="effect" desc="HosiFX Delay">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Delay\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Delay.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Delay.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Master.jsfx" type="effect" desc="HosiFX Master">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Master\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Master.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Master.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Noise_Gate.jsfx" type="effect" desc="HosiFX Noise Gate">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Noise Gate\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Noise Gate.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Noise_Gate.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Reverb.jsfx" type="effect" desc="HosiFX Reverb">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Reverb\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Reverb.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Reverb.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Rotary.jsfx" type="effect" desc="HosiFX Rotary">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Rotary\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Rotary.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Rotary.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Simple_EQ.jsfx" type="effect" desc="HosiFX Simple EQ">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Simple EQ\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Simple EQ.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Simple_EQ.jsfx</source>
+      </version>
+    </reapack>
+  </category>
+  <metadata>
+    <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 ReaPack Repository Template\par}
 {\pard \ql \f0 \sa180 \li0 \fi0 A template for GitHub-hosted ReaPack repositories with automated {\field{\*\fldinst{HYPERLINK "https://github.com/cfillion/reapack-index"}}{\fldrslt{\ul
 reapack-index
 }}}
