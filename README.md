@@ -39,3 +39,4 @@ After installation via ReaPack:
 ## Author
 
   * **Hosi Prod** ([lachinhan](https://github.com/lachinhan))
+  * **Donate me:** https://paypal.me/nkstudio
