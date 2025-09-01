@@ -1,0 +1,185 @@
+desc:Hosi Master Limiter
+version:1.0
+author:Hosi Prod & LOSER
+changelog:
++ v1.0 - Initial release. Combines Hosi Limiter with Master Limiter features.
+about:
+  # Hosi Master Limiter
+  - Accurate Attack & Lookahead.
+  - Brickwall Clipper stage to ensure no clipping.
+
+// Copyright © 2025 Hosi Prod
+// Inspired by and using concepts from LOSER's Master Limiter.
+
+// User-facing control sliders
+slider1:thresh_db=-6<-60,0,0.1>Threshold (dB)
+slider2:ceil_db=-0.3<-12,0,0.1>Ceiling (dB)
+slider3:attack_ms=1<0,50,0.1>Attack (ms)
+slider4:release_ms=100<1,500,1>Release (ms)
+slider5:lookahead_ms=1<0,20,0.1>Lookahead (ms)
+
+
+@init
+// This block runs once when the plugin is loaded.
+envelope = 1.0;
+gr_meter_val = 1.0;
+max_gr_db = 0;
+min_gr_db = 0;
+peak_gr_db = 0;
+hold_counter = 0;
+peak_hold_counter = 0;
+
+// Initialize buffer for Lookahead
+buf_size = 2 * srate; 
+lookahead_buf_l = 0;
+lookahead_buf_r = buf_size;
+buf_ptr = 0;
+
+
+@slider
+// This block runs whenever a user moves a slider.
+thresh_lin = 10^(thresh_db / 20);
+ceil_lin = 10^(ceil_db / 20);
+
+// Attack/release coefficients
+attack_coeff = attack_ms > 0 ? exp(-1 / (attack_ms * srate / 1000)) : 0;
+release_coeff = exp(-1 / (release_ms * srate / 1000));
+
+makeup_gain = (thresh_lin > 0) ? (ceil_lin / thresh_lin) : 1.0;
+
+// Calculate lookahead latency and report to DAW
+lookahead_samps = floor(lookahead_ms / 1000 * srate);
+pdc_delay = lookahead_samps;
+pdc_bot_ch = 0;
+pdc_top_ch = 1;
+
+
+max_gr_db = 0;
+min_gr_db = 0;
+peak_gr_db = 0;
+hold_counter = 0;
+peak_hold_counter = 0;
+
+@block
+// This block runs once per audio buffer.
+gr_meter_val = envelope;
+gr_db = 0;
+(gr_meter_val < 0.999) ? gr_db = 20 * log10(gr_meter_val);
+
+// Logic for Max/Min GR
+(gr_db < 0) ? (
+  gr_db < max_gr_db ? max_gr_db = gr_db;
+  (min_gr_db == 0 || gr_db > min_gr_db) ? min_gr_db = gr_db;
+  hold_counter = srate * 2;
+) : (
+  hold_counter > 0 ? hold_counter -= samplesblock;
+  (hold_counter <= 0) ? (max_gr_db = 0; min_gr_db = 0;);
+);
+
+// Logic for Peak GR
+(gr_db < peak_gr_db) ? (
+  peak_gr_db = gr_db;
+  peak_hold_counter = srate * 1.5;
+) : (
+  peak_hold_counter > 0 ? peak_hold_counter -= samplesblock;
+  (peak_hold_counter <= 0) ? peak_gr_db = 0;
+);
+
+@sample
+// --- COMBINED PROCESSING CORE ---
+
+// 1. Analyze the INCOMING signal (spl0, spl1) to determine the gain reduction amount.
+peak_val = max(abs(spl0), abs(spl1));
+target_envelope = 1.0;
+(peak_val > thresh_lin) ? target_envelope = thresh_lin / peak_val;
+
+// Update envelope with attack/release logic
+coeff = target_envelope < envelope ? attack_coeff : release_coeff;
+envelope = envelope * coeff + target_envelope * (1.0 - coeff);
+
+// 2. Get the DELAYED signal from the buffer to be processed.
+read_ptr = (buf_ptr - lookahead_samps + buf_size) % buf_size;
+s_l = lookahead_buf_l[read_ptr];
+s_r = lookahead_buf_r[read_ptr];
+
+// 3. Apply the gain reduction (calculated in step 1) to the delayed signal.
+s_l *= envelope * makeup_gain;
+s_r *= envelope * makeup_gain;
+
+// 4. BRICKWALL CLIPPER STAGE (Inspired by masterLimiter)
+// This is the final protection layer, ensures no clipping ever occurs.
+s_l = max(min(s_l, ceil_lin), -ceil_lin);
+s_r = max(min(s_r, ceil_lin), -ceil_lin);
+
+// 5. Write the incoming (unprocessed) signal to the buffer for future use.
+lookahead_buf_l[buf_ptr] = spl0;
+lookahead_buf_r[buf_ptr] = spl1;
+
+// 6. Send the processed signal to the output.
+spl0 = s_l;
+spl1 = s_r;
+
+// 7. Increment the buffer pointer.
+buf_ptr = (buf_ptr + 1) % buf_size;
+
+
+@gfx 400 100
+// --- 1. Setup ---
+gfx_clear = 0.18;
+
+// --- 2. Determine display mode ---
+is_tcp_or_mcp_flag = gfx_ext_flags & 3;
+is_mcp = is_tcp_or_mcp_flag && (gfx_w < 100);
+is_tcp = is_tcp_or_mcp_flag && !is_mcp;
+is_gui = !is_tcp_or_mcp_flag;
+
+// --- 3. Draw Meter (hidden in MCP mode) ---
+gfx_a = !is_mcp;
+(gfx_a > 0) ? (
+  meter_x = 20; meter_y = 35; meter_w = gfx_w - 40; meter_h = 35; meter_range_db = 30;
+  gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.1; gfx_a = 1; gfx_rect(meter_x, meter_y, meter_w, meter_h);
+  gfx_r = 0.4; gfx_g = 0.4; gfx_b = 0.4; gfx_a = 0.7; gfx_rect(meter_x, meter_y, meter_w, meter_h, 0);
+  gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.7; gfx_a = 0.8; gfx_setfont(1, "Verdana", 10);
+  i = 0; loop(meter_range_db / 3, i += 3; db_val = -i; x_pos = meter_x + meter_w * (1 - (abs(db_val) / meter_range_db)); (x_pos > meter_x + 1) ? (gfx_line(x_pos, meter_y, x_pos, meter_y + 8); gfx_x = x_pos - 4; gfx_y = meter_y + meter_h + 5; sprintf(str, "%d", db_val); gfx_drawstr(str);););
+  gr_db_current = 0; (gr_meter_val < 1) ? gr_db_current = 20 * log10(gr_meter_val);
+  gr_bar_width = meter_w * (min(abs(gr_db_current), meter_range_db) / meter_range_db);
+  gr_bar_x = meter_x + meter_w - gr_bar_width;
+  gfx_r = 1; gfx_g = 0.6; gfx_b = 0; gfx_a = 1; gfx_rect(gr_bar_x, meter_y, gr_bar_width, meter_h);
+);
+
+// --- 4. Draw Text (using alpha to hide/show) ---
+gfx_r = 1; gfx_g = 1; gfx_b = 1; // Reset font color
+
+// A. Draw for Full GUI mode
+gfx_a = is_gui;
+(gfx_a > 0) ? (
+  gfx_ext_retina ? gfx_setfont(1, "Verdana", 28, 'b') : gfx_setfont(1, "Verdana", 14, 'b');
+  gfx_y = 10;
+  gfx_x = 20; (max_gr_db < -0.01) ? sprintf(str, "Max GR: %.1f dB", max_gr_db) : sprintf(str, "Max GR: 0.0 dB"); gfx_drawstr(str);
+  (min_gr_db < -0.01) ? sprintf(str, "Min GR: %.1f dB", min_gr_db) : sprintf(str, "Min GR: 0.0 dB"); gfx_measurestr(str, text_w, text_h); gfx_x = (gfx_w - text_w) / 2; gfx_drawstr(str);
+  (peak_gr_db < -0.01) ? sprintf(str, "Peak GR: %.1f dB", peak_gr_db) : sprintf(str, "Peak GR: 0.0 dB"); gfx_measurestr(str, text_w, text_h); gfx_x = gfx_w - text_w - 20; gfx_drawstr(str);
+);
+
+// B. Draw for TCP mode
+gfx_a = is_tcp;
+(gfx_a > 0) ? (
+  gfx_ext_retina ? gfx_setfont(1, "Verdana", 28, 'b') : gfx_setfont(1, "Verdana", 14, 'b');
+  gfx_y = 10;
+  (peak_gr_db < -0.01) ? sprintf(str, "Peak GR: %.1f dB", peak_gr_db) : sprintf(str, "Peak GR: 0.0 dB");
+  gfx_measurestr(str, text_w, text_h);
+  gfx_x = (gfx_w - text_w) / 2;
+  gfx_drawstr(str);
+);
+
+// C. Draw for MCP mode
+gfx_a = is_mcp;
+(gfx_a > 0) ? (
+  gfx_ext_retina ? gfx_setfont(1, "Verdana", 28, 'b') : gfx_setfont(1, "Verdana", 14, 'b');
+  (peak_gr_db < -0.01) ? sprintf(str, "%.1f", peak_gr_db) : sprintf(str, "0.0");
+  gfx_measurestr(str, text_w, text_h);
+  gfx_x = (gfx_w - text_w) / 2;
+  gfx_y = (gfx_h - text_h) / 2;
+  gfx_drawstr(str);
+);
+
+gfx_a = 1; // Reset alpha at the end

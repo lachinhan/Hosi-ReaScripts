@@ -1,0 +1,371 @@
+desc:HosiFX Reverb
+version:1.0
+author:Hosi Prod
+changelog:
++ v1.0 - Initial release.
+about:
+  # HosiFX Reverb
+    A simple and effective Reverb.
+// Copyright 2024 HosiFX. All rights reserved.
+// Lấy cảm hứng từ giao diện của MuseFX Reverb.
+
+// --- Sliders ---
+// Núm vặn "Mix" chính, điều khiển tỷ lệ wet/dry.
+slider1:30<0,100,0.1>Mix (%)
+// Bộ chọn preset, được thiết kế cho các không gian khác nhau.
+slider2:0<0,14,1{Bright Hall,Dark Hall,Ethereal,Medium Room,Plate Reverb,Small Room,Spring Reverb,StaffPad Hall,Vocal Booth,Cathedral,Ambient Wash,Drum Room,Guitar Solo,Short Slap,Lush Plate}>Preset
+
+// --- I/O Pins ---
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+// --- Options ---
+options:gfx_hz=120
+options:no_meter
+options:gmem=reverb_buf,100000 // Allocate memory for reverb buffers
+
+@init
+// --- Khởi tạo chung ---
+gfx_clear=0;
+tau = 2 * $pi;
+// Biến trạng thái tương tác chuột.
+dragging = 0;
+// Cờ để kích hoạt cập nhật tham số.
+caller = 1;
+
+// --- Khởi tạo Reverb (Schroeder/Moorer) ---
+// Đã sửa lỗi cú pháp và logic
+buf_size = 2048; // Kích thước cho mỗi buffer delay
+
+// Thời gian delay cho các comb filter (samples)
+c_time_L1=1617; c_time_L2=1557; c_time_L3=1491; c_time_L4=1422;
+c_time_R1=1640; c_time_R2=1580; c_time_R3=1514; c_time_R4=1445;
+
+// Thời gian delay cho các all-pass filter (samples)
+a_time_L1=556; a_time_L2=441;
+a_time_R1=579; a_time_R2=464;
+
+// Con trỏ đến vị trí bắt đầu của mỗi buffer
+c_buf_L1 = reverb_buf + 0 * buf_size;
+c_buf_L2 = reverb_buf + 1 * buf_size;
+c_buf_L3 = reverb_buf + 2 * buf_size;
+c_buf_L4 = reverb_buf + 3 * buf_size;
+c_buf_R1 = reverb_buf + 4 * buf_size;
+c_buf_R2 = reverb_buf + 5 * buf_size;
+c_buf_R3 = reverb_buf + 6 * buf_size;
+c_buf_R4 = reverb_buf + 7 * buf_size;
+a_buf_L1 = reverb_buf + 8 * buf_size;
+a_buf_L2 = reverb_buf + 9 * buf_size;
+a_buf_R1 = reverb_buf + 10 * buf_size;
+a_buf_R2 = reverb_buf + 11 * buf_size;
+
+// Con trỏ ghi chung
+wp = 0;
+
+// Trạng thái của các bộ lọc
+d_store_L1=0; d_store_L2=0; d_store_L3=0; d_store_L4=0;
+d_store_R1=0; d_store_R2=0; d_store_R3=0; d_store_R4=0;
+a_y1_L1=0; a_y1_L2=0;
+a_y1_R1=0; a_y1_R2=0;
+
+// --- Tên Preset ---
+preset_names.0 = "Bright Hall";
+preset_names.1 = "Dark Hall";
+preset_names.2 = "Ethereal";
+preset_names.3 = "Medium Room";
+preset_names.4 = "Plate Reverb";
+preset_names.5 = "Small Room";
+preset_names.6 = "Spring Reverb";
+preset_names.7 = "StaffPad Hall";
+preset_names.8 = "Vocal Booth";
+preset_names.9 = "Cathedral";
+preset_names.10 = "Ambient Wash";
+preset_names.11 = "Drum Room";
+preset_names.12 = "Guitar Solo";
+preset_names.13 = "Short Slap";
+preset_names.14 = "Lush Plate";
+num_presets = 15;
+
+// --- Định nghĩa tham số Preset ---
+function update_parameters() (
+  // Núm 'Mix' điều khiển tỷ lệ wet/dry
+  wet = slider1 / 100;
+  dry = 1 - wet;
+
+  // Chọn preset dựa trên slider2
+  preset = slider2|0;
+
+  // Giá trị mặc định
+  roomsize = 0.75; // feedback cho comb filters
+  damping = 0.3;   // high-frequency damping
+  
+  // Định nghĩa tham số cho mỗi preset
+  preset == 0 ? ( // Bright Hall
+    roomsize = 0.85; damping = 0.1;
+  ) : preset == 1 ? ( // Dark Hall
+    roomsize = 0.85; damping = 0.6;
+  ) : preset == 2 ? ( // Ethereal
+    roomsize = 0.95; damping = 0.2;
+  ) : preset == 3 ? ( // Medium Room
+    roomsize = 0.65; damping = 0.4;
+  ) : preset == 4 ? ( // Plate Reverb
+    roomsize = 0.7; damping = 0.15;
+  ) : preset == 5 ? ( // Small Room
+    roomsize = 0.45; damping = 0.5;
+  ) : preset == 6 ? ( // Spring Reverb
+    roomsize = 0.8; damping = 0.05;
+  ) : preset == 7 ? ( // StaffPad Hall
+    roomsize = 0.9; damping = 0.3;
+  ) : preset == 8 ? ( // Vocal Booth
+    roomsize = 0.25; damping = 0.6;
+  ) : preset == 9 ? ( // Cathedral
+    roomsize = 0.98; damping = 0.4;
+  ) : preset == 10 ? ( // Ambient Wash
+    roomsize = 0.99; damping = 0.1;
+  ) : preset == 11 ? ( // Drum Room
+    roomsize = 0.6; damping = 0.45;
+  ) : preset == 12 ? ( // Guitar Solo
+    roomsize = 0.75; damping = 0.1;
+  ) : preset == 13 ? ( // Short Slap
+    roomsize = 0.2; damping = 0.7;
+  ) : preset == 14 ? ( // Lush Plate
+    roomsize = 0.8; damping = 0.1;
+  );
+  
+  feedback = roomsize;
+  damp1 = damping;
+  damp2 = 1 - damp1;
+  allpass_feedback = 0.5;
+);
+
+@slider
+// Khi bất kỳ thanh trượt nào thay đổi, hãy đặt cờ 'caller'.
+caller = 1;
+
+@block
+// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
+caller == 1 ? (
+  update_parameters();
+);
+
+@sample
+// --- Xử lý âm thanh thời gian thực ---
+
+// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
+caller == 1 ? (
+  update_parameters();
+  caller = 0;
+);
+
+// Tín hiệu đầu vào mono để xử lý reverb
+in_mono = (spl0 + spl1) * 0.5;
+out_L = out_R = 0;
+rp = 0; delayed = 0;
+
+// --- Parallel Comb Filters (Left) ---
+rp = (wp - c_time_L1 + buf_size) % buf_size; delayed = c_buf_L1[rp]; out_L += delayed;
+d_store_L1 = delayed*damp2 + d_store_L1*damp1; c_buf_L1[wp] = in_mono + d_store_L1 * feedback;
+
+rp = (wp - c_time_L2 + buf_size) % buf_size; delayed = c_buf_L2[rp]; out_L += delayed;
+d_store_L2 = delayed*damp2 + d_store_L2*damp1; c_buf_L2[wp] = in_mono + d_store_L2 * feedback;
+
+rp = (wp - c_time_L3 + buf_size) % buf_size; delayed = c_buf_L3[rp]; out_L += delayed;
+d_store_L3 = delayed*damp2 + d_store_L3*damp1; c_buf_L3[wp] = in_mono + d_store_L3 * feedback;
+
+rp = (wp - c_time_L4 + buf_size) % buf_size; delayed = c_buf_L4[rp]; out_L += delayed;
+d_store_L4 = delayed*damp2 + d_store_L4*damp1; c_buf_L4[wp] = in_mono + d_store_L4 * feedback;
+
+// --- Parallel Comb Filters (Right) ---
+rp = (wp - c_time_R1 + buf_size) % buf_size; delayed = c_buf_R1[rp]; out_R += delayed;
+d_store_R1 = delayed*damp2 + d_store_R1*damp1; c_buf_R1[wp] = in_mono + d_store_R1 * feedback;
+
+rp = (wp - c_time_R2 + buf_size) % buf_size; delayed = c_buf_R2[rp]; out_R += delayed;
+d_store_R2 = delayed*damp2 + d_store_R2*damp1; c_buf_R2[wp] = in_mono + d_store_R2 * feedback;
+
+rp = (wp - c_time_R3 + buf_size) % buf_size; delayed = c_buf_R3[rp]; out_R += delayed;
+d_store_R3 = delayed*damp2 + d_store_R3*damp1; c_buf_R3[wp] = in_mono + d_store_R3 * feedback;
+
+rp = (wp - c_time_R4 + buf_size) % buf_size; delayed = c_buf_R4[rp]; out_R += delayed;
+d_store_R4 = delayed*damp2 + d_store_R4*damp1; c_buf_R4[wp] = in_mono + d_store_R4 * feedback;
+
+// --- Series All-Pass Filters (Left) ---
+rp = (wp - a_time_L1 + buf_size) % buf_size; delayed = a_buf_L1[rp];
+a_y1_L1 = out_L + delayed * allpass_feedback; a_buf_L1[wp] = a_y1_L1;
+out_L = -out_L + delayed;
+
+rp = (wp - a_time_L2 + buf_size) % buf_size; delayed = a_buf_L2[rp];
+a_y1_L2 = out_L + delayed * allpass_feedback; a_buf_L2[wp] = a_y1_L2;
+out_L = -out_L + delayed;
+
+// --- Series All-Pass Filters (Right) ---
+rp = (wp - a_time_R1 + buf_size) % buf_size; delayed = a_buf_R1[rp];
+a_y1_R1 = out_R + delayed * allpass_feedback; a_buf_R1[wp] = a_y1_R1;
+out_R = -out_R + delayed;
+
+rp = (wp - a_time_R2 + buf_size) % buf_size; delayed = a_buf_R2[rp];
+a_y1_R2 = out_R + delayed * allpass_feedback; a_buf_R2[wp] = a_y1_R2;
+out_R = -out_R + delayed;
+
+// Cập nhật con trỏ ghi
+wp = (wp + 1) % buf_size;
+
+// --- Mix ---
+spl0 = spl0 * dry + out_L * wet;
+spl1 = spl1 * dry + out_R * wet;
+
+
+@gfx 640 400
+// --- Vẽ và tương tác GUI ---
+w=gfx_w; h=gfx_h;
+size = min(w,h);
+is_retina = gfx_ext_flags & 1;
+
+// --- Màu sắc và kích thước (Chủ đề Purple) ---
+bg_r=0.2; bg_g=0.18; bg_b=0.3;
+knob_color_r=0.8; knob_color_g=0.7; knob_color_b=0.6;
+text_color_r=0.95; text_color_g=0.92; text_color_b=0.98;
+logo_color_r=0.95; logo_color_g=0.92; logo_color_b=0.98;
+hosifx_logo_color_r = 0.3; hosifx_logo_color_g = 0.28; hosifx_logo_color_b = 0.4;
+dot_color_r=0.4; dot_color_g=0.38; dot_color_b=0.5;
+dot_active_color_r = 0.8;
+dot_active_color_g = 0.75;
+dot_active_color_b = 0.9;
+
+knob_x = w/2;
+knob_y = h/2 + size*0.05;
+knob_r = size*0.3;
+knob_w = size*0.08;
+knob_inner_r = knob_r - knob_w;
+knob_as = -tau * 0.625; // Góc bắt đầu (-225 độ)
+knob_range = tau * 0.75; // Toàn bộ phạm vi góc (270 độ)
+
+// --- Vẽ ---
+gfx_a = 1;
+gfx_aa = 1; // Bật khử răng cưa
+
+// Nền
+gfx_set(bg_r, bg_g, bg_b, 1);
+gfx_rect(0,0,w,h);
+
+// Các chấm chỉ báo xung quanh núm vặn
+num_dots = 12;
+i = 0;
+loop(num_dots,
+  angle = knob_as + (i / (num_dots-1)) * knob_range;
+  dot_x = knob_x + cos(angle) * (knob_r + size*0.01);
+  dot_y = knob_y + sin(angle) * (knob_r + size*0.01);
+  dot_size = size * 0.012;
+
+  // Tô màu các chấm dựa trên vị trí núm vặn
+  (i / (num_dots-1) - 0.001 <= slider1/100) ?
+    gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b) :
+    gfx_set(dot_color_r, dot_color_g, dot_color_b);
+
+  gfx_circle(dot_x, dot_y, dot_size, 1);
+  i+=1;
+);
+
+// Núm vặn chính
+// Bóng đổ
+gfx_set(0,0,0,0.2);
+gfx_circle(knob_x, knob_y+size*0.015, knob_r, 1);
+// Thân núm
+gfx_set(0.9, 0.92, 0.92, 1); // Màu xám nhạt đồng nhất
+gfx_circle(knob_x, knob_y, knob_r, 1);
+
+// Vòng trong của núm
+gfx_set(bg_r, bg_g, bg_b, 0.5);
+gfx_circle(knob_x, knob_y, knob_inner_r, 1);
+
+// Chỉ báo trên núm vặn
+indicator_angle = knob_as + (slider1/100) * knob_range;
+indicator_radius = knob_inner_r * 0.7;
+indicator_x = knob_x + cos(indicator_angle) * indicator_radius;
+indicator_y = knob_y + sin(indicator_angle) * indicator_radius;
+indicator_size = size * 0.025;
+gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b, 0.9);
+gfx_circle(indicator_x, indicator_y, indicator_size, 1);
+
+// --- Nhãn văn bản ---
+gfx_set(text_color_r, text_color_g, text_color_b);
+
+// Tên Preset
+font_size_preset = size * 0.09;
+gfx_setfont(1, "Arial", font_size_preset);
+preset_name = preset_names[slider2|0];
+gfx_measurestr(preset_name, preset_w, preset_h);
+preset_x = knob_x - preset_w/2;
+preset_y = knob_y - knob_r - size*0.18;
+gfx_x = preset_x;
+gfx_y = preset_y;
+gfx_drawstr(preset_name);
+
+// --- Logo và giá trị ---
+// Giá trị Mix (%)
+gfx_set(text_color_r, text_color_g, text_color_b);
+font_size_val = size*0.05;
+gfx_setfont(1, "Arial", font_size_val);
+sprintf(#val_str, "%.1f %%", slider1);
+gfx_measurestr(#val_str, val_w, val_h);
+y_pos_val = h - val_h - size*0.055;
+gfx_x = knob_x - val_w/2;
+gfx_y = y_pos_val;
+gfx_drawstr(#val_str);
+
+// --- Logo REVERB (trên giá trị) ---
+gfx_set(logo_color_r, logo_color_g, logo_color_b);
+font_size_logo_sub = size*0.05;
+gfx_setfont(1, "Arial Narrow Bold", font_size_logo_sub);
+gfx_measurestr("REVERB", logo_sub_w, logo_sub_h);
+y_pos_sub = y_pos_val - logo_sub_h;
+gfx_x = w/2 - logo_sub_w/2;
+gfx_y = y_pos_sub;
+gfx_drawstr("REVERB");
+
+// --- Logo HOSIFX (trên cùng) ---
+gfx_set(hosifx_logo_color_r, hosifx_logo_color_g, hosifx_logo_color_b);
+font_size_logo_main = size*0.07;
+gfx_setfont(1, "Arial Black", font_size_logo_main);
+gfx_measurestr("HOSIFX", logo_main_w, logo_main_h);
+y_pos_main = y_pos_sub - logo_main_h * 1.05;
+gfx_x = w/2 - logo_main_w/2;
+gfx_y = y_pos_main;
+gfx_drawstr("HOSIFX");
+
+// --- Logic tương tác chuột ---
+mouse_down = mouse_cap & 1;
+mouse_up = (last_mouse_cap & 1) && !mouse_down;
+
+// Điều khiển núm chính bằng con lăn chuột
+slider1 += mouse_wheel * 2.0;
+slider1 = min(max(slider1, 0), 100);
+mouse_wheel != 0 ? caller = 1;
+
+// Kiểm tra thao tác nhấp và kéo trên núm chính
+dist = sqrt((mouse_x-knob_x)^2+(mouse_y-knob_y)^2);
+mouse_down && (dragging==0) && (dist <= knob_r) ? (
+  dragging=1;
+  drag_start_y=mouse_y;
+  drag_start_val=slider1;
+);
+
+// Xử lý hành động kéo
+(dragging==1) ? (
+  sensitivity=(100/size)*0.4;
+  delta=(drag_start_y-mouse_y)*sensitivity;
+  old_slider1 = slider1;
+  slider1=drag_start_val+delta;
+  slider1=max(0,min(100,slider1));
+  old_slider1 != slider1 ? caller = 1;
+);
+
+// Thả kéo khi nút chuột được nhả ra
+mouse_up ? (
+  dragging=0;
+);
+
+// Đặt lại con lăn chuột và lưu trạng thái chuột cuối cùng
+mouse_wheel = 0;
+last_mouse_cap = mouse_cap;

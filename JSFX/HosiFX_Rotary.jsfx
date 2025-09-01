@@ -1,0 +1,353 @@
+desc:HosiFX Rotary
+version:1.0
+author:Hosi Prod
+changelog:
++ v1.0 - Initial release.
+about:
+  # HosiFX Rotary
+    A simple and effective Rotary.
+// Copyright 2024 HosiFX. All rights reserved.
+// Lấy cảm hứng từ giao diện của MuseFX Rotary.
+
+// --- Sliders ---
+// Núm vặn "Intensity" chính, điều khiển cường độ hiệu ứng.
+slider1:50<0,100,0.1>Intensity (%)
+// Bộ chọn preset, được thiết kế cho các hiệu ứng rotary.
+slider2:0<0,11,1{Classic Rotary,Gentle Swirl,Fast Spin,Vibrato Chorus,Leslie Style,Organ Grinder,Parallel Fast,Parallel Slow,Guitar Amp,Keyboard Swirl,Underwater,Stereo Widener}>Preset
+
+// --- I/O Pins ---
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+// --- Options ---
+options:gfx_hz=120
+options:no_meter
+options:gmem=rotary_buf,50000 // Cấp phát bộ nhớ cho buffer
+
+@init
+// --- Khởi tạo chung ---
+gfx_clear=0;
+tau = 2 * $pi;
+// Biến trạng thái tương tác chuột.
+dragging = 0;
+// Cờ để kích hoạt cập nhật tham số.
+caller = 1;
+
+// --- Khởi tạo Rotary (Thuật toán mới) ---
+max_delay_samps = floor(srate * 0.02); // 20ms max delay
+buf_size = max_delay_samps + 4;
+
+// Cấp phát buffer cho horn (treble) và drum (bass)
+horn_buf = rotary_buf;
+drum_buf = rotary_buf + buf_size;
+wp = 0; // Write pointer
+
+// LFO phases
+lfo_phase_horn = 0;
+lfo_phase_drum = 0.5; // Bắt đầu ở vị trí đối diện
+
+// Low-pass filter for crossover
+lp_in = 0;
+
+// --- Tên Preset ---
+// Danh sách này khớp với định nghĩa trong slider2.
+preset_names.0 = "Classic Rotary";
+preset_names.1 = "Gentle Swirl";
+preset_names.2 = "Fast Spin";
+preset_names.3 = "Vibrato Chorus";
+preset_names.4 = "Leslie Style";
+preset_names.5 = "Organ Grinder";
+preset_names.6 = "Parallel Fast";
+preset_names.7 = "Parallel Slow";
+preset_names.8 = "Guitar Amp";
+preset_names.9 = "Keyboard Swirl";
+preset_names.10 = "Underwater";
+preset_names.11 = "Stereo Widener";
+num_presets = 12;
+
+// --- Định nghĩa tham số Preset ---
+function update_parameters() (
+  // Núm 'Intensity' điều khiển mix
+  amount = slider1 / 100;
+  wet = amount;
+  dry = 1 - amount;
+
+  // Chọn preset dựa trên slider2
+  preset = slider2|0;
+
+  // Giá trị mặc định
+  horn_rate_hz = 6.0;
+  drum_rate_hz = 0.8;
+  horn_trem_depth = 0.4;
+  drum_trem_depth = 0.3;
+  horn_vib_depth_ms = 1.0;
+  drum_vib_depth_ms = 1.2;
+  crossover_hz = 800;
+
+  // Định nghĩa tham số cho mỗi preset (đã tinh chỉnh cho thuật toán mới)
+  preset == 0 ? ( // Classic Rotary
+    horn_rate_hz = 6.5; drum_rate_hz = 0.7; horn_trem_depth = 0.5; drum_trem_depth = 0.4; horn_vib_depth_ms = 1.2; drum_vib_depth_ms = 1.4;
+  ) : preset == 1 ? ( // Gentle Swirl
+    horn_rate_hz = 1.0; drum_rate_hz = 0.2; horn_trem_depth = 0.2; drum_trem_depth = 0.2; horn_vib_depth_ms = 1.5; drum_vib_depth_ms = 1.8;
+  ) : preset == 2 ? ( // Fast Spin
+    horn_rate_hz = 7.5; drum_rate_hz = 1.2; horn_trem_depth = 0.6; drum_trem_depth = 0.5; horn_vib_depth_ms = 0.8; drum_vib_depth_ms = 1.0;
+  ) : preset == 3 ? ( // Vibrato Chorus
+    horn_rate_hz = 5.0; drum_rate_hz = 4.5; horn_trem_depth = 0.0; drum_trem_depth = 0.0; horn_vib_depth_ms = 2.0; drum_vib_depth_ms = 2.2;
+  ) : preset == 4 ? ( // Leslie Style
+    horn_rate_hz = 7.0; drum_rate_hz = 0.8; horn_trem_depth = 0.4; drum_trem_depth = 0.35; horn_vib_depth_ms = 1.0; drum_vib_depth_ms = 1.3; crossover_hz = 1000;
+  ) : preset == 5 ? ( // Organ Grinder
+    horn_rate_hz = 8.0; drum_rate_hz = 1.5; horn_trem_depth = 0.7; drum_trem_depth = 0.6; horn_vib_depth_ms = 0.5; drum_vib_depth_ms = 0.6; crossover_hz = 600;
+  ) : preset == 6 ? ( // Parallel Fast
+    horn_rate_hz = 7.0; drum_rate_hz = 1.0; horn_trem_depth = 0.3; drum_trem_depth = 0.2; horn_vib_depth_ms = 0.7; drum_vib_depth_ms = 0.9; wet = amount * 0.5; dry = 1;
+  ) : preset == 7 ? ( // Parallel Slow
+    horn_rate_hz = 1.5; drum_rate_hz = 0.3; horn_trem_depth = 0.2; drum_trem_depth = 0.15; horn_vib_depth_ms = 1.8; drum_vib_depth_ms = 2.0; wet = amount * 0.5; dry = 1;
+  ) : preset == 8 ? ( // Guitar Amp
+    horn_rate_hz = 5.5; drum_rate_hz = 0.6; horn_trem_depth = 0.6; drum_trem_depth = 0.5; horn_vib_depth_ms = 1.0; drum_vib_depth_ms = 1.1; crossover_hz = 900;
+  ) : preset == 9 ? ( // Keyboard Swirl
+    horn_rate_hz = 2.5; drum_rate_hz = 0.4; horn_trem_depth = 0.3; drum_trem_depth = 0.3; horn_vib_depth_ms = 2.5; drum_vib_depth_ms = 2.8; crossover_hz = 1200;
+  ) : preset == 10 ? ( // Underwater
+    horn_rate_hz = 0.5; drum_rate_hz = 0.1; horn_trem_depth = 0.8; drum_trem_depth = 0.8; horn_vib_depth_ms = 4.0; drum_vib_depth_ms = 4.5; crossover_hz = 400;
+  ) : preset == 11 ? ( // Stereo Widener
+    horn_rate_hz = 0.1; drum_rate_hz = 0.1; horn_trem_depth = 0.1; drum_trem_depth = 0.1; horn_vib_depth_ms = 2.5; drum_vib_depth_ms = 2.5;
+  );
+  
+  // Chuyển đổi tham số sang đơn vị phù hợp
+  horn_lfo_inc = horn_rate_hz / srate;
+  drum_lfo_inc = drum_rate_hz / srate;
+  horn_vibrato_samps = horn_vib_depth_ms * 0.001 * srate;
+  drum_vibrato_samps = drum_vib_depth_ms * 0.001 * srate;
+  crossover_alpha = 1 - exp(-tau * crossover_hz / srate);
+);
+
+@slider
+// Khi bất kỳ thanh trượt nào thay đổi, hãy đặt cờ 'caller'.
+caller = 1;
+
+@block
+// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
+caller == 1 ? (
+  update_parameters();
+);
+
+@sample
+// --- Xử lý âm thanh thời gian thực ---
+
+// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
+caller == 1 ? (
+  update_parameters();
+  caller = 0;
+);
+
+// --- Tín hiệu đầu vào Mono và Crossover ---
+in_mono = (spl0 + spl1) * 0.5;
+lp_in += (in_mono - lp_in) * crossover_alpha;
+hp_in = in_mono - lp_in;
+
+// --- Ghi vào Delay Buffers ---
+horn_buf[wp] = hp_in;
+drum_buf[wp] = lp_in;
+
+// --- LFOs ---
+lfo_phase_horn += horn_lfo_inc; lfo_phase_horn %= 1;
+lfo_phase_drum += drum_lfo_inc; lfo_phase_drum %= 1;
+lfo_horn = sin(lfo_phase_horn * tau);
+lfo_drum = sin(lfo_phase_drum * tau);
+
+// --- Xử lý Horn (Treble) ---
+// Vibrato (Doppler effect)
+mod_delay_h = horn_vibrato_samps + 1 + lfo_horn * horn_vibrato_samps;
+rp_frac_h = wp - mod_delay_h;
+rp1_h = floor(rp_frac_h);
+frac_h = rp_frac_h - rp1_h;
+rp2_h = rp1_h + 1;
+rp1_h = (rp1_h + buf_size) % buf_size;
+rp2_h = (rp2_h + buf_size) % buf_size;
+delayed_h = horn_buf[rp1_h] + (horn_buf[rp2_h] - horn_buf[rp1_h]) * frac_h;
+
+// Tremolo & Panning
+amp_mod_h = 1 - horn_trem_depth;
+pan_mod_h = horn_trem_depth * lfo_horn;
+horn_L = delayed_h * (amp_mod_h + pan_mod_h);
+horn_R = delayed_h * (amp_mod_h - pan_mod_h);
+
+// --- Xử lý Drum (Bass) ---
+// Vibrato (Doppler effect)
+mod_delay_d = drum_vibrato_samps + 1 + lfo_drum * drum_vibrato_samps;
+rp_frac_d = wp - mod_delay_d;
+rp1_d = floor(rp_frac_d);
+frac_d = rp_frac_d - rp1_d;
+rp2_d = rp1_d + 1;
+rp1_d = (rp1_d + buf_size) % buf_size;
+rp2_d = (rp2_d + buf_size) % buf_size;
+delayed_d = drum_buf[rp1_d] + (drum_buf[rp2_d] - drum_buf[rp1_d]) * frac_d;
+
+// Tremolo & Panning
+amp_mod_d = 1 - drum_trem_depth;
+pan_mod_d = drum_trem_depth * lfo_drum;
+drum_L = delayed_d * (amp_mod_d + pan_mod_d);
+drum_R = delayed_d * (amp_mod_d - pan_mod_d);
+
+// Cập nhật con trỏ ghi
+wp = (wp + 1) % buf_size;
+
+// --- Mix ---
+wet_L = horn_L + drum_L;
+wet_R = horn_R + drum_R;
+spl0 = spl0 * dry + wet_L * wet;
+spl1 = spl1 * dry + wet_R * wet;
+
+@gfx 640 400
+// --- Vẽ và tương tác GUI ---
+w=gfx_w; h=gfx_h;
+size = min(w,h);
+is_retina = gfx_ext_flags & 1;
+
+// --- Màu sắc và kích thước (Chủ đề Green) ---
+bg_r=0.2; bg_g=0.4; bg_b=0.25;
+knob_color_r=0.8; knob_color_g=0.7; knob_color_b=0.6;
+text_color_r=0.95; text_color_g=0.98; text_color_b=0.95;
+logo_color_r=0.95; logo_color_g=0.98; logo_color_b=0.95;
+hosifx_logo_color_r = 0.25; hosifx_logo_color_g = 0.45; hosifx_logo_color_b = 0.3;
+dot_color_r=0.3; dot_color_g=0.5; dot_color_b=0.35;
+dot_active_color_r = 0.8;
+dot_active_color_g = 0.95;
+dot_active_color_b = 0.85;
+
+knob_x = w/2;
+knob_y = h/2 + size*0.05;
+knob_r = size*0.3;
+knob_w = size*0.08;
+knob_inner_r = knob_r - knob_w;
+knob_as = -tau * 0.625; // Góc bắt đầu (-225 độ)
+knob_range = tau * 0.75; // Toàn bộ phạm vi góc (270 độ)
+
+// --- Vẽ ---
+gfx_a = 1;
+gfx_aa = 1; // Bật khử răng cưa
+
+// Nền
+gfx_set(bg_r, bg_g, bg_b, 1);
+gfx_rect(0,0,w,h);
+
+// Các chấm chỉ báo xung quanh núm vặn
+num_dots = 12;
+i = 0;
+loop(num_dots,
+  angle = knob_as + (i / (num_dots-1)) * knob_range;
+  dot_x = knob_x + cos(angle) * (knob_r + size*0.01);
+  dot_y = knob_y + sin(angle) * (knob_r + size*0.01);
+  dot_size = size * 0.012;
+
+  // Tô màu các chấm dựa trên vị trí núm vặn
+  (i / (num_dots-1) - 0.001 <= slider1/100) ?
+    gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b) :
+    gfx_set(dot_color_r, dot_color_g, dot_color_b);
+
+  gfx_circle(dot_x, dot_y, dot_size, 1);
+  i+=1;
+);
+
+// Núm vặn chính
+// Bóng đổ
+gfx_set(0,0,0,0.2);
+gfx_circle(knob_x, knob_y+size*0.015, knob_r, 1);
+// Thân núm
+gfx_set(0.9, 0.92, 0.92, 1); // Màu xám nhạt đồng nhất
+gfx_circle(knob_x, knob_y, knob_r, 1);
+
+// Vòng trong của núm
+gfx_set(bg_r, bg_g, bg_b, 0.5);
+gfx_circle(knob_x, knob_y, knob_inner_r, 1);
+
+// Chỉ báo trên núm vặn
+indicator_angle = knob_as + (slider1/100) * knob_range;
+indicator_radius = knob_inner_r * 0.7;
+indicator_x = knob_x + cos(indicator_angle) * indicator_radius;
+indicator_y = knob_y + sin(indicator_angle) * indicator_radius;
+indicator_size = size * 0.025;
+gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b, 0.9);
+gfx_circle(indicator_x, indicator_y, indicator_size, 1);
+
+// --- Nhãn văn bản ---
+gfx_set(text_color_r, text_color_g, text_color_b);
+
+// Tên Preset
+font_size_preset = size * 0.09;
+gfx_setfont(1, "Arial", font_size_preset);
+preset_name = preset_names[slider2|0];
+gfx_measurestr(preset_name, preset_w, preset_h);
+preset_x = knob_x - preset_w/2;
+preset_y = knob_y - knob_r - size*0.18;
+gfx_x = preset_x;
+gfx_y = preset_y;
+gfx_drawstr(preset_name);
+
+// --- Logo và giá trị ---
+// Giá trị Intensity (%)
+gfx_set(text_color_r, text_color_g, text_color_b);
+font_size_val = size*0.05;
+gfx_setfont(1, "Arial", font_size_val);
+sprintf(#val_str, "%.1f %%", slider1);
+gfx_measurestr(#val_str, val_w, val_h);
+y_pos_val = h - val_h - size*0.055;
+gfx_x = knob_x - val_w/2;
+gfx_y = y_pos_val;
+gfx_drawstr(#val_str);
+
+// --- Logo ROTARY (trên giá trị) ---
+gfx_set(logo_color_r, logo_color_g, logo_color_b);
+font_size_logo_sub = size*0.05;
+gfx_setfont(1, "Arial Narrow Bold", font_size_logo_sub);
+gfx_measurestr("ROTARY", logo_sub_w, logo_sub_h);
+y_pos_sub = y_pos_val - logo_sub_h;
+gfx_x = w/2 - logo_sub_w/2;
+gfx_y = y_pos_sub;
+gfx_drawstr("ROTARY");
+
+// --- Logo HOSIFX (trên cùng) ---
+gfx_set(hosifx_logo_color_r, hosifx_logo_color_g, hosifx_logo_color_b);
+font_size_logo_main = size*0.07;
+gfx_setfont(1, "Arial Black", font_size_logo_main);
+gfx_measurestr("HOSIFX", logo_main_w, logo_main_h);
+y_pos_main = y_pos_sub - logo_main_h * 1.05;
+gfx_x = w/2 - logo_main_w/2;
+gfx_y = y_pos_main;
+gfx_drawstr("HOSIFX");
+
+// --- Logic tương tác chuột ---
+mouse_down = mouse_cap & 1;
+mouse_up = (last_mouse_cap & 1) && !mouse_down;
+
+// Điều khiển núm chính bằng con lăn chuột
+slider1 += mouse_wheel * 2.0;
+slider1 = min(max(slider1, 0), 100);
+mouse_wheel != 0 ? caller = 1;
+
+// Kiểm tra thao tác nhấp và kéo trên núm chính
+dist = sqrt((mouse_x-knob_x)^2+(mouse_y-knob_y)^2);
+mouse_down && (dragging==0) && (dist <= knob_r) ? (
+  dragging=1;
+  drag_start_y=mouse_y;
+  drag_start_val=slider1;
+);
+
+// Xử lý hành động kéo
+(dragging==1) ? (
+  sensitivity=(100/size)*0.4;
+  delta=(drag_start_y-mouse_y)*sensitivity;
+  old_slider1 = slider1;
+  slider1=drag_start_val+delta;
+  slider1=max(0,min(100,slider1));
+  old_slider1 != slider1 ? caller = 1;
+);
+
+// Thả kéo khi nút chuột được nhả ra
+mouse_up ? (
+  dragging=0;
+);
+
+// Đặt lại con lăn chuột và lưu trạng thái chuột cuối cùng
+mouse_wheel = 0;
+last_mouse_cap = mouse_cap;
