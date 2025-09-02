@@ -1,6 +1,9 @@
-# Hosi_Freesound_Logic_Pro.py
-# Version 1.3 - 31-Aug-2025
-# This script is called by Hosi_Freesound_Logic_GUI_Pro.lua.
+# -*- coding: utf-8 -*-
+# @description This script is called by Hosi_Freesound_Logic_GUI_Pro.lua.
+# @version 1.3
+# @author Hosi Prod
+# @changelog
+#   + v1.3 (2025-08-31) - Initial release on Reapack.
 
 import sys
 import os
