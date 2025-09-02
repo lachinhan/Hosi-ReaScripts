@@ -1,0 +1,244 @@
+desc:Hosi Advanced Mid/Side Decoder
+author:Hosi Enhanced Version
+version:1.0
+changelog:
++ v1.0 - Enhanced Version
+about:
+  # Hosi Advanced Mid/Side Decoder
+    - A utility for mid-side processing and stereo width adjustment.
+
+//tags: utility mid-side processing stereo width
+
+slider1:0<-120,24,1>Mid Level (dB)
+slider2:0<-120,24,1>Side Level (dB)
+slider3:100<0,200,1>Stereo Width (%)
+slider4:0<-1,1,0.01>Center Position
+slider5:0<0,1,1>Output Swap
+slider6:0<0,1,1>Mid Phase Invert
+slider7:0<0,1,1>Side Phase Invert
+slider8:0<0,1,1>Bass Mono (<120Hz)
+slider9:80<20,200,1>Bass Mono Freq (Hz)
+slider10:0<0,1,1>Bypass All Processing
+slider11:0<0,1,1>Mono Check
+slider12:0<-24,12,0.1>Output Gain (dB)
+
+in_pin:mid input
+in_pin:side input
+out_pin:left output
+out_pin:right output
+
+@init
+ext_tail_size = -2;
+
+// Filter coefficients for bass mono
+function init_filters(freq) (
+  w = 2 * $pi * freq / srate;
+  cosw = cos(w);
+  sinw = sin(w);
+  alpha = sinw / (2 * 0.707); // Q = 0.707 for Butterworth
+  
+  // Low-pass coefficients
+  lp_a0 = 1 + alpha;
+  lp_a1 = -2 * cosw;
+  lp_a2 = 1 - alpha;
+  lp_b0 = (1 - cosw) / 2;
+  lp_b1 = 1 - cosw;
+  lp_b2 = (1 - cosw) / 2;
+  
+  // High-pass coefficients  
+  hp_a0 = 1 + alpha;
+  hp_a1 = -2 * cosw;
+  hp_a2 = 1 - alpha;
+  hp_b0 = (1 + cosw) / 2;
+  hp_b1 = -(1 + cosw);
+  hp_b2 = (1 + cosw) / 2;
+  
+  // Normalize
+  lp_b0 /= lp_a0; lp_b1 /= lp_a0; lp_b2 /= lp_a0;
+  lp_a1 /= lp_a0; lp_a2 /= lp_a0;
+  hp_b0 /= hp_a0; hp_b1 /= hp_a0; hp_b2 /= hp_a0;
+  hp_a1 /= hp_a0; hp_a2 /= hp_a0;
+);
+
+// Biquad filter processing
+function process_filter(sample, b0, b1, b2, a1, a2, x1*, x2*, y1*, y2*) (
+  output = b0 * sample + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+  x2 = x1; x1 = sample;
+  y2 = y1; y1 = output;
+  output;
+);
+
+// Initialize filters
+init_filters(slider9);
+last_bass_freq = slider9;
+
+// Metering variables
+mid_peak = 0;
+side_peak = 0;
+correlation = 0;
+corr_sum = 0;
+corr_count = 0;
+
+@slider
+// Convert dB to multipliers
+mid_vol = 2^(slider1/6);
+side_vol = 2^(slider2/6);
+width = slider3 / 100;
+output_gain = 2^(slider12/6);
+
+// Update bass mono filter if frequency changed
+slider9 != last_bass_freq ? (
+  init_filters(slider9);
+  last_bass_freq = slider9;
+);
+
+@sample
+// Bypass check
+slider10 > 0.5 ? (
+  spl0 = spl0 * output_gain;
+  spl1 = spl1 * output_gain;
+) : (
+  // Store original for metering
+  orig_mid = spl0;
+  orig_side = spl1;
+  
+  // Apply gain to mid and side
+  mid_signal = spl0 * mid_vol;
+  side_signal = spl1 * side_vol;
+  
+  // Apply phase inversion if needed
+  slider6 > 0.5 ? mid_signal = -mid_signal;
+  slider7 > 0.5 ? side_signal = -side_signal;
+  
+  // Apply stereo width
+  side_signal *= width;
+  
+  // Bass mono processing
+  slider8 > 0.5 ? (
+    // Split mid into low and high frequencies
+    mid_low = process_filter(mid_signal, lp_b0, lp_b1, lp_b2, lp_a1, lp_a2, 
+                           mid_lp_x1, mid_lp_x2, mid_lp_y1, mid_lp_y2);
+    mid_high = process_filter(mid_signal, hp_b0, hp_b1, hp_b2, hp_a1, hp_a2,
+                            mid_hp_x1, mid_hp_x2, mid_hp_y1, mid_hp_y2);
+    
+    // For bass frequencies, use only mid (mono)
+    // For high frequencies, use normal M/S decoding
+    left_low = mid_low;
+    right_low = mid_low;
+    left_high = mid_high + side_signal;
+    right_high = mid_high - side_signal;
+    
+    // Combine
+    spl0 = left_low + left_high;
+    spl1 = right_low + right_high;
+  ) : (
+    // Normal M/S decoding
+    spl0 = mid_signal + side_signal;
+    spl1 = mid_signal - side_signal;
+  );
+  
+  // Center positioning (panning)
+  slider4 > 0 ? spl0 *= (1.0 - slider4);
+  slider4 < 0 ? spl1 *= (1.0 + slider4);
+  
+  // Apply scaling to prevent clipping
+  spl0 *= min(1.0 - abs(slider4), 1);
+  spl1 *= min(1.0 - abs(slider4), 1);
+  
+  // Output swap
+  slider5 > 0.5 ? (
+    tmp = spl1;
+    spl1 = spl0;
+    spl0 = tmp;
+  );
+  
+  // Mono check
+  slider11 > 0.5 ? (
+    mono_sum = (spl0 + spl1) * 0.5;
+    spl0 = mono_sum;
+    spl1 = mono_sum;
+  );
+  
+  // Apply output gain
+  spl0 *= output_gain;
+  spl1 *= output_gain;
+  
+  // Metering
+  mid_peak = max(mid_peak * 0.999, abs(orig_mid));
+  side_peak = max(side_peak * 0.999, abs(orig_side));
+  
+  // Correlation calculation
+  corr_sum += spl0 * spl1;
+  corr_count += 1;
+  corr_count >= srate/10 ? ( // Update 10 times per second
+    left_rms = sqrt(spl0 * spl0);
+    right_rms = sqrt(spl1 * spl1);
+    left_rms > 0 && right_rms > 0 ? (
+      correlation = corr_sum / (corr_count * left_rms * right_rms);
+      correlation = max(-1, min(1, correlation));
+    );
+    corr_sum = 0;
+    corr_count = 0;
+  );
+);
+
+@gfx 400 300
+// --- GRAPHICS SECTION - FINAL ALIGNMENT FIX ---
+// This version explicitly sets the X coordinate for each line to ensure left alignment.
+
+// Set a background color
+gfx_r = 0.15; gfx_g = 0.15; gfx_b = 0.15;
+gfx_rect(0, 0, gfx_w, gfx_h);
+
+// Metering Display
+gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8;
+gfx_x = 20; gfx_y = 20;
+gfx_drawstr("Mid Level: ");
+gfx_x = 120;
+gfx_drawnumber(20 * log10(mid_peak + 0.000001), 1);
+gfx_drawstr(" dB");
+
+gfx_x = 20; gfx_y = 40;
+gfx_drawstr("Side Level: ");
+gfx_x = 120;
+gfx_drawnumber(20 * log10(side_peak + 0.000001), 1);
+gfx_drawstr(" dB");
+
+gfx_x = 20; gfx_y = 60;
+gfx_drawstr("Correlation: ");
+gfx_x = 120;
+gfx_drawnumber(correlation, 2);
+
+// Correlation meter
+gfx_x = 20; gfx_y = 90;
+gfx_drawstr("Stereo Field:");
+gfx_r = 0.3; gfx_g = 0.3; gfx_b = 0.3;
+gfx_rect(20, 110, 360, 20); // Bar background
+corr_pos = 20 + 180 + (correlation * 180);
+gfx_r = 1; gfx_g = 0.2; gfx_b = 0.2;
+gfx_rect(corr_pos - 1, 105, 3, 30); // Needle
+
+// Instructions
+gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.7;
+gfx_x = 20; gfx_y = 145;
+gfx_drawstr("Correlation: -1=out of phase, 0=uncorrelated, +1=mono");
+
+// --- FEATURES LIST (ALIGNED LEFT) ---
+gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8;
+gfx_x = 20; gfx_y = 175;
+gfx_drawstr("Features:");
+
+gfx_x = 20; gfx_y = 195; 
+gfx_drawstr("• Independent Mid/Side level control");
+
+gfx_x = 20; gfx_y = 210; 
+gfx_drawstr("• Stereo width adjustment (0-200%)");
+
+gfx_x = 20; gfx_y = 225; 
+gfx_drawstr("• Bass mono option for better mono compatibility");
+
+gfx_x = 20; gfx_y = 240; 
+gfx_drawstr("• Phase invert for Mid and Side");
+
+gfx_x = 20; gfx_y = 255; 
+gfx_drawstr("• Real-time correlation metering");

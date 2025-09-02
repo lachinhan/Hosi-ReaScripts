@@ -1,0 +1,490 @@
+desc:Hosi Hybrid DeEsser Pro
+author:Hosi & Stephen Boyes
+version:1.0
+changelog:
++ v1.0 - Initial release.
+about:
+  # Hybrid DeEsser Pro
+    - A hybrid tool to reduce vocal sibilance.
+    - Keywords: dynamics, deesser, sibilance, vocal
+
+//tags:dynamics deesser sibilance vocal
+
+slider1:thresh_db=-24<-48,0,0.1>Threshold (dB)
+slider2:hp_freq=6000<2000,20000,1>HP Freq (Hz)
+slider3:lp_freq=20000<8000,20000,1>LP Freq (Hz)
+slider4:attack_ms=0.2<0.1,10,0.1>Attack (ms)
+slider5:release_ms=40<5,200,1>Release (ms)
+slider6:ratio=4<1,10,0.1>Ratio
+slider7:makeup_gain=0<-12,12,0.1>Makeup Gain (dB)
+slider8:mix=100<0,100,1>Mix (%)
+slider9:lookahead_ms=2<0,10,0.1>Lookahead (ms)
+slider10:knee_width=2<0,10,0.1>Knee Width (dB)
+slider11:vowel_gain_db=0<-40,2,0.2>Vowel Gain (dB)
+slider12:consonant_gain_db=0<-40,2,0.2>Consonant Gain (dB)
+slider13:detector_q=3.0<1,5,0.1>Detector Q
+slider14:split_mode=0<0,1,1{Enhanced Processing,Vowel/Consonant Split}>Processing Mode
+slider15:mon_detector=0<0,1,1{Off,On}>Monitor Detector
+
+options:want_all_kb
+
+@init
+// Memory management
+mem_ptr = 0;
+
+function malloc(size) 
+  local(ret) (
+  ret = mem_ptr;
+  mem_ptr += size;
+  ret;
+);
+
+// Constants
+PI = $pi;
+LOG10D20_CONVERSION = 8.6858896380650365530225783783321;
+DB_TO_VAL_FACTOR = 0.11512925464970228420089957273422;
+
+// Convert dB to linear value
+function db_to_val(db) (
+  exp(db * DB_TO_VAL_FACTOR);
+);
+
+// Convert linear value to dB
+function val_to_db(val) (
+  val < 0.0000000298023223876953125 ? -150 : (
+    log(val) * LOG10D20_CONVERSION;
+  );
+);
+
+// Biquad filter structure
+function biquad_init(freq, q, type, sample_rate)
+  instance(a0, a1, a2, b0, b1, b2, x1, x2, y1, y2)
+  local(w, cos_w, sin_w, alpha) (
+  
+  w = 2 * PI * freq / sample_rate;
+  cos_w = cos(w);
+  sin_w = sin(w);
+  alpha = sin_w / (2 * q);
+  
+  type == 0 ? ( // Lowpass
+    b0 = (1 - cos_w) / 2;
+    b1 = 1 - cos_w;
+    b2 = (1 - cos_w) / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cos_w;
+    a2 = 1 - alpha;
+  ) : type == 1 ? ( // Highpass
+    b0 = (1 + cos_w) / 2;
+    b1 = -(1 + cos_w);
+    b2 = (1 + cos_w) / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cos_w;
+    a2 = 1 - alpha;
+  );
+  
+  // Normalize coefficients
+  a0 == 0 ? a0 = 0.000001;
+  b0 /= a0;
+  b1 /= a0;
+  b2 /= a0;
+  a1 /= a0;
+  a2 /= a0;
+  
+  // Reset delay line
+  x1 = x2 = y1 = y2 = 0;
+);
+
+function biquad_process(input)
+  instance(b0, b1, b2, a1, a2, x1, x2, y1, y2)
+  local(output) (
+  
+  output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+  
+  // Update delay line
+  x2 = x1;
+  x1 = input;
+  y2 = y1;
+  y1 = output;
+  
+  output;
+);
+
+// Envelope follower
+function envelope_init(attack_ms, release_ms, sample_rate) 
+  instance(attack_coeff, release_coeff, envelope) (
+  
+  attack_coeff = exp(-1 / (sample_rate * attack_ms * 0.001));
+  release_coeff = exp(-1 / (sample_rate * release_ms * 0.001));
+  envelope = 0;
+);
+
+function envelope_process(input)
+  instance(attack_coeff, release_coeff, envelope)
+  local(input_abs) (
+  
+  input_abs = abs(input);
+  envelope < input_abs ? (
+    envelope = input_abs + attack_coeff * (envelope - input_abs);
+  ) : (
+    envelope = input_abs + release_coeff * (envelope - input_abs);
+  );
+  
+  envelope;
+);
+
+// Soft knee compressor
+function compressor_init(threshold_db, ratio, knee_width_db)
+  instance(threshold, ratio, knee_width, knee_ratio) (
+  
+  threshold = db_to_val(threshold_db);
+  this.ratio = ratio;
+  knee_width = knee_width_db;
+  knee_ratio = 1 / ratio;
+);
+
+function compressor_process(input_level)
+  instance(threshold, ratio, knee_width, knee_ratio) 
+  local(input_db, threshold_db, over_threshold, knee_factor, gain_reduction_db) (
+  
+  input_level <= 0 ? input_level = 0.000001;
+  input_db = val_to_db(input_level);
+  threshold_db = val_to_db(threshold);
+  
+  over_threshold = input_db - threshold_db;
+  
+  over_threshold <= 0 ? (
+    gain_reduction_db = 0;
+  ) : over_threshold < knee_width ? (
+    // Soft knee
+    knee_factor = over_threshold / knee_width;
+    gain_reduction_db = knee_factor * knee_factor * over_threshold * (knee_ratio - 1);
+  ) : (
+    // Above knee
+    gain_reduction_db = over_threshold * (knee_ratio - 1);
+  );
+  
+  db_to_val(gain_reduction_db);
+);
+
+// Delay line
+function delay_init(max_delay_samples)
+  instance(buffer, write_pos, delay_samples, buffer_size) (
+  
+  buffer_size = max_delay_samples + 1;
+  buffer = malloc(buffer_size);
+  memset(buffer, 0, buffer_size);
+  write_pos = 0;
+  delay_samples = 0;
+);
+
+function delay_set(delay_samples)
+  instance(delay_samples, buffer_size) (
+  
+  this.delay_samples = max(0, min(delay_samples, buffer_size - 1));
+);
+
+function delay_process(input)
+  instance(buffer, write_pos, delay_samples, buffer_size)
+  local(read_pos, output) (
+  
+  buffer[write_pos] = input;
+  read_pos = write_pos - delay_samples;
+  read_pos < 0 ? read_pos += buffer_size;
+  
+  output = buffer[read_pos];
+  write_pos = (write_pos + 1) % buffer_size;
+  
+  output;
+);
+
+// SVF filters for vowel/consonant detection
+function svf_highp(v0, cutoff, Q)
+instance(ic1eq, ic2eq, v0, v1, v2, v3, a1, a2, a3, g, k, m0, m1, m2) (
+  g = tan(PI * cutoff / srate);
+  k = 1 / Q;
+  a1 = 1 / (1 + g * (g + k));
+  a2 = g * a1;
+  a3 = g * a2;
+  m0 = 1; m1 = -k; m2 = -1;
+  v3 = v0 - ic2eq;
+  v1 = a1 * ic1eq + a2 * v3;
+  v2 = ic2eq + a2 * ic1eq + a3 * v3;
+  ic1eq = 2 * v1 - ic1eq;
+  ic2eq = 2 * v2 - ic2eq;
+  m0 * v0 + m1 * v1 + m2 * v2;
+);
+
+function svf_lowp(v0, cutoff, Q)
+instance(ic1eq, ic2eq, v0, v1, v2, v3, a1, a2, a3, g, k, mo, m1, m2) (
+  g = tan(PI * cutoff / srate);
+  k = 1 / Q;
+  a1 = 1 / (1 + g * (g + k));
+  a2 = g * a1;
+  a3 = g * a2;
+  v3 = v0 - ic2eq;
+  v1 = a1 * ic1eq + a2 * v3;
+  v2 = ic2eq + a2 * ic1eq + a3 * v3;
+  ic1eq = 2 * v1 - ic1eq;
+  ic2eq = 2 * v2 - ic2eq;
+  v2;
+);
+
+// Vowel/Consonant detection
+function detect_consonant(side_chain, freq, q)
+local(ESchain, ESlevel, DThresh, consonant) (
+  ESchain = sss.svf_highp(side_chain, freq, q);
+  ESlevel = sqrt(ess.svf_lowp(0.000000001 + ESchain * ESchain, 520, 0.5));
+  DThresh = sqrt(t.svf_lowp(0.00001 + side_chain * side_chain, 510, 0.5));
+  consonant = 1 / (1 + exp(-12 * ((ESlevel / DThresh) - 1)));
+  consonant;
+);
+
+// Initialize components
+max_lookahead_samples = ceil(srate * 0.01);
+delay_l.delay_init(max_lookahead_samples);
+delay_r.delay_init(max_lookahead_samples);
+
+// Initialize meter variables
+meter_gain_reduction_l = 0;
+meter_gain_reduction_r = 0;
+meter_input_level_l = -60;
+meter_input_level_r = -60;
+
+@slider
+// Update parameters
+threshold_linear = db_to_val(thresh_db);
+makeup_gain_linear = db_to_val(makeup_gain);
+vowel_gain_linear = db_to_val(vowel_gain_db);
+consonant_gain_linear = db_to_val(consonant_gain_db);
+mix_factor = mix * 0.01;
+lookahead_samples = ceil(srate * lookahead_ms * 0.001);
+
+// Update filters
+split_mode == 0 ? (
+  // Enhanced Processing mode
+  hp_filter_l.biquad_init(hp_freq, 0.707, 1, srate);
+  hp_filter_r.biquad_init(hp_freq, 0.707, 1, srate);
+  lp_filter_l.biquad_init(lp_freq, 0.707, 0, srate);
+  lp_filter_r.biquad_init(lp_freq, 0.707, 0, srate);
+  
+  // Update envelope followers
+  envelope_l.envelope_init(attack_ms, release_ms, srate);
+  envelope_r.envelope_init(attack_ms, release_ms, srate);
+  
+  // Update compressors
+  compressor_l.compressor_init(thresh_db, ratio, knee_width);
+  compressor_r.compressor_init(thresh_db, ratio, knee_width);
+  
+  // Update delays
+  delay_l.delay_set(lookahead_samples);
+  delay_r.delay_set(lookahead_samples);
+);
+
+@sample
+// Store dry signals
+dry_l = spl0;
+dry_r = spl1;
+
+split_mode == 0 ? (
+  // Enhanced Processing Mode
+  hp_l = hp_filter_l.biquad_process(spl0);
+  hp_r = hp_filter_r.biquad_process(spl1);
+  
+  filtered_l = lp_filter_l.biquad_process(hp_l);
+  filtered_r = lp_filter_r.biquad_process(hp_r);
+  
+  env_l = envelope_l.envelope_process(filtered_l);
+  env_r = envelope_r.envelope_process(filtered_r);
+  
+  gain_reduction_l = compressor_l.compressor_process(env_l);
+  gain_reduction_r = compressor_r.compressor_process(env_r);
+  
+  delayed_l = delay_l.delay_process(dry_l);
+  delayed_r = delay_r.delay_process(dry_r);
+  
+  processed_l = delayed_l * gain_reduction_l * makeup_gain_linear;
+  processed_r = delayed_r * gain_reduction_r * makeup_gain_linear;
+  
+  spl0 = delayed_l * (1 - mix_factor) + processed_l * mix_factor;
+  spl1 = delayed_r * (1 - mix_factor) + processed_r * mix_factor;
+  
+) : (
+  // Vowel/Consonant Split Mode
+  side_chain = 0.5 * (spl0 + spl1);
+  consonant = detect_consonant(side_chain, hp_freq, detector_q);
+  vowel = 1 - consonant;
+  
+  // Split signal
+  consonant_l = consonant * spl0;
+  consonant_r = consonant * spl1;
+  spl0 *= vowel;
+  spl1 *= vowel;
+  
+  // Apply gains
+  spl0 *= vowel_gain_linear;
+  spl1 *= vowel_gain_linear;
+  consonant_l *= consonant_gain_linear;
+  consonant_r *= consonant_gain_linear;
+  
+  // Recombine
+  spl0 += consonant_l;
+  spl1 += consonant_r;
+  
+  // Set meter values for display
+  gain_reduction_l = min(vowel_gain_linear, consonant_gain_linear);
+  gain_reduction_r = gain_reduction_l;
+);
+
+// Monitor detector
+mon_detector == 1 ? (
+  side_chain = 0.5 * (dry_l + dry_r);
+  spl0 = spl1 = sss.svf_highp(side_chain, hp_freq, detector_q);
+);
+
+@gfx 400 300
+// Clear background - giống Enhanced Deesser Pro
+gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.1; gfx_a = 1;
+gfx_x = 0; gfx_y = 0;
+gfx_rectto(gfx_w, gfx_h);
+
+// Draw title - giống Enhanced Deesser Pro
+gfx_r = 0.9; gfx_g = 0.9; gfx_b = 0.9; gfx_a = 1;
+gfx_setfont(1, "Arial", 16, 'b');
+gfx_x = 10; gfx_y = 10;
+gfx_drawstr("Hybrid DeEsser Pro");
+
+// Mode indicator
+gfx_setfont(1, "Arial", 12);
+gfx_x = 10; gfx_y = 35;
+split_mode == 0 ? (
+  gfx_r = 0.2; gfx_g = 0.8; gfx_b = 0.2;
+  gfx_drawstr("Mode: Enhanced Processing");
+) : (
+  gfx_r = 0.8; gfx_g = 0.6; gfx_b = 0.2;
+  gfx_drawstr("Mode: Vowel/Consonant Split");
+);
+
+// Update meter values (chỉ khi có audio) - giống Enhanced Deesser Pro
+spl0 != 0 || spl1 != 0 ? (
+  meter_gain_reduction_l = gain_reduction_l > 0 ? val_to_db(gain_reduction_l) : 0;
+  meter_gain_reduction_r = gain_reduction_r > 0 ? val_to_db(gain_reduction_r) : 0;
+  meter_input_level_l = abs(spl0) > 0 ? val_to_db(abs(spl0)) : -60;
+  meter_input_level_r = abs(spl1) > 0 ? val_to_db(abs(spl1)) : -60;
+) : (
+  meter_gain_reduction_l = 0;
+  meter_gain_reduction_r = 0;
+  meter_input_level_l = -60;
+  meter_input_level_r = -60;
+);
+
+// Draw meters - giống Enhanced Deesser Pro
+meter_x = 20;
+meter_y = 60;
+meter_w = 30;
+meter_h = 180;
+
+// Draw meter backgrounds
+gfx_r = 0.2; gfx_g = 0.2; gfx_b = 0.2; gfx_a = 1;
+gfx_x = meter_x; gfx_y = meter_y;
+gfx_rectto(meter_x + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 40; gfx_y = meter_y;
+gfx_rectto(meter_x + 40 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 80; gfx_y = meter_y;
+gfx_rectto(meter_x + 80 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 120; gfx_y = meter_y;
+gfx_rectto(meter_x + 120 + meter_w, meter_y + meter_h);
+
+// Input level meters (green)
+gfx_r = 0.2; gfx_g = 0.8; gfx_b = 0.2; gfx_a = 1;
+input_meter_height_l = max(0, min(meter_h, (meter_input_level_l + 60) * meter_h / 60));
+input_meter_height_r = max(0, min(meter_h, (meter_input_level_r + 60) * meter_h / 60));
+
+gfx_x = meter_x; gfx_y = meter_y + meter_h - input_meter_height_l;
+gfx_rectto(meter_x + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 40; gfx_y = meter_y + meter_h - input_meter_height_r;
+gfx_rectto(meter_x + 40 + meter_w, meter_y + meter_h);
+
+// Gain reduction meters (red)
+gfx_r = 0.8; gfx_g = 0.2; gfx_b = 0.2; gfx_a = 1;
+gr_meter_height_l = max(0, min(meter_h, abs(meter_gain_reduction_l) * meter_h / 20));
+gr_meter_height_r = max(0, min(meter_h, abs(meter_gain_reduction_r) * meter_h / 20));
+
+gfx_x = meter_x + 80; gfx_y = meter_y + meter_h - gr_meter_height_l;
+gfx_rectto(meter_x + 80 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 120; gfx_y = meter_y + meter_h - gr_meter_height_r;
+gfx_rectto(meter_x + 120 + meter_w, meter_y + meter_h);
+
+// Labels - giống Enhanced Deesser Pro
+gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.7; gfx_a = 1;
+gfx_setfont(1, "Arial", 12);
+gfx_x = meter_x; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("Input L");
+gfx_x = meter_x + 40; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("Input R");
+gfx_x = meter_x + 80; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("GR L");
+gfx_x = meter_x + 120; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("GR R");
+
+// Parameter display - giống Enhanced Deesser Pro
+param_x = 200;
+param_y = 80;
+gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8; gfx_a = 1;
+gfx_setfont(1, "Arial", 16);
+
+split_mode == 0 ? (
+  // Enhanced Processing parameters
+  gfx_x = param_x; gfx_y = param_y;
+  gfx_drawstr("Threshold: ");
+  gfx_drawnumber(thresh_db, 1);
+  gfx_drawstr(" dB");
+  
+  gfx_x = param_x; gfx_y = param_y + 20;
+  gfx_drawstr("Ratio: ");
+  gfx_drawnumber(ratio, 1);
+  gfx_drawstr(":1");
+  
+  gfx_x = param_x; gfx_y = param_y + 40;
+  gfx_drawstr("Attack: ");
+  gfx_drawnumber(attack_ms, 1);
+  gfx_drawstr(" ms");
+  
+  gfx_x = param_x; gfx_y = param_y + 60;
+  gfx_drawstr("Release: ");
+  gfx_drawnumber(release_ms, 1);
+  gfx_drawstr(" ms");
+  
+  gfx_x = param_x; gfx_y = param_y + 80;
+  gfx_drawstr("Mix: ");
+  gfx_drawnumber(mix, 0);
+  gfx_drawstr("%");
+) : (
+  // Vowel/Consonant Split parameters
+  gfx_x = param_x; gfx_y = param_y;
+  gfx_drawstr("Detector Freq: ");
+  gfx_drawnumber(hp_freq, 0);
+  gfx_drawstr(" Hz");
+  
+  gfx_x = param_x; gfx_y = param_y + 20;
+  gfx_drawstr("Detector Q: ");
+  gfx_drawnumber(detector_q, 1);
+  
+  gfx_x = param_x; gfx_y = param_y + 40;
+  gfx_drawstr("Vowel Gain: ");
+  gfx_drawnumber(vowel_gain_db, 1);
+  gfx_drawstr(" dB");
+  
+  gfx_x = param_x; gfx_y = param_y + 60;
+  gfx_drawstr("Consonant Gain: ");
+  gfx_drawnumber(consonant_gain_db, 1);
+  gfx_drawstr(" dB");
+  
+  gfx_x = param_x; gfx_y = param_y + 80;
+  mon_detector ? (
+    gfx_r = 1; gfx_g = 0.3; gfx_b = 0.3;
+    gfx_drawstr("Monitor: ON");
+  ) : (
+    gfx_r = 0.5; gfx_g = 0.5; gfx_b = 0.5;
+    gfx_drawstr("Monitor: OFF");
+  );
+);

@@ -1,0 +1,314 @@
+desc: Hosi Advanced Smooth Gain GLR
+version: 2.4
+author: Enhanced by Hosi - Green Line Reference Only
+changelog:
++ v2.4 - Updated version.
+about:
+  # Hosi Advanced Smooth Gain GLR
+    - An enhanced smooth gain utility with a green line reference.
+// slider1:engaged=1<0,1,1{Off,On}>Engaged
+slider2:gain_db=0<-32,24,0.01>Manual Gain (dB)
+slider3:smoothness=100<0,500,1>Smoothness
+slider4:smooth_mode=0<0,2,1{Linear,Exponential,S-Curve}>Smoothing Mode
+slider5:auto_limit=1<0,1,1{Off,On}>Auto Limiter
+slider6:max_gain=12<0,24,0.1>Max Gain Limit (dB)
+slider7:preset=0<0,4,1{Custom,Fade In,Fade Out,Duck,Boost}>Presets
+slider8:stereo_link=1<0,1,1{Independent,Linked}>Stereo Link
+slider9:gain_out_db=0<-32,24,0.01>Current Gain (dB)
+slider10:persistent_engage=1<0,1,1{Off,On}>Stay Engaged
+// Visual Reference Only - No Auto Adjustment
+slider12:target_level_db=-18<-60,0,0.1>Target Level (dB) - Visual Reference
+
+@init
+// Initialize with persistent engage
+persistent_engage ? engaged = 1;
+
+gain_next_L = gain_next_R = 1.0;
+gain_cur_L = gain_cur_R = 1.0;
+gain_out_db = 0.0;
+peak_in_L = peak_in_R = 0;
+peak_out_L = peak_out_R = 0;
+peak_decay = exp(-1/(srate*0.3));
+clip_count = 0;
+last_preset = -1;
+
+// Variables for proper S-curve implementation
+transition_time_L = transition_time_R = 0;
+transition_duration_L = transition_duration_R = 1;
+start_gain_L = start_gain_R = 1;
+target_gain_L = target_gain_R = 1;
+in_transition_L = in_transition_R = 0;
+
+function db_to_linear(db) (
+  10^(db/20)
+);
+
+function linear_to_db(linear) (
+  20*log10(max(linear, 0.000001))
+);
+
+function s_curve(t) (
+  t = max(0, min(1, t));
+  t * t * (3 - 2 * t)
+);
+
+function start_transition(channel, current_gain, target_gain, duration) (
+  channel == 0 ? (
+    start_gain_L = current_gain;
+    target_gain_L = target_gain;
+    transition_duration_L = max(0.001, duration);
+    transition_time_L = 0;
+    in_transition_L = 1;
+  ) : (
+    start_gain_R = current_gain;
+    target_gain_R = target_gain;
+    transition_duration_R = max(0.001, duration);
+    transition_time_R = 0;
+    in_transition_R = 1;
+  );
+);
+
+function update_gain_smooth(channel, dt) (
+  channel == 0 ? (
+    in_transition_L ? (
+      transition_time_L += dt;
+      progress = transition_time_L / transition_duration_L;
+      
+      progress >= 1 ? (
+        gain_cur_L = target_gain_L;
+        in_transition_L = 0;
+      ) : (
+        smooth_mode == 0 ? (
+          gain_cur_L = start_gain_L + (target_gain_L - start_gain_L) * progress;
+        ) : smooth_mode == 1 ? (
+          factor = 1 - exp(-progress * 5);
+          gain_cur_L = start_gain_L + (target_gain_L - start_gain_L) * factor;
+        ) : (
+          factor = s_curve(progress);
+          gain_cur_L = start_gain_L + (target_gain_L - start_gain_L) * factor;
+        );
+      );
+    );
+  ) : (
+    in_transition_R ? (
+      transition_time_R += dt;
+      progress = transition_time_R / transition_duration_R;
+      
+      progress >= 1 ? (
+        gain_cur_R = target_gain_R;
+        in_transition_R = 0;
+      ) : (
+        smooth_mode == 0 ? (
+          gain_cur_R = start_gain_R + (target_gain_R - start_gain_R) * progress;
+        ) : smooth_mode == 1 ? (
+          factor = 1 - exp(-progress * 5);
+          gain_cur_R = start_gain_R + (target_gain_R - start_gain_R) * factor;
+        ) : (
+          factor = s_curve(progress);
+          gain_cur_R = start_gain_R + (target_gain_R - start_gain_R) * factor;
+        );
+      );
+    );
+  );
+);
+
+@slider
+// Force engage if persistent is on
+persistent_engage && !engaged ? (
+  engaged = 1;
+  slider1 = 1;
+);
+
+// Handle presets
+preset != last_preset ? (
+  preset == 1 ? (
+    gain_db = -32;
+    smoothness = 200;
+    smooth_mode = 2;
+  ) : preset == 2 ? (
+    gain_db = -32;
+    smoothness = 150;
+    smooth_mode = 1;
+  ) : preset == 3 ? (
+    gain_db = -12;
+    smoothness = 50;
+    smooth_mode = 1;
+  ) : preset == 4 ? (
+    gain_db = 6;
+    smoothness = 100;
+    smooth_mode = 0;
+  );
+  last_preset = preset;
+);
+
+auto_limit ? (
+  gain_db = min(gain_db, max_gain);
+);
+
+transition_duration = smoothness / 100;
+
+engaged ? (
+  new_target = db_to_linear(gain_db);
+) : (
+  new_target = 1.0;
+);
+
+// Handle transitions
+stereo_link ? (
+  abs(new_target - target_gain_L) > 0.001 ? (
+    start_transition(0, gain_cur_L, new_target, transition_duration);
+    start_transition(1, gain_cur_R, new_target, transition_duration);
+  );
+) : (
+  abs(new_target - target_gain_L) > 0.001 ? (
+    start_transition(0, gain_cur_L, new_target, transition_duration);
+  );
+  abs(new_target - target_gain_R) > 0.001 ? (
+    start_transition(1, gain_cur_R, new_target, transition_duration);
+  );
+);
+
+gain_next_L = gain_next_R = new_target;
+
+@block
+persistent_engage && !engaged ? (
+  engaged = 1;
+  slider1 = 1;
+);
+
+dt = samplesblock / srate;
+
+update_gain_smooth(0, dt);
+stereo_link ? (
+  gain_cur_R = gain_cur_L;
+) : (
+  update_gain_smooth(1, dt);
+);
+
+avg_gain = (gain_cur_L + gain_cur_R) * 0.5;
+gain_out_db = linear_to_db(avg_gain);
+gain_out_db = floor(gain_out_db * 100 + 0.5) / 100;
+
+@sample
+abs_in_L = abs(spl0);
+abs_in_R = abs(spl1);
+peak_in_L = max(peak_in_L * peak_decay, abs_in_L);
+peak_in_R = max(peak_in_R * peak_decay, abs_in_R);
+
+spl0 *= gain_cur_L;
+spl1 *= gain_cur_R;
+
+auto_limit ? (
+  spl0 = max(-1, min(1, spl0));
+  spl1 = max(-1, min(1, spl1));
+  (abs(spl0) >= 0.99 || abs(spl1) >= 0.99) ? clip_count += 1;
+);
+
+abs_out_L = abs(spl0);
+abs_out_R = abs(spl1);
+peak_out_L = max(peak_out_L * peak_decay, abs_out_L);
+peak_out_R = max(peak_out_R * peak_decay, abs_out_R);
+
+@gfx 480 420
+gfx_clear = 0x1a1a1a;
+gfx_setfont(1, "Arial", 14);
+
+gfx_set(0.9, 0.9, 0.9);
+gfx_x = 10; gfx_y = 10;
+gfx_drawstr("Hosi Advanced Smooth Gain v2.4 - Manual Mode");
+
+meter_x = 50;
+meter_y = 50;
+meter_w = 20;
+meter_h = 200;
+
+// Input meters
+gfx_set(0.2, 0.2, 0.2);
+gfx_rect(meter_x, meter_y, meter_w, meter_h);
+gfx_rect(meter_x + 30, meter_y, meter_w, meter_h);
+
+in_level_L = linear_to_db(peak_in_L);
+in_level_R = linear_to_db(peak_in_R);
+in_height_L = max(0, (in_level_L + 60) / 60 * meter_h);
+in_height_R = max(0, (in_level_R + 60) / 60 * meter_h);
+
+gfx_set(0, 0.8, 0);
+gfx_rect(meter_x, meter_y + meter_h - in_height_L, meter_w, in_height_L);
+gfx_rect(meter_x + 30, meter_y + meter_h - in_height_R, meter_w, in_height_R);
+
+// Output meters
+out_meter_x = 150;
+gfx_set(0.2, 0.2, 0.2);
+gfx_rect(out_meter_x, meter_y, meter_w, meter_h);
+gfx_rect(out_meter_x + 30, meter_y, meter_w, meter_h);
+
+out_level_L = linear_to_db(peak_out_L);
+out_level_R = linear_to_db(peak_out_R);
+out_height_L = max(0, (out_level_L + 60) / 60 * meter_h);
+out_height_R = max(0, (out_level_R + 60) / 60 * meter_h);
+
+out_level_L > -6 ? gfx_set(1, 0, 0) : out_level_L > -12 ? gfx_set(1, 1, 0) : gfx_set(0, 0.8, 0);
+gfx_rect(out_meter_x, meter_y + meter_h - out_height_L, meter_w, out_height_L);
+
+out_level_R > -6 ? gfx_set(1, 0, 0) : out_level_R > -12 ? gfx_set(1, 1, 0) : gfx_set(0, 0.8, 0);
+gfx_rect(out_meter_x + 30, meter_y + meter_h - out_height_R, meter_w, out_height_R);
+
+// Target level reference line (Visual only - Always RED)
+target_y = meter_y + meter_h - ((target_level_db + 60) / 60 * meter_h);
+target_y = max(meter_y, min(meter_y + meter_h, target_y));
+
+// Red reference line - Always visible
+// gfx_set(1, 0, 0); // Red color
+gfx_set(0, 1, 0); // Green color
+gfx_line(out_meter_x - 10, target_y, out_meter_x + 60, target_y, 3);
+
+// Add target level text
+gfx_set(0, 1, 0);
+gfx_x = out_meter_x + 65; gfx_y = target_y - 5;
+sprintf(#target_text, "%.0fdB", target_level_db);
+gfx_drawstr(#target_text);
+
+gfx_set(0.9, 0.9, 0.9);
+gfx_x = meter_x; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("INPUT");
+gfx_x = out_meter_x; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("OUTPUT");
+
+// Status line 1
+gfx_x = 10; gfx_y = 290;
+sprintf(#status, "Status: %s | Persistent: %s | Clips: %d", 
+  engaged ? "ON" : "OFF",
+  persistent_engage ? "ON" : "OFF",
+  clip_count
+);
+gfx_drawstr(#status);
+
+// Status line 2
+gfx_x = 10; gfx_y = 310;
+mode_text = smooth_mode == 0 ? "Linear" : smooth_mode == 1 ? "Exponential" : "S-Curve";
+sprintf(#mode, "Mode: %s | Duration: %.1fs | Gain: %.1fdB", 
+  mode_text, transition_duration, gain_db);
+gfx_drawstr(#mode);
+
+// Reference Status (Simplified)
+gfx_x = 10; gfx_y = 330;
+sprintf(#reference_status, "Target Reference: %.1fdB (Visual Guide Only)", target_level_db);
+gfx_drawstr(#reference_status);
+
+// Current Output Level
+gfx_x = 10; gfx_y = 350;
+current_output_level = max(out_level_L, out_level_R);
+sprintf(#output_info, "Current Output: %.1fdB | Difference: %.1fdB", 
+  current_output_level, current_output_level - target_level_db);
+gfx_drawstr(#output_info);
+
+// Transition Status
+gfx_x = 10; gfx_y = 370;
+sprintf(#trans, "Transition L: %s | R: %s | Auto Limit: %s", 
+  in_transition_L ? "ACTIVE" : "IDLE",
+  in_transition_R ? "ACTIVE" : "IDLE",
+  auto_limit ? "ON" : "OFF"
+);
+gfx_drawstr(#trans);
+
+clip_count > 1000 ? clip_count = 0;

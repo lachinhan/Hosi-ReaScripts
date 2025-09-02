@@ -1,0 +1,344 @@
+desc:Hosi DePlosive Simple
+author:Hosi
+version:1.0
+changelog:
++ v1.0 - Initial release.
+about:
+  # DePlosive Simple
+    - A simple tool to reduce vocal plosives.
+    - Keywords: dynamics, plosive, vocal, pop filter
+
+//tags:dynamics plosive vocal pop
+
+slider1:threshold_db=-24<-48,0,0.1>Threshold (dB)
+slider2:sensitivity=50<0,100,1>Sensitivity (%)
+slider3:strength=50<0,100,1>Strength (%)
+slider4:freq_limit=300<100,500,1>Frequency Limit (Hz)
+slider5:attack_ms=0.1<0.05,5,0.01>Attack (ms)
+slider6:release_ms=20<5,100,1>Release (ms)
+slider7:mix=100<0,100,1>Mix (%)
+slider8:monitor=0<0,1,1{Off,On}>Monitor Detector
+
+options:want_all_kb
+
+@init
+// Constants
+PI = $pi;
+LOG10D20_CONVERSION = 8.6858896380650365530225783783321;
+DB_TO_VAL_FACTOR = 0.11512925464970228420089957273422;
+
+// Convert dB to linear value
+function db_to_val(db) (
+  exp(db * DB_TO_VAL_FACTOR);
+);
+
+// Convert linear value to dB
+function val_to_db(val) (
+  val < 0.0000000298023223876953125 ? -150 : (
+    log(val) * LOG10D20_CONVERSION;
+  );
+);
+
+// Plosive detection filter (20-300Hz bandpass)
+function plosive_filter_init(freq, q, sample_rate)
+  instance(a0, a1, a2, b0, b1, b2, x1, x2, y1, y2)
+  local(w, cos_w, sin_w, alpha) (
+  
+  w = 2 * PI * freq / sample_rate;
+  cos_w = cos(w);
+  sin_w = sin(w);
+  alpha = sin_w / (2 * q);
+  
+  // Bandpass filter
+  b0 = alpha;
+  b1 = 0;
+  b2 = -alpha;
+  a0 = 1 + alpha;
+  a1 = -2 * cos_w;
+  a2 = 1 - alpha;
+  
+  // Normalize
+  b0 /= a0;
+  b1 /= a0;
+  b2 /= a0;
+  a1 /= a0;
+  a2 /= a0;
+  
+  x1 = x2 = y1 = y2 = 0;
+);
+
+function plosive_filter_process(input)
+  instance(b0, b1, b2, a1, a2, x1, x2, y1, y2)
+  local(output) (
+  
+  output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+  
+  x2 = x1;
+  x1 = input;
+  y2 = y1;
+  y1 = output;
+  
+  output;
+);
+
+// Envelope follower
+function envelope_init(attack_ms, release_ms, sample_rate) 
+  instance(attack_coeff, release_coeff, envelope) (
+  
+  attack_coeff = exp(-1 / (sample_rate * attack_ms * 0.001));
+  release_coeff = exp(-1 / (sample_rate * release_ms * 0.001));
+  envelope = 0;
+);
+
+function envelope_process(input)
+  instance(attack_coeff, release_coeff, envelope)
+  local(input_abs) (
+  
+  input_abs = abs(input);
+  envelope < input_abs ? (
+    envelope = input_abs + attack_coeff * (envelope - input_abs);
+  ) : (
+    envelope = input_abs + release_coeff * (envelope - input_abs);
+  );
+  
+  envelope;
+);
+
+// Plosive detector
+function plosive_detector_init(sensitivity)
+  instance(sensitivity_factor, detection_threshold, plosive_level) (
+  
+  sensitivity_factor = sensitivity * 0.01;
+  detection_threshold = 0.3 + sensitivity_factor * 0.4;
+  plosive_level = 0;
+);
+
+function plosive_detector_process(filtered_signal, envelope_level)
+  instance(sensitivity_factor, detection_threshold, plosive_level)
+  local(energy, probability) (
+  
+  // Calculate energy in plosive frequency range
+  energy = filtered_signal * filtered_signal;
+  
+  // Smooth energy
+  plosive_level = plosive_level * 0.9 + energy * 0.1;
+  
+  // Calculate plosive probability
+  probability = envelope_level > detection_threshold ? 
+                min(1, plosive_level * sensitivity_factor * 10) : 0;
+  
+  probability;
+);
+
+// Simple compressor for plosive reduction
+function compressor_init(threshold_db, strength)
+  instance(threshold, strength_factor) (
+  
+  threshold = db_to_val(threshold_db);
+  strength_factor = strength * 0.01;
+);
+
+function compressor_process(input_level, plosive_probability)
+  instance(threshold, strength_factor) 
+  local(over_threshold, gain_reduction) (
+  
+  over_threshold = input_level > threshold ? input_level - threshold : 0;
+  
+  // Apply gain reduction based on plosive probability and strength
+  gain_reduction = 1 - (over_threshold / threshold) * strength_factor * plosive_probability;
+  gain_reduction = max(0.1, min(1, gain_reduction));
+  
+  gain_reduction;
+);
+
+// Initialize filters
+plosive_filter_l.plosive_filter_init(80, 2.0, srate);
+plosive_filter_r.plosive_filter_init(80, 2.0, srate);
+
+// Initialize envelope followers
+envelope_l.envelope_init(attack_ms, release_ms, srate);
+envelope_r.envelope_init(attack_ms, release_ms, srate);
+
+// Initialize detectors
+detector_l.plosive_detector_init(sensitivity);
+detector_r.plosive_detector_init(sensitivity);
+
+// Initialize compressors
+compressor_l.compressor_init(threshold_db, strength);
+compressor_r.compressor_init(threshold_db, strength);
+
+// Meter variables
+meter_plosive_l = 0;
+meter_plosive_r = 0;
+meter_input_l = 0;
+meter_input_r = 0;
+
+@slider
+// Update parameters
+threshold_linear = db_to_val(threshold_db);
+mix_factor = mix * 0.01;
+
+// Update filters
+plosive_filter_l.plosive_filter_init(80, 2.0, srate);
+plosive_filter_r.plosive_filter_init(80, 2.0, srate);
+
+// Update envelope followers
+envelope_l.envelope_init(attack_ms, release_ms, srate);
+envelope_r.envelope_init(attack_ms, release_ms, srate);
+
+// Update detectors
+detector_l.plosive_detector_init(sensitivity);
+detector_r.plosive_detector_init(sensitivity);
+
+// Update compressors
+compressor_l.compressor_init(threshold_db, strength);
+compressor_r.compressor_init(threshold_db, strength);
+
+@sample
+// Store original signals
+dry_l = spl0;
+dry_r = spl1;
+
+// Filter for plosive detection (20-300Hz range)
+filtered_l = plosive_filter_l.plosive_filter_process(spl0);
+filtered_r = plosive_filter_r.plosive_filter_process(spl1);
+
+// Envelope following
+env_l = envelope_l.envelope_process(filtered_l);
+env_r = envelope_r.envelope_process(filtered_r);
+
+// Detect plosives
+plosive_prob_l = detector_l.plosive_detector_process(filtered_l, env_l);
+plosive_prob_r = detector_r.plosive_detector_process(filtered_r, env_r);
+
+// Apply compression when plosive detected
+gain_reduction_l = compressor_l.compressor_process(env_l, plosive_prob_l);
+gain_reduction_r = compressor_r.compressor_process(env_r, plosive_prob_r);
+
+// Process audio
+processed_l = dry_l * gain_reduction_l;
+processed_r = dry_r * gain_reduction_r;
+
+// Mix wet and dry signals
+spl0 = dry_l * (1 - mix_factor) + processed_l * mix_factor;
+spl1 = dry_r * (1 - mix_factor) + processed_r * mix_factor;
+
+// Monitor mode - listen to detected plosives
+monitor == 1 ? (
+  spl0 = filtered_l * plosive_prob_l;
+  spl1 = filtered_r * plosive_prob_r;
+);
+
+// Update meters
+meter_plosive_l = plosive_prob_l * 100;
+meter_plosive_r = plosive_prob_r * 100;
+meter_input_l = abs(dry_l) > 0 ? val_to_db(abs(dry_l)) : -60;
+meter_input_r = abs(dry_r) > 0 ? val_to_db(abs(dry_r)) : -60;
+
+@gfx 400 300
+// Background
+gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.15; gfx_a = 1;
+gfx_x = 0; gfx_y = 0;
+gfx_rectto(gfx_w, gfx_h);
+
+// Title
+gfx_r = 0.9; gfx_g = 0.9; gfx_b = 1; gfx_a = 1;
+gfx_setfont(1, "Arial", 18, 'b');
+gfx_x = 15; gfx_y = 15;
+gfx_drawstr("DePlosive Simple");
+
+// Status
+gfx_setfont(1, "Arial", 12);
+gfx_x = 15; gfx_y = 45;
+monitor ? (
+  gfx_r = 1; gfx_g = 0.4; gfx_b = 0.2;
+  gfx_drawstr("Monitor: ON");
+) : (
+  gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.3;
+  gfx_drawstr("Monitor: OFF");
+);
+
+// Meters - chỉ 4 meter: Input L, Input R, Plosive L, Plosive R
+meter_x = 20;
+meter_y = 80;
+meter_w = 25;
+meter_h = 120;
+
+// Meter backgrounds
+gfx_r = 0.2; gfx_g = 0.2; gfx_b = 0.25; gfx_a = 1;
+i = 0;
+loop(4,
+  gfx_x = meter_x + i * 35;
+  gfx_y = meter_y;
+  gfx_rectto(meter_x + i * 35 + meter_w, meter_y + meter_h);
+  i += 1;
+);
+
+// Input level meters (blue-green)
+input_height_l = max(0, min(meter_h, (meter_input_l + 60) * meter_h / 60));
+input_height_r = max(0, min(meter_h, (meter_input_r + 60) * meter_h / 60));
+
+gfx_r = 0.2; gfx_g = 0.6; gfx_b = 0.8; gfx_a = 1;
+gfx_x = meter_x; gfx_y = meter_y + meter_h - input_height_l;
+gfx_rectto(meter_x + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 35; gfx_y = meter_y + meter_h - input_height_r;
+gfx_rectto(meter_x + 35 + meter_w, meter_y + meter_h);
+
+// Plosive detection meters (orange)
+plosive_height_l = max(0, min(meter_h, meter_plosive_l * meter_h / 100));
+plosive_height_r = max(0, min(meter_h, meter_plosive_r * meter_h / 100));
+
+gfx_r = 1; gfx_g = 0.6; gfx_b = 0.2; gfx_a = 1;
+gfx_x = meter_x + 70; gfx_y = meter_y + meter_h - plosive_height_l;
+gfx_rectto(meter_x + 70 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 105; gfx_y = meter_y + meter_h - plosive_height_r;
+gfx_rectto(meter_x + 105 + meter_w, meter_y + meter_h);
+
+// Labels
+gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.8; gfx_a = 1;
+gfx_setfont(1, "Arial", 10);
+gfx_x = meter_x - 5; gfx_y = meter_y + meter_h + 5;
+gfx_drawstr("Input L");
+gfx_x = meter_x + 25; gfx_y = meter_y + meter_h + 5;
+gfx_drawstr("Input R");
+gfx_x = meter_x + 60; gfx_y = meter_y + meter_h + 5;
+gfx_drawstr("Plosive L");
+gfx_x = meter_x + 95; gfx_y = meter_y + meter_h + 5;
+gfx_drawstr("Plosive R");
+
+// Parameters
+param_x = 200;
+param_y = 90;
+gfx_r = 0.85; gfx_g = 0.85; gfx_b = 0.9; gfx_a = 1;
+gfx_setfont(1, "Arial", 14);
+
+gfx_x = param_x; gfx_y = param_y;
+gfx_drawstr("Threshold: ");
+gfx_drawnumber(threshold_db, 1);
+gfx_drawstr(" dB");
+
+gfx_x = param_x; gfx_y = param_y + 25;
+gfx_drawstr("Sensitivity: ");
+gfx_drawnumber(sensitivity, 0);
+gfx_drawstr("%");
+
+gfx_x = param_x; gfx_y = param_y + 50;
+gfx_drawstr("Strength: ");
+gfx_drawnumber(strength, 0);
+gfx_drawstr("%");
+
+gfx_x = param_x; gfx_y = param_y + 75;
+gfx_drawstr("Mix: ");
+gfx_drawnumber(mix, 0);
+gfx_drawstr("%");
+
+// Processing status
+gfx_x = 15; gfx_y = 230;
+gfx_setfont(1, "Arial", 12);
+max(meter_plosive_l, meter_plosive_r) > 20 ? (
+  gfx_r = 1; gfx_g = 0.3; gfx_b = 0.3;
+  gfx_drawstr("PLOSIVE DETECTED");
+) : (
+  gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.3;
+  gfx_drawstr("Ready");
+);

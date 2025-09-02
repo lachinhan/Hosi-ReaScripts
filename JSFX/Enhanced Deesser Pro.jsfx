@@ -1,0 +1,362 @@
+desc:Hosi Enhanced Deesser Pro
+author: Hosi
+version:1.0
+changelog:
++ v1.0 - Initial release.
+about:
+  # Enhanced Deesser Pro
+    - A professional tool to reduce sibilance in vocals.
+    - Keywords: dynamics, deesser, sibilance
+
+//tags:dynamics deesser sibilance
+
+slider1:thresh_db=-24<-48,0,0.1>Threshold (dB)
+slider2:hp_freq=6000<2000,20000,1>HP Freq (Hz)
+slider3:lp_freq=20000<8000,20000,1>LP Freq (Hz)
+slider4:attack_ms=0.2<0.1,10,0.1>Attack (ms)
+slider5:release_ms=40<5,200,1>Release (ms)
+slider6:ratio=4<1,10,0.1>Ratio
+slider7:makeup_gain=0<-12,12,0.1>Makeup Gain (dB)
+slider8:mix=100<0,100,1>Mix (%)
+slider9:lookahead_ms=2<0,10,0.1>Lookahead (ms)
+slider10:knee_width=2<0,10,0.1>Knee Width (dB)
+
+options:want_all_kb
+
+@init
+// Memory management
+mem_ptr = 0;
+
+function malloc(size) 
+  local(ret) ( 
+  ret = mem_ptr;
+  mem_ptr += size;
+  ret;
+);
+
+// Constants
+PI = $pi;
+LOG10D20_CONVERSION = 8.6858896380650365530225783783321;
+DB_TO_VAL_FACTOR = 0.11512925464970228420089957273422;
+
+// Convert dB to linear value
+function db_to_val(db) (
+  exp(db * DB_TO_VAL_FACTOR);
+);
+
+// Convert linear value to dB
+function val_to_db(val) (
+  val < 0.0000000298023223876953125 ? -150 : (
+    log(val) * LOG10D20_CONVERSION;
+  );
+);
+
+// Biquad filter structure
+function biquad_init(freq, q, type, sample_rate)
+  instance(a0, a1, a2, b0, b1, b2, x1, x2, y1, y2)
+  local(w, cos_w, sin_w, alpha) ( 
+  
+  w = 2 * PI * freq / sample_rate;
+  cos_w = cos(w);
+  sin_w = sin(w);
+  alpha = sin_w / (2 * q);
+  
+  type == 0 ? ( // Lowpass
+    b0 = (1 - cos_w) / 2;
+    b1 = 1 - cos_w;
+    b2 = (1 - cos_w) / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cos_w;
+    a2 = 1 - alpha;
+  ) : type == 1 ? ( // Highpass
+    b0 = (1 + cos_w) / 2;
+    b1 = -(1 + cos_w);
+    b2 = (1 + cos_w) / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cos_w;
+    a2 = 1 - alpha;
+  );
+  
+  // Normalize coefficients
+  a0 == 0 ? a0 = 0.000001;
+  b0 /= a0;
+  b1 /= a0;
+  b2 /= a0;
+  a1 /= a0;
+  a2 /= a0;
+  
+  // Reset delay line
+  x1 = x2 = y1 = y2 = 0;
+);
+
+function biquad_process(input)
+  instance(b0, b1, b2, a1, a2, x1, x2, y1, y2)
+  local(output) ( 
+  
+  output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+  
+  // Update delay line
+  x2 = x1;
+  x1 = input;
+  y2 = y1;
+  y1 = output;
+  
+  output;
+);
+
+// Envelope follower
+function envelope_init(attack_ms, release_ms, sample_rate) 
+  instance(attack_coeff, release_coeff, envelope) (
+  
+  attack_coeff = exp(-1 / (sample_rate * attack_ms * 0.001));
+  release_coeff = exp(-1 / (sample_rate * release_ms * 0.001));
+  envelope = 0;
+);
+
+function envelope_process(input)
+  instance(attack_coeff, release_coeff, envelope)
+  local(input_abs) ( 
+  
+  input_abs = abs(input);
+  envelope < input_abs ? (
+    envelope = input_abs + attack_coeff * (envelope - input_abs);
+  ) : (
+    envelope = input_abs + release_coeff * (envelope - input_abs);
+  );
+  
+  envelope;
+);
+
+// Soft knee compressor
+function compressor_init(threshold_db, ratio, knee_width_db)
+  instance(threshold, ratio, knee_width, knee_ratio) (
+  
+  threshold = db_to_val(threshold_db);
+  this.ratio = ratio;
+  knee_width = knee_width_db;
+  knee_ratio = 1 / ratio;
+);
+
+function compressor_process(input_level)
+  instance(threshold, ratio, knee_width, knee_ratio) 
+  local(input_db, threshold_db, over_threshold, knee_factor, gain_reduction_db) ( 
+  
+  input_level <= 0 ? input_level = 0.000001;
+  input_db = val_to_db(input_level);
+  threshold_db = val_to_db(threshold);
+  
+  over_threshold = input_db - threshold_db;
+  
+  over_threshold <= 0 ? (
+    gain_reduction_db = 0;
+  ) : over_threshold < knee_width ? (
+    // Soft knee
+    knee_factor = over_threshold / knee_width;
+    gain_reduction_db = knee_factor * knee_factor * over_threshold * (knee_ratio - 1);
+  ) : (
+    // Above knee
+    gain_reduction_db = over_threshold * (knee_ratio - 1);
+  );
+  
+  db_to_val(gain_reduction_db);
+);
+
+// Delay line
+function delay_init(max_delay_samples)
+  instance(buffer, write_pos, delay_samples, buffer_size) (
+  
+  buffer_size = max_delay_samples + 1;
+  buffer = malloc(buffer_size);
+  memset(buffer, 0, buffer_size);
+  write_pos = 0;
+  delay_samples = 0;
+);
+
+function delay_set(delay_samples)
+  instance(delay_samples, buffer_size) (
+  
+  this.delay_samples = max(0, min(delay_samples, buffer_size - 1));
+);
+
+function delay_process(input)
+  instance(buffer, write_pos, delay_samples, buffer_size)
+  local(read_pos, output) ( 
+  
+  buffer[write_pos] = input;
+  read_pos = write_pos - delay_samples;
+  read_pos < 0 ? read_pos += buffer_size;
+  
+  output = buffer[read_pos];
+  write_pos = (write_pos + 1) % buffer_size;
+  
+  output;
+);
+
+// Initialize components
+max_lookahead_samples = ceil(srate * 0.01);
+delay_l.delay_init(max_lookahead_samples);
+delay_r.delay_init(max_lookahead_samples);
+
+@slider
+// Update parameters
+threshold_linear = db_to_val(thresh_db);
+makeup_gain_linear = db_to_val(makeup_gain);
+mix_factor = mix * 0.01;
+lookahead_samples = ceil(srate * lookahead_ms * 0.001);
+
+// Update filters
+hp_filter_l.biquad_init(hp_freq, 0.707, 1, srate);
+hp_filter_r.biquad_init(hp_freq, 0.707, 1, srate);
+lp_filter_l.biquad_init(lp_freq, 0.707, 0, srate);
+lp_filter_r.biquad_init(lp_freq, 0.707, 0, srate);
+
+// Update envelope followers
+envelope_l.envelope_init(attack_ms, release_ms, srate);
+envelope_r.envelope_init(attack_ms, release_ms, srate);
+
+// Update compressors
+compressor_l.compressor_init(thresh_db, ratio, knee_width);
+compressor_r.compressor_init(thresh_db, ratio, knee_width);
+
+// Update delays
+delay_l.delay_set(lookahead_samples);
+delay_r.delay_set(lookahead_samples);
+
+@sample
+// Store dry signals
+dry_l = spl0;
+dry_r = spl1;
+
+// Apply highpass filter
+hp_l = hp_filter_l.biquad_process(spl0);
+hp_r = hp_filter_r.biquad_process(spl1);
+
+// Apply lowpass filter
+filtered_l = lp_filter_l.biquad_process(hp_l);
+filtered_r = lp_filter_r.biquad_process(hp_r);
+
+// Envelope following
+env_l = envelope_l.envelope_process(filtered_l);
+env_r = envelope_r.envelope_process(filtered_r);
+
+// Compression
+gain_reduction_l = compressor_l.compressor_process(env_l);
+gain_reduction_r = compressor_r.compressor_process(env_r);
+
+// Apply lookahead delay to dry signal
+delayed_l = delay_l.delay_process(dry_l);
+delayed_r = delay_r.delay_process(dry_r);
+
+// Apply gain reduction with makeup gain
+processed_l = delayed_l * gain_reduction_l * makeup_gain_linear;
+processed_r = delayed_r * gain_reduction_r * makeup_gain_linear;
+
+// Mix dry and processed signals
+spl0 = delayed_l * (1 - mix_factor) + processed_l * mix_factor;
+spl1 = delayed_r * (1 - mix_factor) + processed_r * mix_factor;
+
+@gfx 400 300
+// Clear background
+gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.1; gfx_a = 1;
+gfx_x = 0; gfx_y = 0;
+gfx_rectto(gfx_w, gfx_h);
+
+// Draw title
+gfx_r = 0.9; gfx_g = 0.9; gfx_b = 0.9; gfx_a = 1;
+gfx_setfont(1, "Arial", 16, 'b');
+gfx_x = 10; gfx_y = 10;
+gfx_drawstr("Enhanced Deesser Pro");
+
+// Update meter values (chỉ khi có audio)
+spl0 != 0 || spl1 != 0 ? (
+  meter_gain_reduction_l = gain_reduction_l > 0 ? val_to_db(gain_reduction_l) : 0;
+  meter_gain_reduction_r = gain_reduction_r > 0 ? val_to_db(gain_reduction_r) : 0;
+  meter_input_level_l = abs(spl0) > 0 ? val_to_db(abs(spl0)) : -60;
+  meter_input_level_r = abs(spl1) > 0 ? val_to_db(abs(spl1)) : -60;
+) : (
+  meter_gain_reduction_l = 0;
+  meter_gain_reduction_r = 0;
+  meter_input_level_l = -60;
+  meter_input_level_r = -60;
+);
+
+// Draw meters
+meter_x = 20;
+meter_y = 50;
+meter_w = 30;
+meter_h = 200;
+
+// Draw meter backgrounds
+gfx_r = 0.2; gfx_g = 0.2; gfx_b = 0.2; gfx_a = 1;
+gfx_x = meter_x; gfx_y = meter_y;
+gfx_rectto(meter_x + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 40; gfx_y = meter_y;
+gfx_rectto(meter_x + 40 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 80; gfx_y = meter_y;
+gfx_rectto(meter_x + 80 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 120; gfx_y = meter_y;
+gfx_rectto(meter_x + 120 + meter_w, meter_y + meter_h);
+
+// Input level meters (green)
+gfx_r = 0.2; gfx_g = 0.8; gfx_b = 0.2; gfx_a = 1;
+input_meter_height_l = max(0, min(meter_h, (meter_input_level_l + 60) * meter_h / 60));
+input_meter_height_r = max(0, min(meter_h, (meter_input_level_r + 60) * meter_h / 60));
+
+gfx_x = meter_x; gfx_y = meter_y + meter_h - input_meter_height_l;
+gfx_rectto(meter_x + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 40; gfx_y = meter_y + meter_h - input_meter_height_r;
+gfx_rectto(meter_x + 40 + meter_w, meter_y + meter_h);
+
+// Gain reduction meters (red)
+gfx_r = 0.8; gfx_g = 0.2; gfx_b = 0.2; gfx_a = 1;
+gr_meter_height_l = max(0, min(meter_h, abs(meter_gain_reduction_l) * meter_h / 20));
+gr_meter_height_r = max(0, min(meter_h, abs(meter_gain_reduction_r) * meter_h / 20));
+
+gfx_x = meter_x + 80; gfx_y = meter_y + meter_h - gr_meter_height_l;
+gfx_rectto(meter_x + 80 + meter_w, meter_y + meter_h);
+gfx_x = meter_x + 120; gfx_y = meter_y + meter_h - gr_meter_height_r;
+gfx_rectto(meter_x + 120 + meter_w, meter_y + meter_h);
+
+// Labels
+gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.7; gfx_a = 1;
+gfx_setfont(1, "Arial", 12);
+gfx_x = meter_x; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("Input L");
+gfx_x = meter_x + 40; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("Input R");
+gfx_x = meter_x + 80; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("GR L");
+gfx_x = meter_x + 120; gfx_y = meter_y + meter_h + 10;
+gfx_drawstr("GR R");
+
+// Parameter display
+param_x = 200;
+param_y = 80;
+gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8; gfx_a = 1;
+gfx_setfont(1, "Arial", 16);
+
+gfx_x = param_x; gfx_y = param_y;
+gfx_drawstr("Threshold: ");
+gfx_drawnumber(thresh_db, 1);
+gfx_drawstr(" dB");
+
+gfx_x = param_x; gfx_y = param_y + 20;
+gfx_drawstr("Ratio: ");
+gfx_drawnumber(ratio, 1);
+gfx_drawstr(":1");
+
+gfx_x = param_x; gfx_y = param_y + 40;
+gfx_drawstr("Attack: ");
+gfx_drawnumber(attack_ms, 1);
+gfx_drawstr(" ms");
+
+gfx_x = param_x; gfx_y = param_y + 60;
+gfx_drawstr("Release: ");
+gfx_drawnumber(release_ms, 1);
+gfx_drawstr(" ms");
+
+gfx_x = param_x; gfx_y = param_y + 80;
+gfx_drawstr("Mix: ");
+gfx_drawnumber(mix, 0);
+gfx_drawstr("%");
+

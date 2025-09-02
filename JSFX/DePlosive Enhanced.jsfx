@@ -1,0 +1,714 @@
+desc:Hosi DePlosive Enhanced
+author:Hosi
+version:1.0
+changelog:
++ v1.0 - Initial release.
+about:
+  # DePlosive Enhanced
+    - An enhanced, adaptive tool to reduce vocal plosives.
+    - Keywords: dynamics, plosive, vocal, pop, enhanced, adaptive
+
+//tags:dynamics plosive vocal pop enhanced adaptive
+
+slider1:threshold_db=-24<-48,0,0.1>Threshold (dB)
+slider2:sensitivity=50<0,100,1>Sensitivity (%)
+slider3:strength=50<0,100,1>Strength (%)
+slider4:freq_limit=300<100,500,10>Frequency Limit (Hz)
+slider5:attack_ms=0.1<0.05,5,0.01>Attack (ms)
+slider6:release_ms=20<5,100,1>Release (ms)
+slider7:mix=100<0,100,1>Mix (%)
+slider8:monitor=0<0,1,1{Off,On}>Monitor Detector
+slider9:lookahead_ms=2<0,10,0.1>Lookahead (ms)
+slider10:adaptive_mode=0<0,1,1{Off,On}>Adaptive Mode
+slider11:voice_type=1<0,2,1{Male,Female,Auto}>Voice Type
+slider12:processing_mode=1<0,2,1{Gentle,Normal,Aggressive}>Processing Mode
+
+options:want_all_kb
+
+@init
+// Constants
+PI = $pi;
+LOG10D20_CONVERSION = 8.6858896380650365530225783783321;
+DB_TO_VAL_FACTOR = 0.11512925464970228420089957273422;
+
+// ADAPTIVE LEARNING VARIABLES
+adaptive_threshold = -24;
+adaptive_sensitivity = 50;
+learning_rate = 0.001;
+learning_samples = 0;
+max_learning_samples = srate * 30; // 30 seconds
+learning_progress = 0;
+adaptive_completed = 0;
+
+// History buffers
+history_size = 1000;
+plosive_history = 0;
+input_level_history = history_size;
+detection_accuracy_history = 2 * history_size;
+history_pos = 0;
+
+// Performance tracking
+false_positive_count = 0;
+true_positive_count = 0;
+total_detections = 0;
+performance_window = srate * 5;
+performance_counter = 0;
+
+// Voice type parameters
+voice_freq_male = 85;
+voice_freq_female = 165;
+voice_freq_auto = 120;
+
+// Lookahead buffer
+MAX_LOOKAHEAD_SAMPLES = 512;
+lookahead_buffer_l = 3 * history_size;
+lookahead_buffer_r = 3 * history_size + MAX_LOOKAHEAD_SAMPLES;
+lookahead_pos = 0;
+
+// GRAPHICS OPTIMIZATION
+gfx_needs_update = 1;
+gfx_update_counter = 0;
+gfx_update_interval = 32;
+
+// METER VARIABLES - CHỈ HOẠT ĐỘNG KHI ADAPTIVE OFF
+meter_plosive_l = 0;
+meter_plosive_r = 0;
+meter_input_l = 0;
+meter_input_r = 0;
+meter_gain_reduction_l = 0;
+meter_gain_reduction_r = 0;
+
+// Convert dB to linear value
+function db_to_val(db) (
+  exp(db * DB_TO_VAL_FACTOR);
+);
+
+// Convert linear value to dB
+function val_to_db(val) (
+  val < 0.0000000298023223876953125 ? -150 : (
+    log(val) * LOG10D20_CONVERSION;
+  );
+);
+
+// Enhanced plosive detection filter
+function plosive_filter_init(freq, q, sample_rate)
+  instance(a0, a1, a2, b0, b1, b2, x1, x2, y1, y2, current_freq)
+  local(w, cos_w, sin_w, alpha) (
+  
+  current_freq = freq;
+  w = 2 * PI * freq / sample_rate;
+  cos_w = cos(w);
+  sin_w = sin(w);
+  alpha = sin_w / (2 * q);
+  
+  b0 = alpha;
+  b1 = 0;
+  b2 = -alpha;
+  a0 = 1 + alpha;
+  a1 = -2 * cos_w;
+  a2 = 1 - alpha;
+  
+  b0 /= a0;
+  b1 /= a0;
+  b2 /= a0;
+  a1 /= a0;
+  a2 /= a0;
+  
+  x1 = x2 = y1 = y2 = 0;
+);
+
+function plosive_filter_process(input)
+  instance(b0, b1, b2, a1, a2, x1, x2, y1, y2)
+  local(output) (
+  
+  output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+  
+  x2 = x1;
+  x1 = input;
+  y2 = y1;
+  y1 = output;
+  
+  output;
+);
+
+// Enhanced envelope follower
+function envelope_init(attack_ms, release_ms, sample_rate) 
+  instance(attack_coeff, release_coeff, envelope, peak_hold, peak_timer) (
+  
+  attack_coeff = exp(-1 / (sample_rate * attack_ms * 0.001));
+  release_coeff = exp(-1 / (sample_rate * release_ms * 0.001));
+  envelope = 0;
+  peak_hold = 0;
+  peak_timer = 0;
+);
+
+function envelope_process(input)
+  instance(attack_coeff, release_coeff, envelope, peak_hold, peak_timer)
+  local(input_abs) (
+  
+  input_abs = abs(input);
+  
+  input_abs > peak_hold ? (
+    peak_hold = input_abs;
+    peak_timer = srate * 0.05;
+  ) : (
+    peak_timer > 0 ? (
+      peak_timer -= 1;
+    ) : (
+      peak_hold *= 0.99;
+    );
+  );
+  
+  envelope < input_abs ? (
+    envelope = input_abs + attack_coeff * (envelope - input_abs);
+  ) : (
+    envelope = input_abs + release_coeff * (envelope - input_abs);
+  );
+  
+  max(envelope, peak_hold * 0.3);
+);
+
+// ADAPTIVE PLOSIVE DETECTOR
+function adaptive_plosive_detector_init(base_sensitivity, voice_type)
+  instance(sensitivity_factor, detection_threshold, plosive_level, 
+           voice_compensation, current_sensitivity, current_threshold) (
+  
+  current_sensitivity = adaptive_mode ? adaptive_sensitivity : base_sensitivity;
+  current_threshold = adaptive_mode ? adaptive_threshold : threshold_db;
+  
+  sensitivity_factor = current_sensitivity * 0.01;
+  
+  voice_type == 0 ? voice_compensation = 0.8 :
+  voice_type == 1 ? voice_compensation = 1.2 :
+  voice_compensation = 1.0;
+  
+  detection_threshold = db_to_val(current_threshold) * voice_compensation;
+  plosive_level = 0;
+);
+
+function adaptive_plosive_detector_process(filtered_signal, envelope_level, input_level)
+  instance(sensitivity_factor, detection_threshold, plosive_level, voice_compensation,
+           prev_detection, detection_confidence, current_sensitivity)
+  local(energy, probability, spectral_analysis, temporal_analysis) (
+  
+  energy = filtered_signal * filtered_signal;
+  plosive_level = plosive_level * 0.85 + energy * 0.15;
+  
+  spectral_analysis = plosive_level > 0.01 ? 
+                     min(1, plosive_level * sensitivity_factor * 8 * voice_compensation) : 0;
+  
+  temporal_analysis = envelope_level > detection_threshold ? 1 : 0;
+  
+  probability = spectral_analysis * temporal_analysis;
+  detection_confidence = probability * envelope_level * 10;
+  
+  adaptive_mode ? (
+    plosive_history[history_pos] = probability;
+    input_level_history[history_pos] = input_level;
+    detection_accuracy_history[history_pos] = detection_confidence;
+  );
+  
+  prev_detection = probability;
+  min(1, max(0, probability));
+);
+
+// ADAPTIVE LEARNING ENGINE WITH AUTO-DISABLE
+function adaptive_learning_update() 
+  local(avg_plosive_level, avg_input_level, avg_accuracy, 
+        target_threshold, target_sensitivity, learning_factor,
+        detection_rate, false_positive_rate) (
+  
+  adaptive_mode && learning_samples > srate ? (
+    
+    avg_plosive_level = 0;
+    avg_input_level = 0;
+    avg_accuracy = 0;
+    
+    sample_count = min(history_size, learning_samples);
+    i = 0;
+    loop(sample_count,
+      pos = (history_pos - i + history_size) % history_size;
+      avg_plosive_level += plosive_history[pos];
+      avg_input_level += input_level_history[pos];
+      avg_accuracy += detection_accuracy_history[pos];
+      i += 1;
+    );
+    
+    avg_plosive_level /= sample_count;
+    avg_input_level /= sample_count;
+    avg_accuracy /= sample_count;
+    
+    avg_input_level > 0 ? (
+      target_threshold = val_to_db(avg_input_level) - 8;
+      learning_factor = min(0.1, learning_rate * (learning_samples / max_learning_samples));
+      adaptive_threshold += (target_threshold - adaptive_threshold) * learning_factor;
+      adaptive_threshold = max(-48, min(-6, adaptive_threshold));
+    );
+    
+    performance_counter > performance_window ? (
+      detection_rate = total_detections > 0 ? true_positive_count / total_detections : 0;
+      false_positive_rate = total_detections > 0 ? false_positive_count / total_detections : 0;
+      
+      false_positive_rate > 0.3 ? (
+        adaptive_sensitivity *= (1 - learning_rate * 3);
+      ) : detection_rate < 0.7 ? (
+        adaptive_sensitivity *= (1 + learning_rate * 2);
+      );
+      
+      adaptive_sensitivity = max(10, min(120, adaptive_sensitivity));
+      
+      false_positive_count = 0;
+      true_positive_count = 0;
+      total_detections = 0;
+      performance_counter = 0;
+    );
+    
+    learning_progress = min(100, (learning_samples / max_learning_samples) * 100);
+    
+    // AUTOMATICALLY TURN OFF ADAPTIVE MODE WHEN LEARNING IS FINISHED
+    learning_progress >= 100 && !adaptive_completed ? (
+      adaptive_mode = 0;
+      adaptive_completed = 1;
+      threshold_db = adaptive_threshold;
+      sensitivity = adaptive_sensitivity;
+      gfx_needs_update = 1;
+    );
+  );
+  
+  learning_samples += 1;
+  performance_counter += 1;
+);
+
+// Enhanced compressor
+function adaptive_compressor_init(base_threshold_db, strength, processing_mode)
+  instance(threshold, strength_factor, mode_multiplier, knee_factor, current_threshold) (
+  
+  current_threshold = adaptive_mode ? adaptive_threshold : base_threshold_db;
+  threshold = db_to_val(current_threshold);
+  strength_factor = strength * 0.01;
+  
+  processing_mode == 0 ? (
+    mode_multiplier = 0.7;
+    knee_factor = 0.3;
+  ) : processing_mode == 1 ? (
+    mode_multiplier = 1.0;
+    knee_factor = 0.5;
+  ) : (
+    mode_multiplier = 1.3;
+    knee_factor = 0.8;
+  );
+);
+
+function adaptive_compressor_process(input_level, plosive_probability)
+  instance(threshold, strength_factor, mode_multiplier, knee_factor) 
+  local(over_threshold, gain_reduction, soft_knee) (
+  
+  over_threshold = input_level > threshold ? input_level - threshold : 0;
+  
+  soft_knee = over_threshold < (threshold * knee_factor) ? 
+              (over_threshold / (threshold * knee_factor)) : 1;
+  
+  gain_reduction = 1 - (over_threshold / threshold) * strength_factor * 
+                   plosive_probability * mode_multiplier * soft_knee;
+  
+  max(0.1, min(1, gain_reduction));
+);
+
+// Get filter frequency
+function get_filter_frequency() (
+  voice_type == 0 ? voice_freq_male :
+  voice_type == 1 ? voice_freq_female :
+  voice_freq_auto;
+);
+
+// Initialize
+current_filter_freq = get_filter_frequency();
+
+plosive_filter_l.plosive_filter_init(current_filter_freq, 2.0, srate);
+plosive_filter_r.plosive_filter_init(current_filter_freq, 2.0, srate);
+
+envelope_l.envelope_init(attack_ms, release_ms, srate);
+envelope_r.envelope_init(attack_ms, release_ms, srate);
+
+detector_l.adaptive_plosive_detector_init(sensitivity, voice_type);
+detector_r.adaptive_plosive_detector_init(sensitivity, voice_type);
+
+compressor_l.adaptive_compressor_init(threshold_db, strength, processing_mode);
+compressor_r.adaptive_compressor_init(threshold_db, strength, processing_mode);
+
+@slider
+threshold_linear = db_to_val(adaptive_mode ? adaptive_threshold : threshold_db);
+mix_factor = mix * 0.01;
+lookahead_samples = floor(lookahead_ms * srate * 0.001);
+
+current_filter_freq = get_filter_frequency();
+
+plosive_filter_l.plosive_filter_init(current_filter_freq, 2.0, srate);
+plosive_filter_r.plosive_filter_init(current_filter_freq, 2.0, srate);
+
+envelope_l.envelope_init(attack_ms, release_ms, srate);
+envelope_r.envelope_init(attack_ms, release_ms, srate);
+
+detector_l.adaptive_plosive_detector_init(sensitivity, voice_type);
+detector_r.adaptive_plosive_detector_init(sensitivity, voice_type);
+
+compressor_l.adaptive_compressor_init(threshold_db, strength, processing_mode);
+compressor_r.adaptive_compressor_init(threshold_db, strength, processing_mode);
+
+gfx_needs_update = 1;
+
+@sample
+dry_l = spl0;
+dry_r = spl1;
+
+lookahead_buffer_l[lookahead_pos] = spl0;
+lookahead_buffer_r[lookahead_pos] = spl1;
+
+delayed_pos = (lookahead_pos - lookahead_samples + MAX_LOOKAHEAD_SAMPLES) % MAX_LOOKAHEAD_SAMPLES;
+delayed_l = lookahead_buffer_l[delayed_pos];
+delayed_r = lookahead_buffer_r[delayed_pos];
+
+filtered_l = plosive_filter_l.plosive_filter_process(delayed_l);
+filtered_r = plosive_filter_r.plosive_filter_process(delayed_r);
+
+env_l = envelope_l.envelope_process(filtered_l);
+env_r = envelope_r.envelope_process(filtered_r);
+
+plosive_prob_l = detector_l.adaptive_plosive_detector_process(filtered_l, env_l, abs(delayed_l));
+plosive_prob_r = detector_r.adaptive_plosive_detector_process(filtered_r, env_r, abs(delayed_r));
+
+adaptive_learning_update();
+history_pos = (history_pos + 1) % history_size;
+
+gain_reduction_l = compressor_l.adaptive_compressor_process(env_l, plosive_prob_l);
+gain_reduction_r = compressor_r.adaptive_compressor_process(env_r, plosive_prob_r);
+
+processed_l = delayed_l * gain_reduction_l;
+processed_r = delayed_r * gain_reduction_r;
+
+spl0 = delayed_l * (1 - mix_factor) + processed_l * mix_factor;
+spl1 = delayed_r * (1 - mix_factor) + processed_r * mix_factor;
+
+monitor == 1 ? (
+  spl0 = filtered_l * plosive_prob_l * 2;
+  spl1 = filtered_r * plosive_prob_r * 2;
+);
+
+// METER UPDATES - ONLY WHEN ADAPTIVE OFF
+gfx_update_counter += 1;
+gfx_update_counter >= gfx_update_interval ? (
+  
+  // UPDATE METERS ONLY WHEN ADAPTIVE MODE IS OFF
+  !adaptive_mode ? (
+    meter_plosive_l = plosive_prob_l * 100;
+    meter_plosive_r = plosive_prob_r * 100;
+    meter_input_l = abs(dry_l) > 0 ? val_to_db(abs(dry_l)) : -60;
+    meter_input_r = abs(dry_r) > 0 ? val_to_db(abs(dry_r)) : -60;
+    meter_gain_reduction_l = val_to_db(gain_reduction_l);
+    meter_gain_reduction_r = val_to_db(gain_reduction_r);
+  );
+  
+  gfx_needs_update = 1;
+  gfx_update_counter = 0;
+);
+
+lookahead_pos = (lookahead_pos + 1) % MAX_LOOKAHEAD_SAMPLES;
+
+@gfx 500 400
+gfx_needs_update ? (
+  
+  // Background
+  gfx_r = 0.08; gfx_g = 0.08; gfx_b = 0.12; gfx_a = 1;
+  gfx_x = 0; gfx_y = 0;
+  gfx_rectto(gfx_w, gfx_h);
+
+  // Title
+  gfx_r = 0.9; gfx_g = 0.9; gfx_b = 1; gfx_a = 1;
+  gfx_setfont(1, "Arial", 20, 'b');
+  gfx_x = 15; gfx_y = 15;
+  gfx_drawstr("DePlosive Enhanced");
+
+  // Status line
+  gfx_setfont(1, "Arial", 14);
+  gfx_x = 15; gfx_y = 45;
+  adaptive_mode ? (
+    gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.9;
+    gfx_drawstr("ADAPTIVE MODE: ON | Learning: ");
+    gfx_drawnumber(learning_progress, 0);
+    gfx_drawstr("% | ");
+  ) : adaptive_completed ? (
+    gfx_r = 0.3; gfx_g = 0.9; gfx_b = 0.3;
+    gfx_drawstr("Adaptive Complete | ");
+  ) : (
+    gfx_r = 0.6; gfx_g = 0.6; gfx_b = 0.7;
+    gfx_drawstr("Manual Mode | ");
+  );
+
+  gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.8;
+  voice_type == 0 ? gfx_drawstr("Male Voice") :
+  voice_type == 1 ? gfx_drawstr("Female Voice") :
+  gfx_drawstr("Auto Voice");
+
+  // Monitor status
+  gfx_x = 350; gfx_y = 45;
+  monitor ? (
+    gfx_r = 1; gfx_g = 0.4; gfx_b = 0.2;
+    gfx_drawstr("Monitor: ON");
+  ) : (
+    gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.3;
+    gfx_drawstr("Monitor: OFF");
+  );
+
+  // METER AREA - CONDITIONAL DISPLAY
+  meter_x = 20;
+  meter_y = 80;
+  meter_w = 20;
+  meter_h = 120;
+  meter_spacing = 30;
+
+  // ADAPTIVE MODE: DISPLAY MESSAGES INSTEAD OF METERS
+  adaptive_mode && learning_progress < 100 ? (
+    
+    // Draw a frame for the notification area
+    gfx_r = 0.2; gfx_g = 0.3; gfx_b = 0.4; gfx_a = 1;
+    gfx_x = meter_x - 10;
+    gfx_y = meter_y - 10;
+    gfx_rectto(meter_x + 6 * meter_spacing + 10, meter_y + meter_h + 40);
+    
+    // Frame
+    gfx_r = 0.4; gfx_g = 0.6; gfx_b = 0.8; gfx_a = 1;
+    gfx_x = meter_x - 10;
+    gfx_y = meter_y - 10;
+    gfx_rectto(meter_x + 6 * meter_spacing + 10, meter_y - 8);
+    gfx_x = meter_x - 10;
+    gfx_y = meter_y + meter_h + 38;
+    gfx_rectto(meter_x + 6 * meter_spacing + 10, meter_y + meter_h + 40);
+    gfx_x = meter_x - 10;
+    gfx_y = meter_y - 10;
+    gfx_rectto(meter_x - 8, meter_y + meter_h + 40);
+    gfx_x = meter_x + 6 * meter_spacing + 8;
+    gfx_y = meter_y - 10;
+    gfx_rectto(meter_x + 6 * meter_spacing + 10, meter_y + meter_h + 40);
+    
+    // MAIN ANNOUNCEMENT
+    gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.9; gfx_a = 1;
+    gfx_setfont(1, "Arial", 16, 'b');
+    gfx_x = meter_x + 10;
+    gfx_y = meter_y + 30;
+    gfx_drawstr("Plugin is learning");
+    
+    gfx_x = meter_x + 10;
+    gfx_y = meter_y + 50;
+    gfx_drawstr("please wait 30s");
+    
+    // Progress bar
+    progress_x = meter_x + 10;
+    progress_y = meter_y + 75;
+    progress_w = 140;
+    progress_h = 8;
+    
+    // Progress bar background
+    gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.2; gfx_a = 1;
+    gfx_x = progress_x;
+    gfx_y = progress_y;
+    gfx_rectto(progress_x + progress_w, progress_y + progress_h);
+    
+    // Progress bar fill
+    progress_fill = (learning_progress / 100) * progress_w;
+    gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.9; gfx_a = 1;
+    gfx_x = progress_x;
+    gfx_y = progress_y;
+    gfx_rectto(progress_x + progress_fill, progress_y + progress_h);
+    
+    // Percentage text
+    gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.9; gfx_a = 1;
+    gfx_setfont(1, "Arial", 12);
+    gfx_x = progress_x + progress_w/2 - 15;
+    gfx_y = progress_y + 15;
+    gfx_drawnumber(learning_progress, 0);
+    gfx_drawstr("%");
+    
+    // Time remaining
+    remaining_time = max(0, 30 - (learning_samples / srate));
+    gfx_x = meter_x + 10;
+    gfx_y = meter_y + 105;
+    gfx_setfont(1, "Arial", 12);
+    gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.8;
+    gfx_drawstr("Remaining: ");
+    gfx_drawnumber(remaining_time, 0);
+    gfx_drawstr(" seconds");
+    
+  ) : (
+    // MANUAL MODE OR ADAPTIVE COMPLETE: SHOW ALL METERS
+    
+    // Meter backgrounds
+    gfx_r = 0.15; gfx_g = 0.15; gfx_b = 0.2; gfx_a = 1;
+    i = 0;
+    loop(6,
+      gfx_x = meter_x + i * meter_spacing;
+      gfx_y = meter_y;
+      gfx_rectto(meter_x + i * meter_spacing + meter_w, meter_y + meter_h);
+      i += 1;
+    );
+
+    // Input level meters
+    input_height_l = max(0, min(meter_h, (meter_input_l + 60) * meter_h / 60));
+    input_height_r = max(0, min(meter_h, (meter_input_r + 60) * meter_h / 60));
+
+    gfx_r = 0.2; gfx_g = 0.6; gfx_b = 0.8; gfx_a = 1;
+    gfx_x = meter_x; gfx_y = meter_y + meter_h - input_height_l;
+    gfx_rectto(meter_x + meter_w, meter_y + meter_h);
+    gfx_x = meter_x + meter_spacing; gfx_y = meter_y + meter_h - input_height_r;
+    gfx_rectto(meter_x + meter_spacing + meter_w, meter_y + meter_h);
+
+    // Plosive detection meters
+    plosive_height_l = max(0, min(meter_h, meter_plosive_l * meter_h / 100));
+    plosive_height_r = max(0, min(meter_h, meter_plosive_r * meter_h / 100));
+
+    gfx_r = 1; gfx_g = 0.5; gfx_b = 0.1; gfx_a = 1;
+    gfx_x = meter_x + 2 * meter_spacing; gfx_y = meter_y + meter_h - plosive_height_l;
+    gfx_rectto(meter_x + 2 * meter_spacing + meter_w, meter_y + meter_h);
+    gfx_x = meter_x + 3 * meter_spacing; gfx_y = meter_y + meter_h - plosive_height_r;
+    gfx_rectto(meter_x + 3 * meter_spacing + meter_w, meter_y + meter_h);
+
+    // Gain reduction meters
+    gr_height_l = max(0, min(meter_h, abs(meter_gain_reduction_l) * meter_h / 20));
+    gr_height_r = max(0, min(meter_h, abs(meter_gain_reduction_r) * meter_h / 20));
+
+    gfx_r = 0.9; gfx_g = 0.2; gfx_b = 0.2; gfx_a = 1;
+    gfx_x = meter_x + 4 * meter_spacing; gfx_y = meter_y + meter_h - gr_height_l;
+    gfx_rectto(meter_x + 4 * meter_spacing + meter_w, meter_y + meter_h);
+    gfx_x = meter_x + 5 * meter_spacing; gfx_y = meter_y + meter_h - gr_height_r;
+    gfx_rectto(meter_x + 5 * meter_spacing + meter_w, meter_y + meter_h);
+
+    // Meter labels
+    gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.8; gfx_a = 1;
+    gfx_setfont(1, "Arial", 12);
+    
+    gfx_x = meter_x - 2; gfx_y = meter_y + meter_h + 5;
+    gfx_drawstr("In L");
+    gfx_x = meter_x + meter_spacing - 2; gfx_y = meter_y + meter_h + 5;
+    gfx_drawstr("In R");
+    gfx_x = meter_x + 2 * meter_spacing - 2; gfx_y = meter_y + meter_h + 5;
+    gfx_drawstr("Plo L");
+    gfx_x = meter_x + 3 * meter_spacing - 2; gfx_y = meter_y + meter_h + 5;
+    gfx_drawstr("Plo R");
+    gfx_x = meter_x + 4 * meter_spacing - 2; gfx_y = meter_y + meter_h + 5;
+    gfx_drawstr("GR L");
+    gfx_x = meter_x + 5 * meter_spacing - 2; gfx_y = meter_y + meter_h + 5;
+    gfx_drawstr("GR R");
+  );
+
+  // Parameters display
+  param_x = 220;
+  param_y = 90;
+  gfx_r = 0.85; gfx_g = 0.85; gfx_b = 0.9; gfx_a = 1;
+  gfx_setfont(1, "Arial", 12);
+
+  gfx_x = param_x; gfx_y = param_y;
+  gfx_drawstr("Threshold: ");
+  gfx_drawnumber(adaptive_mode ? adaptive_threshold : threshold_db, 1);
+  gfx_drawstr(" dB");
+  adaptive_mode ? (
+    gfx_r = 0.5; gfx_g = 0.8; gfx_b = 0.9;
+    gfx_drawstr(" (Learning)");
+    gfx_r = 0.85; gfx_g = 0.85; gfx_b = 0.9;
+  ) : adaptive_completed ? (
+    gfx_r = 0.3; gfx_g = 0.9; gfx_b = 0.3;
+    gfx_drawstr(" (Learned)");
+    gfx_r = 0.85; gfx_g = 0.85; gfx_b = 0.9;
+  );
+
+  gfx_x = param_x; gfx_y = param_y + 20;
+  gfx_drawstr("Sensitivity: ");
+  gfx_drawnumber(adaptive_mode ? adaptive_sensitivity : sensitivity, 1);
+  gfx_drawstr("%");
+  adaptive_mode ? (
+    gfx_r = 0.5; gfx_g = 0.8; gfx_b = 0.9;
+    gfx_drawstr(" (Learning)");
+    gfx_r = 0.85; gfx_g = 0.85; gfx_b = 0.9;
+  ) : adaptive_completed ? (
+    gfx_r = 0.3; gfx_g = 0.9; gfx_b = 0.3;
+    gfx_drawstr(" (Learned)");
+    gfx_r = 0.85; gfx_g = 0.85; gfx_b = 0.9;
+  );
+
+  gfx_x = param_x; gfx_y = param_y + 40;
+  gfx_drawstr("Strength: ");
+  gfx_drawnumber(strength, 0);
+  gfx_drawstr("%");
+
+  gfx_x = param_x; gfx_y = param_y + 60;
+  gfx_drawstr("Lookahead: ");
+  gfx_drawnumber(lookahead_ms, 1);
+  gfx_drawstr(" ms");
+
+  gfx_x = param_x; gfx_y = param_y + 80;
+  gfx_drawstr("Mix: ");
+  gfx_drawnumber(mix, 0);
+  gfx_drawstr("%");
+
+  gfx_x = param_x; gfx_y = param_y + 100;
+  gfx_drawstr("Mode: ");
+  processing_mode == 0 ? gfx_drawstr("Gentle") :
+  processing_mode == 1 ? gfx_drawstr("Normal") :
+  gfx_drawstr("Aggressive");
+
+  // Adaptive status
+  adaptive_mode ? (
+    gfx_x = param_x; gfx_y = param_y + 120;
+    gfx_r = 0.5; gfx_g = 0.8; gfx_b = 0.9;
+    gfx_drawstr("Learning: ");
+    gfx_drawnumber(learning_progress, 0);
+    gfx_drawstr("%");
+    
+    gfx_x = param_x; gfx_y = param_y + 140;
+    learning_progress >= 95 ? (
+      gfx_r = 0.9; gfx_g = 0.7; gfx_b = 0.3;
+      gfx_drawstr("Auto-disable at 100%");
+    ) : learning_samples > srate ? (
+      gfx_drawstr("Status: Learning...");
+    ) : (
+      gfx_drawstr("Status: Initializing");
+    );
+  ) : adaptive_completed ? (
+    gfx_x = param_x; gfx_y = param_y + 120;
+    gfx_r = 0.3; gfx_g = 0.9; gfx_b = 0.3;
+    gfx_drawstr("Learning Complete!");
+    gfx_x = param_x; gfx_y = param_y + 140;
+    gfx_drawstr("Values applied to sliders");
+  );
+
+  // Processing status
+  gfx_x = 15; gfx_y = 280;
+  gfx_setfont(1, "Arial", 14, 'b');
+  
+  adaptive_mode ? (
+    gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.9;
+    gfx_drawstr("LEARNING MODE");
+  ) : max(meter_plosive_l, meter_plosive_r) > 25 ? (
+    gfx_r = 1; gfx_g = 0.2; gfx_b = 0.2;
+    gfx_drawstr("PLOSIVE DETECTED");
+  ) : (
+    gfx_r = 0.3; gfx_g = 0.8; gfx_b = 0.3;
+    gfx_drawstr("Ready");
+  );
+
+  // Performance info
+  gfx_x = 15; gfx_y = 350;
+  gfx_setfont(1, "Arial", 12);
+  gfx_r = 0.6; gfx_g = 0.6; gfx_b = 0.7;
+  gfx_drawstr("Latency: ");
+  gfx_drawnumber(lookahead_ms, 1);
+  gfx_drawstr("ms | Filter: ");
+  gfx_drawnumber(current_filter_freq, 0);
+  gfx_drawstr("Hz");
+
+  adaptive_mode ? (
+    gfx_x = 200; gfx_y = 350;
+    gfx_drawstr("Learning samples: ");
+    gfx_drawnumber(learning_samples, 0);
+  );
+
+  gfx_needs_update = 0;
+);

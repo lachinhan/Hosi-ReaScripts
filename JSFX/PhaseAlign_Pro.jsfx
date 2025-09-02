@@ -1,0 +1,534 @@
+desc: Hosi PhaseAlign Pro - Phase Alignment Tool
+author: Hosi
+version: 1.0
+changelog:
++ v1.0 - Initial release.
+about:
+  # PhaseAlign Lite
+    - A utility for phase alignment.
+    - Keywords: phase, alignment, utility
+
+//tags: phase alignment utility
+
+
+// Slider definitions
+slider1:0<-1000,1000,1>Sample Delay
+slider2:0<-50,50,0.1>MS Delay (ms)
+slider3:0<0,360,1>Phase Rotation (degrees)
+slider4:0<0,1,1{Normal,Inverted}>Polarity
+slider5:0<0,1,1{Off,On}>Auto Learn
+slider6:0<0,1,1{Off,On}>Bass Lock (<200Hz)
+slider7:0<0,1,1{Off,On}>Mono Check
+slider8:0<0,4,1{Stereo,Mono,L Only,R Only,Difference}>Monitor Mode
+slider9:0<0,360,1>Bass Phase (degrees)
+slider10:0<0,360,1>Mid Phase (degrees)
+slider11:0<0,360,1>High Phase (degrees)
+slider12:0<0,1,1{Off,On}>Bypass
+slider13:0<0,7,1{Custom,Drum OH,Snare,Kick,Bass DI+Amp,Guitar Multi,Vocal,Piano}>Preset
+slider14:0<0,1,1{Off,On}>Advanced Mode
+slider15:0<0,1,1{Off,On}>Spectral Display
+
+@init
+  // Constants
+  PI = 3.14159265359;
+  TWOPI = 2 * PI;
+  SRATE_INV = 1 / srate;
+  
+  // Buffer management - optimized sizes
+  MAX_DELAY = 2048;
+  FFT_SIZE = 1024;
+  
+  // Memory allocation
+  delay_buffer_l = 0;
+  delay_buffer_r = MAX_DELAY;
+  fft_buffer = MAX_DELAY * 2;
+  window_buffer = fft_buffer + FFT_SIZE * 2;
+  
+  // Initialize buffers
+  memset(delay_buffer_l, 0, MAX_DELAY);
+  memset(delay_buffer_r, 0, MAX_DELAY);
+  
+  // Variables
+  delay_pos = 0;
+  correlation = 0;
+  correlation_smooth = 0;
+  rms_l = 0;
+  rms_r = 0;
+  prev_learn = 0; // FIXED: Initialize prev_learn
+  
+  // Enhanced filter implementation
+  function calc_filter_coeffs(freq, sr, q) (
+    omega = TWOPI * freq / sr;
+    cos_omega = cos(omega);
+    sin_omega = sin(omega);
+    alpha = sin_omega / (2 * q);
+    
+    // Lowpass biquad coefficients
+    this.b0 = (1 - cos_omega) / 2;
+    this.b1 = 1 - cos_omega;
+    this.b2 = (1 - cos_omega) / 2;
+    this.a0 = 1 + alpha;
+    this.a1 = -2 * cos_omega;
+    this.a2 = 1 - alpha;
+    
+    // Normalize coefficients
+    this.b0 /= this.a0;
+    this.b1 /= this.a0;
+    this.b2 /= this.a0;
+    this.a1 /= this.a0;
+    this.a2 /= this.a0;
+    
+    // Initialize filter states
+    this.x1 = this.x2 = this.y1 = this.y2 = 0;
+  );
+  
+  function filter_process(input) (
+    output = this.b0 * input + this.b1 * this.x1 + this.b2 * this.x2 - 
+             this.a1 * this.y1 - this.a2 * this.y2;
+    
+    // Update delay line
+    this.x2 = this.x1;
+    this.x1 = input;
+    this.y2 = this.y1;
+    this.y1 = output;
+    
+    output;
+  );
+  
+  // Initialize frequency band filters with proper Q values
+  bass_lp_l.calc_filter_coeffs(200, srate, 0.707);
+  bass_lp_r.calc_filter_coeffs(200, srate, 0.707);
+  mid_bp_l.calc_filter_coeffs(1000, srate, 1.0);
+  mid_bp_r.calc_filter_coeffs(1000, srate, 1.0);
+  high_hp_l.calc_filter_coeffs(2000, srate, 0.707);
+  high_hp_r.calc_filter_coeffs(2000, srate, 0.707);
+  
+  // Auto learn variables - FIXED: Use Version 1.0 logic
+  learn_counter = 0;
+  learn_samples = srate * 2; // 2 seconds like Version 1.0
+  best_correlation = -1;
+  best_delay = 0;
+  
+  // Preset system
+  preset_changed = 0;
+  prev_preset = -1;
+  
+  // Performance optimization flags
+  need_frequency_processing = 0;
+  need_spectral_analysis = 0;
+
+@slider
+  // Handle preset changes first
+  slider13 != prev_preset ? (
+    preset_changed = 1;
+    prev_preset = slider13;
+    
+    // Enhanced preset definitions
+    slider13 == 1 ? ( // Drum Overheads - Optimized
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 0;
+      slider9 = 0; slider10 = 0; slider11 = 0;
+    ) : slider13 == 2 ? ( // Snare Top/Bottom - Phase corrected
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 1;
+      slider9 = 0; slider10 = 180; slider11 = 0;
+      slider6 = 0; // No bass lock for snare
+    ) : slider13 == 3 ? ( // Kick In/Out - Bass optimized
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 0;
+      slider9 = 0; slider10 = 0; slider11 = 0;
+      slider6 = 1; // Enable bass lock
+    ) : slider13 == 4 ? ( // Bass DI + Amp - Enhanced
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 0;
+      slider9 = 0; slider10 = 0; slider11 = 0;
+      slider6 = 1; // Bass lock enabled
+    ) : slider13 == 5 ? ( // Guitar Multi-Mic
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 0;
+      slider9 = 0; slider10 = 0; slider11 = 0;
+      slider6 = 0;
+    ) : slider13 == 6 ? ( // Vocal Harmony
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 0;
+      slider9 = 0; slider10 = 0; slider11 = 0;
+      slider6 = 0; slider7 = 1; // Enable mono check
+    ) : slider13 == 7 ? ( // Piano Stereo
+      slider1 = 0; slider2 = 0; slider3 = 0; slider4 = 0;
+      slider9 = 0; slider10 = 0; slider11 = 0;
+      slider6 = 0;
+    );
+    
+    sliderchange(0xFF);
+  );
+  
+  // Convert delays with bounds checking
+  delay_samples = slider1 + (slider2 * srate * 0.001);
+  delay_samples = max(-MAX_DELAY, min(MAX_DELAY, delay_samples));
+  
+  // Phase rotation in radians
+  phase_rot_rad = slider3 * PI / 180;
+  bass_phase_rad = slider9 * PI / 180;
+  mid_phase_rad = slider10 * PI / 180;
+  high_phase_rad = slider11 * PI / 180;
+  
+  // Performance optimization - check if frequency processing needed
+  need_frequency_processing = (slider9 != 0 || slider10 != 0 || slider11 != 0 || slider6);
+  need_spectral_analysis = slider15 && slider14;
+  
+  // FIXED: Auto learn reset - Use Version 1.0 logic
+  slider5 && !prev_learn ? (
+    learn_counter = 0;
+    best_correlation = -1;
+    best_delay = 0;
+  );
+  prev_learn = slider5;
+
+@sample
+  // Bypass check
+  slider12 ? (
+    spl0 = spl0;
+    spl1 = spl1;
+  ) : (
+    
+    // Store original samples for analysis
+    orig_l = spl0;
+    orig_r = spl1;
+    
+    // Enhanced delay processing
+    delay_pos = (delay_pos + 1) % MAX_DELAY;
+    delay_buffer_l[delay_pos] = spl0;
+    delay_buffer_r[delay_pos] = spl1;
+    
+    // Apply sample delay with interpolation support
+    abs(delay_samples) < MAX_DELAY ? (
+      delay_int = floor(abs(delay_samples));
+      delay_frac = abs(delay_samples) - delay_int;
+      
+      delay_samples > 0 ? (
+        // Delay right channel
+        read_pos = (delay_pos - delay_int + MAX_DELAY) % MAX_DELAY;
+        read_pos_next = (read_pos - 1 + MAX_DELAY) % MAX_DELAY;
+        delayed_l = spl0;
+        delayed_r = delay_buffer_r[read_pos] * (1 - delay_frac) + 
+                   delay_buffer_r[read_pos_next] * delay_frac;
+      ) : (
+        // Delay left channel
+        read_pos = (delay_pos + delay_int) % MAX_DELAY;
+        read_pos_next = (read_pos + 1) % MAX_DELAY;
+        delayed_l = delay_buffer_l[read_pos] * (1 - delay_frac) + 
+                   delay_buffer_l[read_pos_next] * delay_frac;
+        delayed_r = spl1;
+      );
+    ) : (
+      delayed_l = spl0;
+      delayed_r = spl1;
+    );
+    
+    // Apply polarity flip
+    slider4 ? delayed_r = -delayed_r;
+    
+    // Enhanced frequency-specific processing
+    need_frequency_processing ? (
+      // Use proper biquad filters instead of simple separation
+      bass_l = bass_lp_l.filter_process(delayed_l);
+      bass_r = bass_lp_r.filter_process(delayed_r);
+      
+      // Calculate mid and high bands
+      mid_l = delayed_l - bass_l;
+      mid_r = delayed_r - bass_r;
+      high_l = high_hp_l.filter_process(mid_l);
+      high_r = high_hp_r.filter_process(mid_r);
+      mid_l -= high_l;
+      mid_r -= high_r;
+      
+      // Apply phase rotation to each band
+      slider9 != 0 ? (
+        cos_bass = cos(bass_phase_rad);
+        sin_bass = sin(bass_phase_rad);
+        temp_l = bass_l * cos_bass - bass_r * sin_bass;
+        temp_r = bass_l * sin_bass + bass_r * cos_bass;
+        bass_l = temp_l; bass_r = temp_r;
+      );
+      
+      slider10 != 0 ? (
+        cos_mid = cos(mid_phase_rad);
+        sin_mid = sin(mid_phase_rad);
+        temp_l = mid_l * cos_mid - mid_r * sin_mid;
+        temp_r = mid_l * sin_mid + mid_r * cos_mid;
+        mid_l = temp_l; mid_r = temp_r;
+      );
+      
+      slider11 != 0 ? (
+        cos_high = cos(high_phase_rad);
+        sin_high = sin(high_phase_rad);
+        temp_l = high_l * cos_high - high_r * sin_high;
+        temp_r = high_l * sin_high + high_r * cos_high;
+        high_l = temp_l; high_r = temp_r;
+      );
+      
+      // Recombine bands
+      delayed_l = bass_l + mid_l + high_l;
+      delayed_r = bass_r + mid_r + high_r;
+    );
+    
+    // Global phase rotation
+    slider3 != 0 ? (
+      cos_phase = cos(phase_rot_rad);
+      sin_phase = sin(phase_rot_rad);
+      temp_l = delayed_l * cos_phase - delayed_r * sin_phase;
+      temp_r = delayed_l * sin_phase + delayed_r * cos_phase;
+      delayed_l = temp_l;
+      delayed_r = temp_r;
+    );
+    
+    // Bass lock with proper filtering
+    slider6 ? (
+      bass_mono = (bass_l + bass_r) * 0.5;
+      delayed_l = (delayed_l - bass_l) + bass_mono;
+      delayed_r = (delayed_r - bass_r) + bass_mono;
+    );
+    
+    // Monitor modes
+    slider8 == 1 ? ( // Mono
+      mono = (delayed_l + delayed_r) * 0.5;
+      spl0 = spl1 = mono;
+    ) : slider8 == 2 ? ( // L Only
+      spl0 = spl1 = delayed_l;
+    ) : slider8 == 3 ? ( // R Only  
+      spl0 = spl1 = delayed_r;
+    ) : slider8 == 4 ? ( // Difference
+      diff = delayed_l - delayed_r;
+      spl0 = spl1 = diff;
+    ) : (
+      spl0 = delayed_l;
+      spl1 = delayed_r;
+    );
+    
+    // Enhanced correlation calculation
+    rms_l = rms_l * 0.999 + orig_l * orig_l * 0.001;
+    rms_r = rms_r * 0.999 + orig_r * orig_r * 0.001;
+    correlation_inst = (rms_l > 0.0001 && rms_r > 0.0001) ? 
+                      (orig_l * orig_r) / sqrt(rms_l * rms_r) : 0;
+    correlation_smooth = correlation_smooth * 0.99 + correlation_inst * 0.01;
+    
+    // FIXED: Auto learn process - Use Version 1.0 algorithm
+    slider5 && learn_counter < learn_samples ? (
+      learn_counter += 1;
+      correlation_smooth > best_correlation ? (
+        best_correlation = correlation_smooth;
+        best_delay = delay_samples;
+      );
+      
+      // When learning is complete, apply best settings and AUTO TURN OFF
+      learn_counter >= learn_samples ? (
+        slider1 = best_delay;
+        slider2 = 0;
+        sliderchange(slider1);
+        slider5 = 0; // AUTO TURN OFF Auto Learn
+      );
+    );
+  );
+
+@gfx 640 520
+  // Enhanced GUI combining best of both versions
+  gfx_clear = 0x1a1a1a;
+  gfx_setfont(1, "Arial", 14);
+  gfx_setfont(2, "Arial", 16, 'b'); // Bold font for headers
+  
+  // Title with version info
+  gfx_x = 10; gfx_y = 10;
+  gfx_r = 1; gfx_g = 1; gfx_b = 1;
+  gfx_setfont(2);
+  gfx_drawstr("PhaseAlign Pro v1.0");
+  gfx_setfont(1);
+  // Enhanced phase correlation meter
+  gfx_x = 20; gfx_y = 40;
+  gfx_r = 0.9; gfx_g = 0.9; gfx_b = 0.9;
+  gfx_drawstr("Phase Correlation Meter:");
+  
+  // Correlation bar with enhanced color coding
+  meter_x = 20; meter_y = 60; meter_w = 300; meter_h = 25;
+  gfx_r = 0.2; gfx_g = 0.2; gfx_b = 0.2;
+  gfx_rect(meter_x, meter_y, meter_w, meter_h);
+  
+  // Scale markings
+  gfx_r = 0.5; gfx_g = 0.5; gfx_b = 0.5;
+  gfx_x = meter_x; gfx_y = meter_y + meter_h + 5;
+  gfx_drawstr("-1.0");
+  gfx_x = meter_x + meter_w/2 - 10; 
+  gfx_drawstr("0.0");
+  gfx_x = meter_x + meter_w - 20;
+  gfx_drawstr("+1.0");
+  
+  // Correlation value bar with smooth color transition
+  corr_pos = (correlation_smooth + 1) * 0.5;
+  corr_pos = max(0, min(1, corr_pos));
+  
+  // Enhanced color coding
+  correlation_smooth > 0.7 ? (
+    gfx_r = 0; gfx_g = 1; gfx_b = 0; // Bright green for excellent
+  ) : correlation_smooth > 0.3 ? (
+    gfx_r = 0.5; gfx_g = 1; gfx_b = 0; // Yellow-green for good
+  ) : correlation_smooth > 0 ? (
+    gfx_r = 1; gfx_g = 1; gfx_b = 0; // Yellow for medium
+  ) : correlation_smooth > -0.3 ? (
+    gfx_r = 1; gfx_g = 0.5; gfx_b = 0; // Orange for poor
+  ) : (
+    gfx_r = 1; gfx_g = 0; gfx_b = 0; // Red for severe issues
+  );
+  
+  gfx_rect(meter_x + 2, meter_y + 2, (meter_w - 4) * corr_pos, meter_h - 4);
+  
+  // Correlation value display
+  gfx_x = meter_x + meter_w + 15; gfx_y = meter_y + 8;
+  gfx_r = 1; gfx_g = 1; gfx_b = 1;
+  gfx_drawstr(sprintf(#, "%.3f", correlation_smooth));
+  
+  // Spectral display area
+  slider15 && slider14 ? (
+    gfx_r = 0.3; gfx_g = 0.3; gfx_b = 0.3;
+    gfx_rect(350, 40, 270, 120);
+    gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8;
+    gfx_x = 355; gfx_y = 45;
+    gfx_drawstr("Spectral Analysis");
+    
+    // Simple waveform visualization
+    gfx_r = 0; gfx_g = 1; gfx_b = 0;
+    wave_x = 355 + (delay_pos % 260);
+    wave_y_l = 80 + orig_l * 20;
+    wave_y_r = 120 + orig_r * 20;
+    gfx_rect(wave_x, wave_y_l, 2, 2);
+    gfx_r = 1; gfx_g = 0; gfx_b = 0;
+    gfx_rect(wave_x, wave_y_r, 2, 2);
+  );
+  
+  // Status and control information
+  gfx_x = 20; gfx_y = 120;
+  gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8;
+  
+  // FIXED: Auto learn status display
+  slider5 && learn_counter < learn_samples ? (
+    gfx_r = 1; gfx_g = 1; gfx_b = 0;
+    progress = (learn_counter * 100) / learn_samples;
+    gfx_drawstr(sprintf(#, "Auto Learn: %d%% | Best Delay: %d | Best Corr: %.3f", 
+                floor(progress), best_delay, best_correlation));
+  ) : (
+    gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8;
+    gfx_drawstr("Status: Ready | Auto Learn: OFF");
+  );
+  
+  // Current settings display
+  gfx_x = 20; gfx_y = 150;
+  gfx_r = 1; gfx_g = 1; gfx_b = 0.8;
+  gfx_drawstr("Current Settings:");
+  
+  gfx_r = 0.9; gfx_g = 0.9; gfx_b = 0.9;
+  gfx_x = 30; gfx_y = 170;
+  gfx_drawstr(sprintf(#, "Sample Delay: %d", slider1));
+  gfx_x = 30; gfx_y = 190;
+  gfx_drawstr(sprintf(#, "MS Delay: %.2f ms", slider2));
+  gfx_x = 30; gfx_y = 210;
+  gfx_drawstr(sprintf(#, "Phase Rotation: %d°", slider3));
+  gfx_x = 30; gfx_y = 230;
+  gfx_drawstr(sprintf(#, "Polarity: %s", slider4 ? "Inverted" : "Normal"));
+  
+  // Frequency band settings
+  gfx_x = 250; gfx_y = 150;
+  gfx_r = 1; gfx_g = 1; gfx_b = 0.8;
+  gfx_drawstr("Frequency Bands:");
+  gfx_r = 0.9; gfx_g = 0.9; gfx_b = 0.9;
+  gfx_x = 260; gfx_y = 170;
+  gfx_drawstr(sprintf(#, "Bass (<200Hz): %d°", slider9));
+  gfx_x = 260; gfx_y = 190;
+  gfx_drawstr(sprintf(#, "Mid (200Hz-2kHz): %d°", slider10));
+  gfx_x = 260; gfx_y = 210;
+  gfx_drawstr(sprintf(#, "High (>2kHz): %d°", slider11));
+  
+  // Feature status indicators
+  gfx_x = 450; gfx_y = 150;
+  gfx_r = 1; gfx_g = 1; gfx_b = 0.8;
+  gfx_drawstr("Features:");
+  
+  y_offset = 170;
+  slider6 ? (
+    gfx_r = 0; gfx_g = 1; gfx_b = 0;
+    gfx_x = 460; gfx_y = y_offset;
+    gfx_drawstr("BASS LOCK");
+    y_offset += 20;
+  );
+  
+  slider7 ? (
+    gfx_r = 0; gfx_g = 1; gfx_b = 0;
+    gfx_x = 460; gfx_y = y_offset;
+    gfx_drawstr("MONO CHECK");
+    y_offset += 20;
+  );
+  
+  slider14 ? (
+    gfx_r = 0; gfx_g = 1; gfx_b = 0;
+    gfx_x = 460; gfx_y = y_offset;
+    gfx_drawstr("ADVANCED");
+    y_offset += 20;
+  );
+  
+  slider5 ? (
+    gfx_r = 1; gfx_g = 1; gfx_b = 0;
+    gfx_x = 460; gfx_y = y_offset;
+    gfx_drawstr("AUTO LEARN");
+    y_offset += 20;
+  );
+  
+  // Warning messages
+  gfx_x = 20; gfx_y = 280;
+  correlation_smooth < -0.5 ? (
+    gfx_r = 1; gfx_g = 0; gfx_b = 0;
+    gfx_drawstr("⚠ WARNING: Severe phase cancellation detected!");
+  ) : correlation_smooth < -0.2 ? (
+    gfx_r = 1; gfx_g = 0.5; gfx_b = 0;
+    gfx_drawstr("⚠ CAUTION: Phase issues detected - check alignment");
+  ) : correlation_smooth > 0.8 ? (
+    gfx_r = 0; gfx_g = 1; gfx_b = 0;
+    gfx_drawstr("✓ EXCELLENT: Phase alignment optimal");
+  );
+  
+  // Monitor mode display
+  gfx_x = 20; gfx_y = 320;
+  gfx_r = 0.8; gfx_g = 0.8; gfx_b = 0.8;
+  slider8 == 0 ? mode_name = "Stereo" :
+  slider8 == 1 ? mode_name = "Mono" :
+  slider8 == 2 ? mode_name = "Left Only" :
+  slider8 == 3 ? mode_name = "Right Only" :
+  slider8 == 4 ? mode_name = "Difference" :
+  mode_name = "Unknown";
+  gfx_drawstr(sprintf(#, "Monitor Mode: %s", mode_name));
+  
+  // Preset display
+  gfx_x = 20; gfx_y = 350;
+  gfx_r = 0.9; gfx_g = 0.9; gfx_b = 0.7;
+  slider13 == 0 ? preset_name = "Custom" :
+  slider13 == 1 ? preset_name = "Drum OH" :
+  slider13 == 2 ? preset_name = "Snare T/B" :
+  slider13 == 3 ? preset_name = "Kick In/Out" :
+  slider13 == 4 ? preset_name = "Bass DI+Amp" :
+  slider13 == 5 ? preset_name = "Guitar Multi" :
+  slider13 == 6 ? preset_name = "Vocal Harm" :
+  slider13 == 7 ? preset_name = "Piano Stereo" :
+  preset_name = "Unknown";
+  gfx_drawstr(sprintf(#, "Active Preset: %s", preset_name));
+  
+  // Performance indicator
+  gfx_x = 20; gfx_y = 380;
+  gfx_r = 0.6; gfx_g = 0.6; gfx_b = 0.6;
+  cpu_load = need_frequency_processing ? "High" : "Low";
+  gfx_drawstr(sprintf(#, "CPU Load: %s | Advanced: %s", 
+    cpu_load, slider14 ? "ON" : "OFF"));
+  
+  // Instructions
+  gfx_x = 20; gfx_y = 420;
+  gfx_r = 0.7; gfx_g = 0.7; gfx_b = 0.7;
+  gfx_drawstr("Quick Start: Select preset → Enable Auto Learn → Fine-tune manually");
+  gfx_x = 20; gfx_y = 440;
+  gfx_drawstr("Monitor in Mono/Difference modes to verify phase compatibility");
+  gfx_x = 20; gfx_y = 460;
+  gfx_drawstr("Green correlation = Good alignment | Red = Phase issues");
+  
+  // Version and status footer
+  gfx_x = 20; gfx_y = 490;
+  gfx_r = 0.5; gfx_g = 0.5; gfx_b = 0.5;
+  gfx_drawstr(sprintf(#, "PhaseAlign Pro v1.0 | SR: %.0fkHz | %s", 
+    srate/1000, slider12 ? "BYPASSED" : "ACTIVE"));
