@@ -1,17 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="9c53eeda239c981e101bf75b236aee75a9ba3f0c">
+<index version="1" name="Hosi Scripts" commit="1687066deaddc4f5b801f088c84f8e02e7830e7b">
+  <category name="AI Tool">
+    <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Displays a window to select an AI Model and processing device (CPU/GPU), then separates the selected audio item. Includes a GPU compatibility check.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Requirements: ReaImGui must be installed via ReaPack.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi" time="2025-09-02T05:33:15Z">
+        <changelog><![CDATA[+ v1.0 - Initial release.]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/1687066deaddc4f5b801f088c84f8e02e7830e7b/AI%20Tool/Hosi_Demucs_Separator_Gui.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_ElevenLabs_Sound_Effects.lua" type="script" desc="Hosi - ElevenLabs Sound Effects">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab A helper script to generate sound effects using the ElevenLabs API.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Supports generating audio from the text box or from the notes of multiple selected items.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Based on the original Hosi - ElevenLabs TTS script.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.7" author="Hosi" time="2025-09-02T05:33:15Z">
+        <changelog><![CDATA[+ v1.7 (2025-08-17)
+  - ADDED: Sequence Generation. Use '|' to separate prompts in the text box.
++ v1.6 (2025-08-14)
+  - ADDED: Prompt Presets feature.
++ v1.5 (2025-08-14)
+  - ADDED: "Generate as New Takes" feature. Variations are now added as takes to a single item.
++ v1.4 (2025-08-14)
+  - ADDED: Advanced Insertion Options.
++ v1.3 (2025-08-13)
+  - IMPROVED: Re-implemented item detection using a robust "snapshot" method.
++ v1.2 (2025-08-12)
+  - ADDED: "Number of Variations" setting.
++ v1.1 (2025-07-11)
+  - FIXED: Text input issues.
++ v1.0 (2025-07-10)
+  - Initial release.]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/1687066deaddc4f5b801f088c84f8e02e7830e7b/AI%20Tool/Hosi_ElevenLabs_Sound_Effects.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_ElevenLabs_TTS.lua" type="script" desc="Hosi - ElevenLabs TTS (Multi-Item Version)">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab A helper script to generate TTS using the ElevenLabs API.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Supports generating audio from the text box or from the notes of multiple selected items.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.1" author="Hosi" time="2025-09-02T05:33:15Z">
+        <changelog><![CDATA[+ v1.1 (2025-07-11)
+  - FIXED: Input stability and similarity_boost.
++ v1.0 (2025-07-09)
+  - Initial release.]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/1687066deaddc4f5b801f088c84f8e02e7830e7b/AI%20Tool/Hosi_ElevenLabs_TTS.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Gemini_TTS.lua" type="script" desc="Google Gemini TTS (Item Note Version)">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Helper script to generate TTS from an item's note using Google's Gemini TTS API.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Supports batch processing, model selection, and style instructions.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Quick Presets for Style Instructions.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="2.1" author="Hosi" time="2025-09-02T05:33:15Z">
+        <changelog><![CDATA[+ v2.1 (2025-07-14)
+  - FIXED: Script crashing when generated audio item overlaps with the source text item.
+  - Used pcall for safer API calls during item detection loop.
++ v2.0 (2025-07-08)
+  - ADDED: Quick Presets for Style Instructions.
+  - Improved interface, fixed bugs and increased stability.
++ v1.0 (2025-07-06)
+  - Initial release.]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/1687066deaddc4f5b801f088c84f8e02e7830e7b/AI%20Tool/Hosi_Gemini_TTS.lua</source>
+      </version>
+    </reapack>
+  </category>
   <category name="Freesound Search">
     <reapack name="Hosi_Freesound_Logic_Pro.py" type="script" desc="This script is called by Hosi_Freesound_Logic_GUI_Pro.lua.">
       <version name="1.3" author="Hosi Prod" time="2025-09-02T00:53:17Z">
         <changelog><![CDATA[+ v1.3 (2025-08-31) - Initial release on Reapack.]]></changelog>
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/8ed0f83f0f9f6891da67375725298ab909584740/Freesound%20Search/Hosi_Freesound_Logic_Pro.py</source>
-      </version>
-    </reapack>
-    <reapack name="Hosi_Freesound_Search_Pro.lua" type="script" desc="Freesound Search and Import for REAPER (ReaImGui)">
-      <version name="1.4" author="Hosi Prod" time="2025-09-02T04:14:32Z">
-        <changelog><![CDATA[- v1.4 Added cross-platform support for macOS, Windows, and Linux.
-- v1.3 Added a Favorites/Bookmarking system.]]></changelog>
-        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/9c53eeda239c981e101bf75b236aee75a9ba3f0c/Freesound%20Search/Hosi_Freesound_Search_Pro.lua</source>
       </version>
     </reapack>
   </category>
