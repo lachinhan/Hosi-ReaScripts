@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="8ae605eef8aacd5d0a76af239aacdffce73f6f7c">
+<index version="1" name="Hosi Scripts" commit="5c14084025b6a1a296eab31b5fa1674a83191019">
   <category name="Freesound Search">
     <reapack name="Hosi_Freesound_Logic_Pro.py" type="script" desc="This script is called by Hosi_Freesound_Logic_GUI_Pro.lua.">
       <version name="1.3" author="Hosi Prod" time="2025-09-02T00:53:17Z">
@@ -19,6 +19,37 @@
     <reapack name="crest_meter.jsfx" type="effect" desc="Hosi Crest Meter + Max Crest">
       <version name="1.0" author="Hosi Prod" time="2025-09-01T10:50:34Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/b5665a6d36e23625339a4d92bc7fde964e77cf39/JSFX/crest_meter.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi Master Limiter.jsfx" type="effect" desc="Hosi Master Limiter">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Hosi Master Limiter\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Accurate Attack & Lookahead.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Brickwall Clipper stage to ensure no clipping.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod &amp; LOSER" time="2025-09-02T01:36:17Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/5c14084025b6a1a296eab31b5fa1674a83191019/JSFX/Hosi%20Master%20Limiter.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi Simple Limiter.jsfx" type="effect" desc="Hosi Simple Limiter">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Hosi Simple Limiter\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Zero latency brickwall limiter. Display Max, Min, and Peak GR.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-02T01:36:17Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/5c14084025b6a1a296eab31b5fa1674a83191019/JSFX/Hosi%20Simple%20Limiter.jsfx</source>
       </version>
     </reapack>
     <reapack name="HosiFX_Chorus.jsfx" type="effect" desc="HosiFX Chorus">
