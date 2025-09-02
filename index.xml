@@ -1,17 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="93c6b784fcf33c34d03c3b64d736646f8fe08c7a">
+<index version="1" name="Hosi Scripts" commit="44663f7a07b0a060bf1ad917b0390d36f328386d">
   <category name="Freesound Search">
     <reapack name="Hosi_Freesound_Logic_Pro.py" type="script" desc="This script is called by Hosi_Freesound_Logic_GUI_Pro.lua.">
       <version name="1.3" author="Hosi Prod" time="2025-09-02T00:53:17Z">
         <changelog><![CDATA[+ v1.3 (2025-08-31) - Initial release on Reapack.]]></changelog>
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/8ed0f83f0f9f6891da67375725298ab909584740/Freesound%20Search/Hosi_Freesound_Logic_Pro.py</source>
-      </version>
-    </reapack>
-    <reapack name="Hosi_Freesound_Search_Pro.lua" type="script" desc="Freesound Search and Import for REAPER (ReaImGui)">
-      <version name="1.4" author="Hosi Prod" time="2025-09-02T00:53:17Z">
-        <changelog><![CDATA[- v1.4 Added cross-platform support for macOS, Windows, and Linux.
-- v1.3 Added a Favorites/Bookmarking system.]]></changelog>
-        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/8ed0f83f0f9f6891da67375725298ab909584740/Freesound%20Search/Hosi_Freesound_Search_Pro.lua</source>
       </version>
     </reapack>
   </category>
