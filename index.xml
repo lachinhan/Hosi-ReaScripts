@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="ReaPack Repository Template" commit="8ed0f83f0f9f6891da67375725298ab909584740">
+<index version="1" name="Hosi Scripts" commit="8ed0f83f0f9f6891da67375725298ab909584740">
   <category name="Example">
     <reapack name="cfillion_Hello world.lua" type="script" desc="Hello world">
       <metadata>
