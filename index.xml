@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="ReaPack Repository Template" commit="8b27148dd6308de3b29961350504da4330ed1a17">
+<index version="1" name="ReaPack Repository Template" commit="b5665a6d36e23625339a4d92bc7fde964e77cf39">
   <category name="Example">
     <reapack name="cfillion_Hello world.lua" type="script" desc="Hello world">
       <metadata>
@@ -22,6 +22,11 @@ Markdown
     </reapack>
   </category>
   <category name="JSFX">
+    <reapack name="crest_meter.jsfx" type="effect" desc="Hosi Crest Meter + Max Crest">
+      <version name="1.0" author="Hosi Prod" time="2025-09-01T10:50:34Z">
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/b5665a6d36e23625339a4d92bc7fde964e77cf39/JSFX/crest_meter.jsfx</source>
+      </version>
+    </reapack>
     <reapack name="HosiFX_Chorus.jsfx" type="effect" desc="HosiFX Chorus">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
