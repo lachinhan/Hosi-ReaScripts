@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="6df257261193e43f0eb111fadeaf260b1d851daf">
+<index version="1" name="Hosi Scripts" commit="4f207c917c8b61778b69778682ca08128232486b">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -183,6 +183,16 @@
       </metadata>
       <version name="2.4" author="Enhanced by Hosi - Green Line Reference Only" time="2025-09-02T03:41:11Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/93c6b784fcf33c34d03c3b64d736646f8fe08c7a/JSFX/Hosi%20Advanced%20Smooth%20Gain%20RLR.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi JSFX Notepad.jsfx" type="effect" desc="JSFX Notepad">
+      <version name="1.2" author="Tale - Developed by Hosi" time="2025-09-04T01:04:32Z">
+        <changelog><![CDATA[+ v1.2 - Fix MCP display
++ v1.1 - Added Clear All button. Replaced text buttons with icons to save space.
++ v1.0 - Initial release by Hosi, based on code by Tale.
+       - Added toggleable Text Wrap feature.
+       - The "Insert Postion" feature inserts time very useful: Very handy for making notes during music production (eg "need to fix the drum at [1:23.50]").]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/4f207c917c8b61778b69778682ca08128232486b/JSFX/Hosi%20JSFX%20Notepad.jsfx</source>
       </version>
     </reapack>
     <reapack name="Hosi Master Limiter.jsfx" type="effect" desc="Hosi Master Limiter">
