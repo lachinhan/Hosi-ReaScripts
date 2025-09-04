@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="4f207c917c8b61778b69778682ca08128232486b">
+<index version="1" name="Hosi Scripts" commit="e429252e6ccfaa6b1649519d686b16cdf69fcb47">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -453,6 +453,17 @@
       </metadata>
       <version name="1.0" author="Hosi" time="2025-09-02T03:41:11Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/93c6b784fcf33c34d03c3b64d736646f8fe08c7a/JSFX/PhaseAlign_Pro.jsfx</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Translations">
+    <reapack name="Vietnamese Translations.ReaperLangPack" type="langpack" desc="Vietnamese Translations">
+      <metadata>
+        <link rel="website">https://stash.reaper.fm/manage_file/49937/Vietnamese%20%28Traditional%29.ReaperLangPack</link>
+      </metadata>
+      <version name="1.1.6-733" author="La Chi Nhan (Hosi Prod)" time="2025-09-04T08:34:06Z">
+        <changelog><![CDATA[Brand new REAPER: 7.33, SWS: 2.14.0.3]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/e429252e6ccfaa6b1649519d686b16cdf69fcb47/Translations/Vietnamese%20Translations.ReaperLangPack</source>
       </version>
     </reapack>
   </category>
