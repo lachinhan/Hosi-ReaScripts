@@ -1,0 +1,235 @@
+desc:JSFX Notepad
+// version: 1.2
+// author: Tale - Developed by Hosi
+// changelog:
+//   + v1.2 - Fix MCP display
+//   + v1.1 - Added Clear All button. Replaced text buttons with icons to save space.
+//   + v1.0 - Initial release by Hosi, based on code by Tale.
+//          - Added toggleable Text Wrap feature.
+//          - The "Insert Postion" feature inserts time very useful: Very handy for making notes during music production (eg "need to fix the drum at [1:23.50]").
+			
+// about:
+//   A simple notepad utility within JSFX.
+//   Collected and developed by Hosi from code of Tale. https://forums.cockos.com/showpost.php?p=2450632&postcount=15 and See more from https://forum.cockos.com/showthread.php?t=302917
+
+options:want_all_kb
+
+// --- UI Controls ---
+slider1:15<8,96,1>Text Size
+slider2:0<0,255,1>Text Red
+slider3:0<0,255,1>Text Green
+slider4:0<0,255,1>Text Blue
+slider5:255<0,255,1>Background Red
+slider6:255<0,255,1>Background Green
+slider7:255<0,255,1>Background Blue
+slider8:1<0,1,1{Off,On}>Text Wrap
+
+@init
+
+gfx_ext_retina = ext_noinit = 1;
+
+// Initialize variables
+text_red = 0; text_green = 0; text_blue = 0;
+bg_red = 255; bg_green = 255; bg_blue = 255;
+textsize = 15;
+wrap_mode = 1;
+
+// --- Helper Functions ---
+function home(idx) global(buf) (
+  while(idx > 0 && str_getchar(buf, idx - 1) != '\n' ? idx -= 1);
+  idx;
+);
+
+function end(idx) global(buf, len) (
+  while(idx < len && str_getchar(buf, idx) != '\n' ? idx += 1);
+  idx;
+);
+
+function insert_char(idx, c) global(buf, len) local(tmp) (
+  idx < len ? ( strcpy_from(tmp = #, buf, idx); strncpy(buf, buf, idx); str_setchar(buf, idx, c); strcat(buf, tmp); ) : ( str_setchar(buf, idx, c); );
+  len += 1;
+);
+
+function insert_string(idx, str_to_insert) global(buf, len) local(tmp, insert_len) (
+  insert_len = strlen(str_to_insert);
+  idx < len ? ( strcpy_from(tmp = #, buf, idx); strncpy(buf, buf, idx); strcat(buf, str_to_insert); strcat(buf, tmp); ) : ( strcat(buf, str_to_insert); );
+  len += insert_len;
+  idx + insert_len;
+);
+
+function delete_char(idx) global(buf, len) local(tmp) (
+  idx + 1 < len ? ( strcpy_from(tmp = #, buf, idx + 1); strncpy(buf, buf, idx); strcat(buf, tmp); );
+  len -= 1;
+);
+
+function draw_clock_icon(x, y, size) local(center_x, center_y, radius) (
+  center_x = x + size/2;
+  center_y = y + size/2;
+  radius = size * 0.4;
+  gfx_arc(center_x, center_y, radius, 0, PI*2, 1);
+  gfx_line(center_x, center_y, center_x, center_y - radius * 0.8); // Minute hand
+  gfx_line(center_x, center_y, center_x + radius * 0.6, center_y); // Hour hand
+);
+
+function draw_trash_icon(x, y, size) local(h_margin, v_margin) (
+  h_margin = size * 0.25;
+  v_margin = size * 0.2;
+  // Bin Body
+  gfx_rect(x + h_margin, y + v_margin + size * 0.1, size - h_margin*2, size - v_margin*2 - size*0.1, 0);
+  // Lid
+  gfx_rect(x + h_margin * 0.5, y + v_margin, size - h_margin, size * 0.1, 0);
+  // Lid Handle
+  gfx_rect(x + size/2 - size*0.1, y + v_margin - size*0.05, size*0.2, size*0.05, 0);
+);
+
+
+@serialize
+file_var(0, len);
+file_string(0, buf);
+
+@slider
+textsize = slider1;
+text_red = slider2;
+text_green = slider3;
+text_blue = slider4;
+bg_red = slider5;
+bg_green = slider6;
+bg_blue = slider7;
+wrap_mode = slider8;
+
+@gfx 400 200
+
+// --- Layout Calculation ---
+gfx_set(text_red/255, text_green/255, text_blue/255, 1);
+gfx_setfont(1, "Arial", textsize * gfx_ext_retina);
+gfx_clear = (bg_red * 65536) + (bg_green * 256) + bg_blue;
+
+// Stability fix: ensure tab width is never zero to prevent crash
+tab = max(1, gfx_texth * 2);
+
+// --- Check for embedded view (TCP/MCP) and adjust layout ---
+// This is more robust than checking flags, as it relies on the actual drawn width.
+is_embedded = (gfx_w < 100);
+
+is_embedded ? (
+  // --- Embedded View Layout (TCP/MCP) ---
+  textarea_y_start = 5;
+  mouse_over_btn1 = 0; // Disable buttons
+  mouse_over_btn2 = 0;
+) : (
+  // --- Full FX Window Layout ---
+  // Icon Button properties
+  icon_size = 24;
+  icon_padding = 5;
+  btn2_x = gfx_w - icon_size - 10; // Clear All
+  btn2_y = 5;
+  btn1_x = btn2_x - icon_size - icon_padding; // Insert Position
+  btn1_y = 5;
+  textarea_y_start = btn1_y + icon_size + 10;
+
+  // Draw Buttons
+  // Determine button/icon colors based on background brightness
+  bg_brightness = (bg_red * 0.299 + bg_green * 0.587 + bg_blue * 0.114);
+  bg_brightness > 128 ? ( 
+      btn_bg_r = max(0, bg_red - 20); btn_bg_g = max(0, bg_green - 20); btn_bg_b = max(0, bg_blue - 20); 
+      btn_bg_r_hover = max(0, bg_red - 40); btn_bg_g_hover = max(0, bg_green - 40); btn_bg_b_hover = max(0, bg_blue - 40); 
+      icon_r = icon_g = icon_b = 0; 
+  ) : ( 
+      btn_bg_r = min(255, bg_red + 30); btn_bg_g = min(255, bg_green + 30); btn_bg_b = min(255, bg_blue + 30); 
+      btn_bg_r_hover = min(255, bg_red + 50); btn_bg_g_hover = min(255, bg_green + 50); btn_bg_b_hover = min(255, bg_blue + 50); 
+      icon_r = icon_g = icon_b = 1; 
+  );
+
+  // Button 1: Insert Position
+  mouse_over_btn1 = mouse_x >= btn1_x && mouse_x <= btn1_x + icon_size && mouse_y >= btn1_y && mouse_y <= btn1_y + icon_size;
+  mouse_over_btn1 ? gfx_set(btn_bg_r_hover/255, btn_bg_g_hover/255, btn_bg_b_hover/255, 1) : gfx_set(btn_bg_r/255, btn_bg_g/255, btn_bg_b/255, 1);
+  gfx_rect(btn1_x, btn1_y, icon_size, icon_size);
+  gfx_set(icon_r, icon_g, icon_b, 1);
+  draw_clock_icon(btn1_x, btn1_y, icon_size);
+
+  // Button 2: Clear All
+  mouse_over_btn2 = mouse_x >= btn2_x && mouse_x <= btn2_x + icon_size && mouse_y >= btn2_y && mouse_y <= btn2_y + icon_size;
+  mouse_over_btn2 ? gfx_set(btn_bg_r_hover/255, btn_bg_g_hover/255, btn_bg_b_hover/255, 1) : gfx_set(btn_bg_r/255, btn_bg_g/255, btn_bg_b/255, 1);
+  gfx_rect(btn2_x, btn2_y, icon_size, icon_size);
+  gfx_set(icon_r, icon_g, icon_b, 1);
+  draw_trash_icon(btn2_x, btn2_y, icon_size);
+
+  // Reset color for text area
+  gfx_set(text_red/255, text_green/255, text_blue/255, 1);
+);
+
+
+// --- Input Processing ---
+c = gfx_getchar();
+c ? (
+  c == 'left' ? ( idx = max(idx - 1, 0); ) :
+  c == 'rght' ? ( idx = min(idx + 1, len); ) :
+  c == 'down' ? ( j = end(idx); j < len ? ( i = home(idx); j += 1; loop(idx - i, j < len && str_getchar(buf, j) != '\n' ? j += 1); idx = j; ); ) :
+  c == 'up' ? ( j = home(idx); j > 0 ? ( i = home(j - 1); idx = min(i + idx - j, j - 1); ); ) :
+  c == 8 ? ( idx > 0 ? delete_char(idx -= 1); ) :
+  c == 127 ? ( idx < len ? delete_char(idx); ) : 
+  c == 13 ? ( insert_char(idx, '\n'); idx += 1; ) :
+  c == 9 ? ( insert_char(idx, '\t'); idx += 1; ) :
+  c >= 32 && c < 127 ? ( mode ? ( str_setchar(buf, idx, c); len = max(len, idx += 1); ) : ( insert_char(idx, c); idx += 1; ); );
+);
+
+// --- Drawing Logic with Text Wrap ---
+gfx_x = 5; gfx_y = textarea_y_start;
+i = ofs; j = -1;
+x = gfx_x; y = gfx_y;
+
+while(i <= len && gfx_y < gfx_h) (
+  i == idx ? ( x = gfx_x; y = gfx_y; );
+  mouse_y >= textarea_y_start && !mouse_over_btn1 && !mouse_over_btn2 ? ( mouse_x >= gfx_x && mouse_y >= gfx_y && mouse_y < gfx_h ? j = i; );
+
+  // *** SYNTAX FIX: Rewrote the entire drawing logic using ternary operators for stability ***
+  i < len ? (
+    c = str_getchar(buf, i);
+    c == '\n' ? (
+      gfx_x = 5; gfx_y += gfx_texth;
+    ) :
+    c == '\t' ? (
+      gfx_x = (floor((gfx_x-5) / tab) + 1) * tab + 5;
+    ) : 
+    ( // Default character case
+      wrap_mode == 1 ? (
+        str_setchar(#temp_char_str, 0, c);
+        str_setchar(#temp_char_str, 1, 0);
+        gfx_measurestr(#temp_char_str, char_w, char_h);
+        
+        gfx_x + char_w > gfx_w - 5 && gfx_x > 5 ? (
+          gfx_x = 5;
+          gfx_y += gfx_texth;
+        );
+      );
+      gfx_drawchar(c);
+    );
+  );
+  
+  i += 1;
+);
+
+// --- Mouse Click Handling ---
+(mouse_cap & 1) && !(cap & 1) ? (
+  mouse_over_btn1 ? (
+    minutes = floor(play_position / 60);
+    seconds = play_position % 60;
+    sprintf(pos_str = #, "[%d:%05.2f] ", minutes, seconds);
+    idx = insert_string(idx, pos_str);
+  ) : 
+  mouse_over_btn2 ? (
+    len = 0;
+    idx = 0;
+    strncpy(buf, #, 0); // BUG FIX: Properly clear the string buffer
+  ) :
+  j >= 0 ? (
+    idx = j;
+  );
+);
+cap = mouse_cap;
+
+// --- Auto-scrolling and Cursor ---
+idx < ofs ? ofs = home(idx) : idx >= i && y >= gfx_h ? ofs = end(ofs) + 1;
+!gfx_ext_flags && (blink < 6 || !len) ? ( gfx_x = x; gfx_y = y; y < gfx_h ? gfx_drawchar(blink >= 6 ? ' ' : mode ? '_' : '|'); );
+(blink += 1) >= 12 ? blink = 0;
+
