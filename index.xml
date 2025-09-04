@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="1687066deaddc4f5b801f088c84f8e02e7830e7b">
+<index version="1" name="Hosi Scripts" commit="6df257261193e43f0eb111fadeaf260b1d851daf">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -443,6 +443,69 @@
       </metadata>
       <version name="1.0" author="Hosi" time="2025-09-02T03:41:11Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/93c6b784fcf33c34d03c3b64d736646f8fe08c7a/JSFX/PhaseAlign_Pro.jsfx</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Utility">
+    <reapack name="Hosi - Tempo Detect Item - GUI.lua" type="script" desc="Hosi Tempo Detect Item (GUI Version)">
+      <version name="2.0" author="Hosi Prod (Algorithm by MPL)" time="2025-09-02T09:32:41Z">
+        <source main="main" file="Hosi_Detect item tempo (GUI).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/Hosi%20-%20Tempo%20Detect%20Item%20-%20GUI.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Script Generator for Toggling Plugins.lua" type="script" desc="Script Generator for Hosi's Toggle Plugin">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 Run this script to automatically generate multiple "Hosi_Toggle Plugin by Slot X.lua" files. A dialog box will appear asking for the desired number of slots.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi" time="2025-09-02T09:32:41Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/Hosi_Script%20Generator%20for%20Toggling%20Plugins.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_script_detect_key.lua" type="script" desc="Detect Key for Selected Media Items (using trackanalyzer.jar)">
+      <version name="1.0" author="Hosi Prod (Modified with console toggle)" time="2025-09-02T09:32:41Z">
+        <changelog><![CDATA[v1.0 05-Aug-2025: Initial release.]]></changelog>
+        <source main="main" file="Hosi_Detect Key for Selected Media Items.lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/Hosi_script_detect_key.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Variator.lua" type="script" desc="Hosi Variator - Randomize properties for selected media items">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 This script randomizes multiple properties for each selected media item. A modern ReaImGui interface with checkboxes and sliders allows for precise control over the randomization process. This version has been enhanced with a Preset Management system. See more at https://www.lachinhan.xyz/2025/08/var.html\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Instructions:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Select one or more media items on a track.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Place the edit cursor at the center point for horizontal scattering.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Run this script. The ReaImGui window will appear.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 4.\tx360\tab Use the checkboxes and sliders to configure randomization settings.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 5.\tx360\tab Click "Save Preset" to save the current settings.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 6.\tx360\tab Click "Manage Presets" to load, rename, or delete existing presets.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 7.\tx360\tab Click "Mutate" to apply the changes.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi" time="2025-09-02T09:32:41Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/Hosi_Variator.lua</source>
+      </version>
+    </reapack>
+    <reapack name="MidSide_Split_Tool - ReaImGui.lua" type="script" desc="Hosi Mid/Side Split Tool">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 [A tool for REAPER that splits stereo audio tracks into separate Mid and Side components. It automatically creates a new track folder with the original, Mid, and Side tracks, which are then routed to the master track. The script also includes options to preserve item colors, add a spectrum analyzer, or apply an EQ optimization for vocals. Instructions: Select one or more stereo audio tracks and run the script. The script will handle the rest.]\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi Prod" time="2025-09-02T09:32:41Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/MidSide_Split_Tool%20-%20ReaImGui.lua</source>
       </version>
     </reapack>
   </category>
