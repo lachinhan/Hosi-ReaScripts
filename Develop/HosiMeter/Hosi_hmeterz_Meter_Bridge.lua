@@ -257,9 +257,13 @@ function SyncTrackColors()
       for fx_index = 0, fx_count - 1 do
         local _, fx_name = reaper.TrackFX_GetFXName(track, fx_index, "")
         if fx_name and string.match(string.lower(fx_name), "hmeterz tx") then
-          local group_idx = math.floor(reaper.TrackFX_GetParam(track, fx_index, 0) + 0.5)
+          -- ++ FIX: Read the 'color' parameter (index 2) instead of the 'group' parameter (index 0) ++
+          -- The base color is determined by slider3 'a_color' in hmeterztx, which is parameter index 2.
+          local color_param_index = 2 
+          local color_idx = math.floor(reaper.TrackFX_GetParam(track, fx_index, color_param_index) + 0.5)
+
           -- Use the meter_colors.rms palette for consistency
-          local color = meter_colors.rms[group_idx + 1] 
+          local color = meter_colors.rms[color_idx + 1] 
           if color then
             -- The 0x1000000 flag tells REAPER it's a custom color
             local native_color = reaper.ColorToNative(color[1], color[2], color[3]) | 0x1000000
@@ -274,7 +278,7 @@ function SyncTrackColors()
   
   reaper.Undo_EndBlock("Sync Track Colors to hmeterz Groups", -1)
   reaper.UpdateArrange()
-  reaper.ShowMessageBox(colored_tracks .. " track(s) have been colored based on their hmeterz group.", "Color Sync Complete", 0)
+  reaper.ShowMessageBox(colored_tracks .. " track(s) have been colored based on their hmeterz color setting.", "Color Sync Complete", 0)
 end
 
 
