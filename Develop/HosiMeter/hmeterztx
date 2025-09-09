@@ -1,0 +1,166 @@
+desc:hmeterz tx - v0.9
+version:0.9
+author:Bang - Developed by Hosi
+link:
+  https://forum.cockos.com/showthread.php?t=246931
+changelog:
+  + v0.9 - Added Clip History logging (timestamp and channel).
+  + v0.8 - Added Clip Counter logic. Now increments a counter instead of setting a flag.
+  + v0.7 - Integrate clipping detection and alert feature.
+  + v0.6 - Initial version by Bang.
+about:
+  # meterz tx
+  You will insert the plugin into the audio channels (tracks) that you want to monitor.
+
+// Integrate clipping detection and alert feature.
+
+in_pin:in L
+in_pin:in R
+out_pin:none
+
+slider1:a_group=0<0,15,1{a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p}>group
+slider2:a_num=0<0,16,1{off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>meter
+slider3:a_color=0<0,7,1{green,purple,gold,blue,red,cyan,dkgrey,grey}>color
+slider4:a_trim=0<-24,24,1>trim, db
+
+options:gmem=meterz
+
+@init
+
+ext_noinit = 1;
+
+! init0 ?( init0= 1;
+  sumbufs= 1000;
+  rmstm= 300;
+  pkholdtm= .5;
+  
+  // meterz gmem, group params
+  _NGRP= 16;
+  _NPRM= 16;
+  _PRMSZ= _NGRP * _NPRM;
+  _PRMP= pp= 256;
+  _GRPONP= pp+= 1;
+  _RMSTMP= pp+= 1;
+  _PKHOLDTMP= pp+= 1;
+  
+  // tx values
+  _NTX= 16;
+  _TXSZ= _NGRP * _NTX;
+  _TXON=   pp= _PRMP + _PRMSZ;
+  _RMS=    pp+= _TXSZ; 
+  _PK=     pp+= _TXSZ; 
+  _PKHOLD= pp+= _TXSZ;
+  _HUE=    pp+= _TXSZ;
+  // ++ NEW MEMORY AREA FOR CLIP WARNING
+  _CLIP =  pp+= _TXSZ;
+  // ++ NEW MEMORY AREA FOR CLIP COUNTER
+  _CLIPCOUNT = pp+= _TXSZ;
+  
+  // ++ NEW MEMORY AREA FOR CLIP HISTORY LOG (v0.9) ++
+  _CLIPLOG_MAX_ENTRIES = 32; // Store up to 32 clip events
+  _CLIPLOG_ENTRY_SIZE = 3;  // 1:timestamp, 2:group, 3:meter_num
+  _CLIPLOG_PTR = pp+= _TXSZ; // Pointer to the total count of clips, used for indexing
+  _CLIPLOG_DATA = pp+= 1;   // Start of the log data itself
+
+  _L2DB = 8.6858896380650365530225783783321;
+  _DB2L = 0.11512925464970228420089957273422;
+);
+srate0= 0;
+clip_cooldown = 0; // Cooldown timer in samples
+
+function prm(pp) ( gmem[pp + a_group * _NPRM]; );
+function prmx(pp,vv) ( gmem[pp + a_group * _NPRM]= vv; );
+function prmsx(pp,vv) ( atomic_set(gmem[pp + a_group * _NPRM], vv); );
+function txval(tt) ( gmem[tt + gndx]; );
+function txvalx(tt,vv) ( gmem[tt + gndx]= vv; );
+function txvalsx(tt,vv) ( atomic_set(gmem[tt + gndx], vv); );
+
+function runsumini(bb, ll) instance(sum sump buf len end leni) (
+  buf= bb; len= ll +.5|0; leni= 1/len; end= buf + len; sump= buf;
+  memset(buf, 0, len); sum= 0; end;
+);
+function runsum(vv) instance(sum sump len buf end) (
+  sum-= sump[]; sum+= (sump[]= vv); sump+= 1; sump == end ? sump= buf; sum;
+);
+
+function pkini() instance(fadex pklev) ( fadex= exp((-120)/srate * _DB2L); );
+function pk(vv) instance(fadex pklev) ( pklev*= fadex; vv > pklev ? pklev= vv; pklev; );
+
+function pkholdini() instance(fadex pklev) ( 0; );
+function pkhold(vv) instance(fadex pklev) local(ll) (
+  vv > pklev || (fadex-= 1) <= 0 ?( pklev= vv; fadex= srate * pkholdtm; ); pklev;
+);
+
+@slider
+gndx ? txvalsx(_TXON, 0);
+gndx= a_num ? a_num + a_group * _NTX : 0;
+gndx ? txvalsx(_TXON, 1);
+trim= exp(a_trim * _DB2L);
+txvalx(_HUE, a_color);
+// When user turns meter on/off, resets clip flag and counter
+gndx ? (
+  txvalsx(_CLIP, 0);
+  txvalsx(_CLIPCOUNT, 0);
+);
+
+
+@block
+
+function atblock() local(pp) (
+  pp= prm(_RMSTMP); pp && rmstm != pp ?( rmstm= pp; srate0= 0; );
+  pp= prm(_PKHOLDTMP); pp && pkholdtm != pp ?( pkholdtm= pp; );
+  srate0 != srate ?( srate0= srate;
+    rms.runsumini(sumbufs, rmstm * srate*.001);
+    pk.pkini(); pkhold.pkholdini();
+  );
+  gndx ?(
+    ! txval(_TXON) ?( txvalsx(_TXON, 1); pingtm= time_precise(); )
+    : prm(_GRPONP) > 1 ? pingtm= time_precise();
+    alive0= alive;
+    alive= time_precise() - pingtm < .8;
+    ! alive & alive0 ? prmsx(_GRPONP, 0);
+    alive ?(
+      txvalx(_PK, pk.pklev); 
+      txvalx(_PKHOLD, pkhold.pklev); 
+      txvalx(_RMS, rms.sum * rms.leni);
+    );
+  );  
+);
+atblock();
+
+@sample
+
+// Decrement cooldown timer each sample
+clip_cooldown > 0 ? clip_cooldown -= 1;
+
+alive && gndx ?(
+  splx= trim * abs((spl0+spl1)*.5);
+  pk.pk(splx); 
+  pkhold.pkhold(splx);
+  rms.runsum(sqr(splx));
+
+  // ++ ROBUST CLIP COUNTING LOGIC WITH COOLDOWN ++
+  splx >= 1.0 && clip_cooldown <= 0 ? (
+    // A clip occurred and we are not in cooldown
+    
+    txvalsx(_CLIP, 1);    // Set the clip flag for red color indication
+    atomic_add(gmem[_CLIPCOUNT + gndx], 1); // Atomically increment the counter by 1
+    
+    // ++ ADD TO CLIP HISTORY LOG (v0.9) ++
+    // Atomically get the next slot index and then wrap it for the circular buffer
+    log_count = atomic_add(gmem[_CLIPLOG_PTR], 1);
+    log_idx = (log_count - 1) % _CLIPLOG_MAX_ENTRIES;
+
+    // Calculate the base address for this log entry
+    entry_addr = _CLIPLOG_DATA + log_idx * _CLIPLOG_ENTRY_SIZE;
+
+    // Write the data
+    gmem[entry_addr]     = play_position;
+    gmem[entry_addr + 1] = a_group;
+    gmem[entry_addr + 2] = a_num;
+
+    // Set cooldown for 50ms to prevent re-triggering immediately
+    // srate is samples/sec, so srate * 0.05 is samples in 50ms
+    clip_cooldown = srate * 0.05; 
+  );
+);

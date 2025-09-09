@@ -1,0 +1,822 @@
+desc:hmeterz v0.9
+version:0.9
+author:Bang - Developed by Hosi
+link:
+  https://forum.cockos.com/showthread.php?t=246931
+changelog:
+  + v0.9 - Added Clip History log window with timestamps.
+  + v0.8 - "Reset All Clips" button.
+		 - Added clip counter display and reset.
+  + v0.7 - Added a clipping warning that can be dismissed by clicking the meter.
+  + v0.6 - Initial version by Bang.
+about:
+  # meterz
+  A minimal, distributed audio levels visualizer.
+  
+  
+in_pin:none
+out_pin:none
+
+slider1:a_group=0<0,15,1{a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p}>-group
+slider2:a_rmstm=300<1,5000,1>-rms time, ms
+slider3:a_max=-12<-120,24,1>-maximum db
+slider4:a_min=-48<-120,24,1>-minimum db
+slider5:a_hidebits=0<0,0xfffff,1>-hide hist bits
+slider6:a_hmode=0<0,0xffff,1>-hist graph mode
+slider7:a_color=1<0,8,1>-color rotate
+slider8:a_deltabits=0<0,0xfffff,1>-show delta bits
+slider9:a_big=1<0,2,1>-meter size
+slider10:a_dlthistbits=0<0,0xfffff,1>-delta history bits
+slider11:a_hidepkbits=0<0,0xfffff,1>-hide peak hist bits
+slider12:a_speed=1<1,4,1>-graph speed
+slider13:a_qbz=0<0,1,.01>-qbz control
+slider14:a_alpha=0<-1,1,.01>-graph lightness
+slider15:a_pkholdtm=.5<.1,4,.1>-peak hold time, s
+
+options:gmem=meterz
+
+@init
+
+function txhue(_r, _g, _b) ( pp[0]= _r; pp[1]= _g; pp[2]= _b; pp+= 3; );
+function gfxini() (
+  // colors
+  ! txhues ?( // 1x
+    pp= txhues= 0x100; // txhues mem base
+    txhue(0,0,0);
+    loop ( 2, 
+      _green.txhue(0,.65,0.1);
+      _purple.txhue(.65,.35,.65);
+      _gold.txhue(.8,.57,0); //.65,.55,.1);
+      _blue.txhue(.35,.45,.85);
+      _red.txhue(.8,.3,.35);
+      _cyan.txhue(.1,.55,.7);
+      _dkgrey.txhue(.4,.4,.4);
+      _grey.txhue(.6,.6,.6);
+    );
+  );
+  // dimensions
+  a_big == 2 ?( // xl
+    mrsz.spc= 31;
+    mrsz.wpk= 14;
+    mrsz.xrms= 2;
+    mrsz.wrms= 10;
+    mrsz.xdlt= -10;
+    mrsz.wdlt= 3;
+  ): a_big ?( // big
+    mrsz.spc= 20;
+    mrsz.wpk= 8;
+    mrsz.xrms= 1;
+    mrsz.wrms= 6;
+    mrsz.xdlt= -7;
+    mrsz.wdlt= 2;
+  ):( // small
+    mrsz.spc= 13;
+    mrsz.wpk= 5;
+    mrsz.xrms= 1;
+    mrsz.wrms= 3;
+    mrsz.xdlt= -5;
+    mrsz.wdlt= 2;
+  );
+  // etc
+  mrsz.posdlt= mrsz.negdlt= -1; // -1: left/right meter colored delta bars
+  // mrsz.posdlt= mrsz.negdlt= 0xbbb; // white delta bars
+  // mrsz.posdlt= 0xe00; mrsz.negdlt= 0x0d0; // red/green delta bars
+);
+
+function pini(x, y, w, h, ix, iy) instance(l_ t_ w_ h_ ix_ iy_) ( l_= x; t_= y; w_= w; h_= h; ix_= ix; iy_= iy; );
+
+function px() instance(l_ w_ ix_) ( (ix_ ? w_ - gfx_x : gfx_x) - l_; );
+function pxt(x) instance(l_ w_ ix_) ( l_ + (ix_ ? w_ - x : x); );
+function pxx(x) ( gfx_x= this.pxt(x); );
+
+function py() instance(t_ h_ iy_) ( (iy_ ? h_ - gfx_y : gfx_y) - t_; );
+function pyt(y) instance(t_ h_ iy_) ( t_ + (iy_ ? h_ - y : y); );
+function pyx(y) ( gfx_y= this.pyt(y); );
+
+function pw() instance(w_ l_) ( w_ ? w_ : gfx_w - l_; );
+function ph() instance(h_ t_) ( h_ ? h_ : gfx_h - t_; );
+
+function pxyx(x, y) ( this.pxx(x); this.pyx(y); );
+function prect(x, y, w, h) instance(ix_ iy_) ( 
+  //gfx_rect(this.pxt(x + (ix_?w:0)), this.pyt((y<0?0:y) + (iy_?h:0)), w, y<0?h+y:h); );
+  gfx_rect(this.pxt(x + (ix_?w:0)), this.pyt(y + (iy_?h:0)), w, h); );
+function pcircle(x, y, r, f, a) ( gfx_circle(this.pxt(x), this.pyt(y), r, f, a); );
+function pputs(s) ( gfx_drawstr(s); );
+function pputs(x, y, s) ( this.pxyx(x, y); gfx_drawstr(s); );
+function pputsr(s) local(hh ww) ( gfx_drawstr(s,256+2,gfx_x,gfx_y); gfx_measurestr(s,ww,hh); gfx_x-= ww; );
+function pputsr(x, y, s) local(hh ww) ( 
+  this.pxyx(x, y); gfx_drawstr(s,256+2,gfx_x,gfx_y); gfx_measurestr(s,ww,hh); gfx_x-= ww; );
+function pputsr(r, x, y, s) ( r ? this.pputsr(x, y, s) : this.pputs(x, y, s); );
+
+function pmsx() instance(l_ w_ ix_) ( (ix_ ? w_ - mouse_x : mouse_x) - l_; );
+function pmsy() instance(t_ h_ iy_) ( (iy_ ? h_ - mouse_y : mouse_y) - t_; );
+function pstrw(ss) local (ww hh) ( gfx_measurestr(ss, ww, hh); ww; );
+
+/*** (xywh0|x|xx|xt|y|yx|yt|xyx|w|h|rect|circle|puts|msx|msy) ***/
+
+function hue(hh,aa) (
+  this.prevhue= this.hue; this.preva= gfx_a; this.hue= hh; 
+  gfx_b= (hh & 0xf)/0xf; gfx_g= ((hh & 0xf0) >> 4)/0xf; gfx_r= ((hh & 0xf00) >> 8)/0xf;
+  gfx_a= aa;
+);
+function hueundo() ( this.hue(this.prevhue, this.preva); );
+function huez(hh,aa) ( this.hue(hh, ! a_alpha ? aa : a_alpha > 0 ? aa + (1-aa)*a_alpha : aa + aa*a_alpha) );
+
+function prm(pp) ( gmem[pp + a_group * _NPRM]; ); //atomic_get(gmem[pp + a_group * _NPRM]); );
+function prmx(pp,vv) ( gmem[pp + a_group * _NPRM]= vv; );
+function prmsx(pp,vv) ( atomic_set(gmem[pp + a_group * _NPRM], vv); );
+
+function prm_setifequal(pp, eqv, setv) ( atomic_setifequal(gmem[pp + a_group * _NPRM], eqv, setv); );
+function prm_atomic_add(pp, vv) ( atomic_add(gmem[pp + a_group * _NPRM], vv); );
+function prm_atomic_add(pp, vv, gg) ( atomic_add(gmem[pp + gg * _NPRM], vv); );
+
+function txval(tt,nn) ( gmem[nn + groff + tt]; ); //atomic_get(gmem[nn + groff + tt]); );
+function txvalx(tt,nn,vv) ( gmem[nn + groff + tt]= vv; );
+function txvalsx(tt,nn,vv) ( atomic_set(gmem[nn + groff + tt], vv); );
+
+// Sửa lỗi off-by-one khi truy cập _MRHUE
+function txhue(_n) (
+  _n= txval(_HUE,_n) + a_color + _MRHUE[_n-1]; 
+  while (_n > 16) ( _n-= 16; );
+  gfx_r= txhues[_n*3]; gfx_g= txhues[_n*3+1]; gfx_b= txhues[_n*3+2]; );
+function txhue(_n, _a) ( gfx_a= _a; this.txhue(_n); );
+function txhuez(nn, aa) ( gfx_a= ! a_alpha ? aa : a_alpha > 0 ? aa + (1-aa)*a_alpha : aa + aa*a_alpha; this.txhue(nn); );
+
+function srndseed(ss) instance(seed) ( seed= ss & 0xffff; );
+function srnd(rr) instance(seed) ( seed= (16807 * seed) & 0xffff; seed * rr / 0xffff);
+
+function gfshow() ( a_hmode&0xff; ); function gfshowx(xx) ( a_hmode= (a_hmode&0xff00) + xx; );
+function gfsoft() ( (a_hmode&0x100) ? 1 : 0; ); function gfsoftx(xx) ( a_hmode= (a_hmode&0xfeff) + (xx?0x100:0); );
+function gfleft() ( (a_hmode&0x200) ? 0 : 1; ); function gfleftx(xx) ( a_hmode= (a_hmode&0xfdff) + (xx?0:0x200); );
+
+ext_noinit = 1; // don't do init/clear bufs on play
+gfx_clear= -1;
+
+! init0 ?(
+  init0= 1;
+  
+  // meterz gmem, group params
+  _NGRP= 16;
+  _NPRM= 16;
+  _PRMSZ= _NGRP * _NPRM;
+  _PRMP= pp= 256; // gmem base for meterz parmz
+  _GRPONP= pp+= 1;
+  _RMSTMP= pp+= 1;
+  _PKHOLDTMP= pp+= 1;
+  
+  // tx values
+  _NTX= 16;
+  _TXSZ= _NGRP * _NTX;
+  _TXON=   pp= _PRMP + _PRMSZ;
+  _RMS=    pp+= _TXSZ; 
+  _PK=     pp+= _TXSZ; 
+  _PKHOLD= pp+= _TXSZ;
+  _HUE=    pp+= _TXSZ;
+  _CLIP=   pp+= _TXSZ;
+  _CLIPCOUNT = pp+= _TXSZ;
+
+  // ++ NEW MEMORY AREA FOR CLIP HISTORY LOG (v0.9) ++
+  _CLIPLOG_MAX_ENTRIES = 32;
+  _CLIPLOG_ENTRY_SIZE = 3;
+  _CLIPLOG_PTR = pp+= _TXSZ;
+  _CLIPLOG_DATA = pp+= 1;
+
+  _L2DB = 8.6858896380650365530225783783321; // 20/ln(10); db= _L2DB*log(lin)
+  _DB2L = 0.11512925464970228420089957273422; // ln(10)/20; lin= exp(db * _DB2L)
+  _PAD= 6;
+
+  _PKHOLDS= 0x200;
+  _PKHCNT= _PKHOLDS + _NTX;
+  _MRTRIM= _PKHCNT + _NTX;
+  _MRHUE= _MRTRIM + _NTX;
+  _TQ= 0x10000;
+    
+  _seed= rand(0x10000);
+  _group= -1;
+  memset(_MRTRIM, 0, _NTX);
+  memset(_MRHUE, 0, _NTX);
+
+  // ++ v0.9 state
+  show_cliplog = 0;
+);
+
+grponx ?( grponx= 0; prm_atomic_add(_GRPONP,-1); ); //a.gomi+=1;
+
+// end @init cod
+
+function atslider() (
+  _group != a_group ?( 
+    grponx && _group >= 0 ?( prm_atomic_add(_GRPONP,-1,_group); ); //a.goms+=1; );
+    _group= a_group;
+    groff= a_group * _NTX;
+//a.gops+=1; 
+    prm_atomic_add(_GRPONP,1);
+    grponx= 1;
+    keepalivetm= time_precise();
+    nn= -1; loop ( _NTX, txvalsx(_TXON, nn+=1, 0); ); // clear all on vals; immed reset by active tx
+    _rmstm= 0; // reset parms
+    histclr= 1;
+  );
+  _rmstm != a_rmstm ?( _rmstm= a_rmstm; prmx(_RMSTMP, a_rmstm); );
+  _pkholdtm != a_pkholdtm ?( _pkholdtm= a_pkholdtm; prmx(_PKHOLDTMP, a_pkholdtm); );
+  _qbz != a_qbz ?( _qbz= a_qbz; _seed= rand(0x10000); );
+);
+
+@slider
+
+atslider();
+
+@serialize 
+    // prevent variable/memory re-zero on srate change, and...
+
+c.prever= 2;
+file_var(0,c.prever);
+file_var(0,_seed); 
+
+file_var(0,_spare); file_var(0,_spare); file_var(0,_spare); file_var(0,_spare);
+file_var(0,_spare); file_var(0,_spare); file_var(0,_spare); file_var(0,_spare);
+
+file_mem(0, _MRTRIM, _NTX);
+file_mem(0, _MRHUE, _NTX);
+
+@gfx 100 30
+
+function txtsl(txt,xx,yy,rr,dd) 
+    instance(on hit clk dn clkx clky wheel hxx hyy)
+    local(ww hh)
+(
+  gfx_measurestr(txt,ww,hh);
+  hxx = xx; 
+  hyy = yy - 3;
+  hrr = xx + ww; 
+  hbb = yy + hh + 3;
+  hit= tx.pmsx() >= hxx && tx.pmsx() < hrr && tx.pmsy() >= hyy && tx.pmsy() < hbb;
+  mouse_cap&1 && !dn ?(
+    clk= dn= 1;
+    clkx= tx.pmsx(); clky= tx.pmsy();
+  ): ! (mouse_cap&1) && dn ? clk= dn= 0 
+  : clk= 0;
+  clk= clk && hit;
+  clk ? on= 1 : ! dn ? on= 0;
+  
+  hit || on ? hue(0xfff,1);
+  tx.pputs(xx,yy,txt);
+  
+  // FIX: Vẽ tooltip TRƯỚC KHI hoàn lại màu, để nó có màu highlight
+  (hit || on || _showhlp && strlen(dd)) ? tx.pputs(sprintf(#," %s",dd));
+  
+  hit || on ? hueundo(); 
+  
+  on && ! clk ? tx.pputs(" <>");
+  _anyhit= _anyhit || hit;
+  _anyclk= _anyclk || clk;
+  _anyon= _anyon || on;
+  wheel= hit ?( mouse_wheel < 0 ? -1 : mouse_wheel > 0 ? 1 : 0 ) : 0;
+);
+
+function txtclk(txt,xx,yy,rr,dd) (
+  stack_push(_anyon);
+  this.txtsl(txt,xx,yy,rr,dd);
+  stack_pop(_anyon);
+);
+
+function mrms() ( tx.pmsx() >= 0 && tx.pmsx() < max(gfleft()?8*_tw:mrsz.spc*6, mr.pw()); );
+function mtrhide(mtr) ( a_hidebits & (1<<mtr); );
+function mtrhidepk(mtr) ( a_hidepkbits & (1<<mtr); );
+function mtrdelta(mtr) ( a_deltabits & (1<<mtr); );
+function mtrdeltahist(mtr) ( a_dlthistbits & (1<<mtr); );
+
+function atgfx() 
+  instance(anyon anyhit mtrhit frz egg msdn msrdn kbon mshover)
+  local(mtr, mtr0, nn, xx, yy, ww, hh, msclk, cc, nn0, hh0, nn1, nn2, dbit, mtrhit, tt, xx1, vv, _tw, txthit, hh2, is_clipped, _grpt_txt, clip_count, clip_count_hit, log_w, log_h, log_x, log_y, log_count, i, read_idx, entry_addr, timestamp, group, meter, minutes, seconds)
+(
+  mouse_cap= mouse_cap;
+  gfx_getchar(65536) & 2 && ! kbon ?( mouse_cap&1 ? msdn= 1; mouse_cap&2 ? msrdn= 1; ); // prevent click on activation
+  kbon= gfx_getchar(65536) & 2;
+  mouse_cap&1 && !msdn ? msclk= msdn= 1 : !(mouse_cap&1) && msdn ? msclk= msdn= 0 : msclk= 0;
+  mouse_cap&2 && !msrdn ? msrclk= msrdn= 1 : !(mouse_cap&2) && msrdn ? msrclk= msrdn= 0 : msrclk= 0;
+  msshift= mouse_cap&3 && mouse_cap&8;
+  gfx_mode= 0;  //egg?0:2; 
+  gfx_measurestr("0",_tw,hh);
+  gfxini();
+  _anyhit= _anyclk= _anyon= 0;
+  
+  // calc meters width, visible cnt, 
+  xx= mrsz.spc; cnt= viscnt= mtr= 0; loop ( _NTX, mtr+= 1; 
+    txval(_TXON,mtr) ?( 
+      cnt+= 1; 
+      xx+= mrsz.spc; 
+      ! (a_hidebits & (1<<cnt)) ? viscnt+= 1;
+    ); 
+  ); 
+  xx+= mrsz.wpk;
+  // init panes based on meters width
+  mr.pini(gfleft()?gfx_w-xx:0, 0, xx, gfx_h, 0, 1);
+  gf.pini(gfleft()?0:xx, 0, gfx_w-xx, gfx_h, gfleft(), 1);
+  tx.pini(_PAD, _PAD, 0, gfx_h-_PAD*2, 0, 0);
+  
+  xx1= max(xx, pstrw("rms+pk  "));  // txtctls hit width   //mrsz.spc * _NTX * .5 |0);
+  mshover= anyon || (mouse_x >= 0 && mouse_x < gfx_w && mouse_y >= 0 && mouse_y < gfx_h);
+
+  // kb
+  cc= gfx_getchar(); 
+  cc >= $'a' && cc <= $'p' ?( a_group= cc - $'a'; atslider(); );
+  cc == $'.' ? frz= ! frz;
+  cc == $',' ?( gfshowx( gfshow()==2?0:gfshow()+1 ); atslider(); );
+  cc == $':' ?( mtrhit ? _MRHUE[mtrhit-1]= max(0,_MRHUE[mtrhit-1] - 1) : a_color= max(0,a_color - 1); atslider(); );
+  cc == $'"' ?( mtrhit ? _MRHUE[mtrhit-1]= min(8,_MRHUE[mtrhit-1] + 1) : a_color= min(8,a_color + 1); atslider(); );
+  cc == $'(' ?( a_qbz= max(0,a_qbz - .1); atslider(); );
+  cc == $')' ?( a_qbz == 1 ? (_rets+= 1) > 3 ? _rets= 0; a_qbz= min(1,a_qbz + .1); atslider(); );
+  cc == $';' ?( a_alpha= min(1,max(-1,a_alpha - .1)); );
+  cc == $''' ?( a_alpha= min(1,max(-1,a_alpha + .1)); );
+  cc == $'\' ?( a_big= !a_big?1:a_big==1?2:0; );
+  cc == $'=' ?( a_speed= a_speed==4?1:a_speed+1; atslider(); );
+  cc == $'?' ? _showhlp= ! _showhlp;
+  cc == $'[' && mtrhit ? _MRTRIM[mtrhit-1]= max(-24, _MRTRIM[mtrhit-1] - 3);
+  cc == $']' && mtrhit ? _MRTRIM[mtrhit-1]= min(24, _MRTRIM[mtrhit-1] + 3);
+  cc == $'-' ? gfleftx(! gfleft());
+  cc == $'_' ? gfsoftx(! gfsoft());
+  
+  // reticule setup
+  rtmin= a_min - sign(a_min)*(a_min % 3); rtmin == a_min ? rtmin+= 3;
+  rtmax= a_max - sign(a_max)*(a_max % 3); rtmax == a_max ? rtmax-= 3;
+  rtcnt= (rtmax - rtmin) / 3 + 1; rtcnt < 0 ? rtcnt= 0;
+
+  // clear meters area
+  hue(0,1); gfx_rect(mr.pxt(0), 0, mr.pw(), gfx_h); 
+  
+  // draw meters
+  xx= mrsz.spc;
+  mtr= mtr0= hh0= mtrhit= 0; loop ( _NTX, mtr+= 1;
+  
+    txval(_TXON,mtr) ?(
+      is_clipped = txval(_CLIP, mtr);
+      clip_count = txval(_CLIPCOUNT, mtr);
+   
+      // meter mouse bits
+      kbon && ! anyhit && (gfleft() || tx.pmsy() < _qbz.yy - 2) // meter hit?
+          && (mr.pmsx() >= xx-2 && mr.pmsx() < xx + mrsz.wpk+2 && mr.pmsy() >= 0 && mr.pmsy() < mr.ph())
+      ?(
+        !is_clipped ? (
+          hue(0xfff,.17); 
+          mtrhide(mtr) ? mr.prect(xx,0,mrsz.wpk,mr.ph()) : mr.prect(xx-2,0,mrsz.wpk+4,mr.ph());
+        );
+        msrclk ?( msrclk= 0;
+          mtrdelta(mtr) ?( 
+            mtrdeltahist(mtr) ?( a_deltabits-= 1<<mtr; a_dlthistbits-= 1<<mtr; )
+                              : a_dlthistbits+= 1<<mtr;
+          ): a_deltabits+= 1<<mtr; 
+        );
+        msclk ?( msclk= 0;
+          is_clipped ? (
+            txvalsx(_CLIP, mtr, 0);
+            txvalsx(_CLIPCOUNT, mtr, 0);
+          ) : (
+            (gfshow() == 2 ? ! msshift : msshift) 
+                ?( mtrhidepk(mtr) ? a_hidepkbits-= 1<<mtr : a_hidepkbits+= 1<<mtr; )
+                :( mtrhide(mtr) ? a_hidebits-= 1<<mtr : a_hidebits+= 1<<mtr; )
+          );
+        );
+        mtrhidepk(mtr) ?( hue(0,1); mr.pcircle(xx + (mrsz.wpk*.5|0), mrsz.wpk, a_big?1.5:2, 1, 1); );
+        mtrhit= mtr;
+      );
+    
+      // peak
+      txpk= txval(_PK,mtr);
+      txpk= txpk > 0 ? _L2DB*log(txpk) + _MRTRIM[mtr-1] : -999;
+      hh= mr.ph() * min(1,max(0,(txpk-a_min)/(a_max-a_min))) +.5|0;
+      is_clipped ? (
+        hue(0xf00,1.0); // ++ THAY ĐỔI MÀU SẮC NẾU BỊ CLIP
+      ) : (
+        a_color?txhue(mtr,.5):hue(0xfff,.23);
+      );
+      !mtrhide(mtr) ? mr.prect(xx,0,mrsz.wpk,hh );
+    
+      // pk hold
+      txpk= txval(_PKHOLD,mtr);
+      txpk= txpk > 0 ? _L2DB*log(txpk) + _MRTRIM[mtr-1] : -999;
+      hh= mr.ph() * min(1,max(0,(txpk-a_min)/(a_max-a_min))) +.5|0;
+      !is_clipped && hh ?( a_color?txhue(mtr,.9):hue(0xfff,.9); !mtrhide(mtr) ? mr.prect(xx,hh,mrsz.wpk,2 ); );
+    
+      // rms
+      txrms= sqrt(txval(_RMS,mtr));
+      txrms= txrms > 0 ? _L2DB*log(txrms) + 3 + _MRTRIM[mtr-1] : -999;
+      hh= mr.ph() * min(1,max(0,(txrms-a_min)/(a_max-a_min))) +.5|0; 
+      !is_clipped ? (a_color?txhue(mtr,1):hue(0xccc,1); !mtrhide(mtr) ? mr.prect(xx+mrsz.xrms,0,mrsz.wrms,hh ););
+      mtrhit == mtr || (_showhlp && mrms() && mtr==2) ?(
+        mtrtxrms= txrms;
+        mtrtxpk= txpk;
+      );
+      
+      // delta bar
+      mtr0 && mtrdelta(mtr) && !is_clipped ?(
+        hh0 > hh ?( 
+          ! a_color ? hue(0xddd,1) : mrsz.negdlt < 0 ? txhue(mtr0,1) : hue(mrsz.negdlt,1);
+          mr.prect(xx+mrsz.xdlt,                   hh, mrsz.wdlt, hh0-hh );
+          mr.prect(xx+mrsz.xdlt+mrsz.wdlt,          hh, mrsz.xrms-mrsz.xdlt-mrsz.wdlt-2, 1 );  //top rt
+          mr.prect(xx-mrsz.spc+mrsz.xrms+mrsz.wrms+2, hh0-1, mrsz.spx-mrsz.xdlt-2, 1 ); //bot left
+        ):(
+          ! a_color ? hue(0xddd,1) : mrsz.posdlt < 0 ? txhue(mtr,1) : hue(mrsz.posdlt,1);
+          mr.prect(xx+mrsz.xdlt,                    hh0, mrsz.wdlt, hh-hh0+1 );
+          mr.prect(xx-mrsz.spc+mrsz.xrms+mrsz.wrms+2, hh0, mrsz.spx-mrsz.xdlt-2, 1 ); //top left
+          mr.prect(xx+mrsz.xdlt+mrsz.wdlt,           hh,  mrsz.xrms-mrsz.xdlt-mrsz.wdlt-2, 1 );  //bot rt
+        );
+        mtrhit == mtr || (_showhlp && mrms() && mtr==2) ?(
+          mtrdelta= txrms - txrms0;
+          hh2= mr.ph()*abs(mtrdelta)/(a_max-a_min) +.5|0;
+          gfleft() ? mr.prect(mrsz.wdlt-mrsz.xdlt-_PAD, mr.ph()-hh2, mrsz.wdlt, hh2 )
+                   : mr.prect(mr.pw()-mrsz.wdlt+mrsz.xdlt, mr.ph()-hh2, mrsz.wdlt, hh2 );
+        );
+      );
+      
+      mtr0= mtr;
+      hh0= hh;
+      txrms0= txrms;
+      
+      // meters reticule
+      kbon && mshover ?( //&& ! anyhit && ! anyon && (mr.pmsy() < _qbz.yy - 2 || mr.pmsx() > mr.pw()) ?(
+        hue(0xfff,.3);
+        rr= rtmin - 3; loop ( rtcnt, rr+= 3;
+          hh= mr.ph() * min(1,max(0,(rr-a_min)/(a_max-a_min))) +.5|0;
+          rr % 6 ? mr.prect(xx + (mrsz.wpk>>1)-(1-(mrsz.wpk&1)),hh,1+(1-(mrsz.wpk&1)),1 )
+                 : mr.prect(xx + (mrsz.wpk>>1)-(1-(mrsz.wpk&1))-2,hh,1+(1-(mrsz.wpk&1))+4,1 );
+        );
+      );
+      
+      xx+= mrsz.spc;
+    );
+  );
+  xx+= mrsz.wpk;
+  ! mtrhit && _showhlp && mrms() ? mtrhit= 2;
+
+  // update graph backbuf dimensions
+  gfx_getimgdim(0, ww, hh);
+  gfx_w != ww || gfx_h != hh || histclr ?( 
+    hue(0,1); 
+    gfx_setimgdim(0, gfx_w, gfx_h); 
+    gfx_dest= 0; gfx_rect(0, 0, gfx_w, gfx_h);
+    //egg2 ?( 
+    //  gfx_setimgdim(1, gfx_w, gfx_h); 
+    //  gfx_dest= 1; gfx_rect(0, 0, gfx_w, gfx_h); );
+    gfx_dest= -1;
+    histclr= 0;    
+  );
+  
+  ! frz ?(
+    // speedbump?
+    a_speed > 1 ?( 
+      tt= time_precise()+.002; while( (vv= atomic_setifequal(tqlock,0,1)) && time_precise() < tt ) ( 0; a.tqspin+=1; );
+      tqcnt || vv ? a.tqhang+= 1;
+      tqin= _TQ;
+      tqfreq= .033 / a_speed; //(time_precise()-tqtm0) / a_speed;
+      tqtwk= .5*samplesblock/srate;
+      tqtm= time_precise() - tqtwk + tqfreq;
+      tqcnt= a_speed - 1;
+      tqlock= 0;
+    );
+  
+    // for each queued & current tx val
+    tqout= _TQ;
+    gfx_dest= 0; 
+    cc= 0; loop ( a_speed, cc+= 1;
+      // scroll history & erase new line  
+      gfx_a= 1;
+      gfx_mode= 2; 
+      gfleft() ? gfx_blit(0, 1, 0, gf.l_+1, 0, gf.pw()-1, gfx_h, gf.l_, 0)
+              : gfx_blit(0, 1, 0, gf.l_, 0, gf.pw()-1, gfx_h, gf.l_+1, 0);
+            //egg ? gfx_blit(-1, 1, 0, gf.pxt(0), 0, gfx_w-gf.pxt(0), gfx_h, gf.pxt(0)+1, 0) :
+      gfx_mode= 0; 
+      //egg2 ?( gfx_set(0); gfx_a2= 0; gf.prect(0, 0, 1, gf.ph()); gfx_a2= 1; ):(
+      hue(0,1); gf.prect(0, 0, 1, gfx_h); // erase new line
+ 
+      // draw history graph new line
+      mtr= mtr0= hh0= 0; loop ( _NTX, mtr+= 1;
+
+        cc == a_speed ?(
+          txpk= txval(_PKHOLD,mtr); 
+          txrms= sqrt(txval(_RMS,mtr));
+        ):(
+          txpk= 0[tqout+=1];
+          txrms= sqrt(0[tqout+=1]);
+        );
+        txpk= txpk > 0 ? _L2DB*log(txpk) + _MRTRIM[mtr-1] : -999;
+        txrms= txrms > 0 ? _L2DB*log(txrms) + 3 + _MRTRIM[mtr-1] : -999;
+
+        txval(_TXON,mtr) ?( 
+
+          // pk hold hist
+          gfshow() != 1 ?(
+            hh= gf.ph() * min(1,max(0,(txpk-a_min)/(a_max-a_min))) +.5|0;
+            hh && ! mtrhidepk(mtr) && (_PKHOLDS[mtr-1] != hh || _PKHCNT[mtr-1] > 0) ?( 
+              a_color?txhuez(mtr,.9):huez(0xfff,.9);   
+              gfsoft() ?( gfx_a= .4; gf.pcircle(2,hh+1,1.5,1,1); )
+                      : gf.prect(0,hh,1,2 );
+              _PKHOLDS[mtr-1] != hh ?( _PKHOLDS[mtr-1]= hh; _PKHCNT[mtr-1]= 2; ): _PKHCNT[mtr-1]-= 1;
+            );
+          );
+  
+          // rms hist
+          gfshow() != 2 ?(
+            hh= gf.ph() * min(1,max(0,(txrms-a_min)/(a_max-a_min))) +.5|0;
+            ! mtrhide(mtr) && (hh || mtrdelta(mtr)) ?( //hh && 
+              mtr0 && mtrdeltahist(mtr) ?(
+                hh0 > hh ?(
+                  a_color ? txhuez(mtr0,.42) : huez(0xfff,.2); //cnt < 5 ? gfx_a+= (1-gfx_a)*.28/viscnt;
+                  gfsoft() ?( 
+                    gf.prect(0,hh+(hh?1:0),1,hh0-hh-(hh?1:0));
+                    gfx_a*= .5; hh ? gf.prect(0, hh, 1, 1); hh0 ? gf.prect(0, hh0, 1, 1);
+                  ): gf.prect(0, hh, 1, hh0-hh);
+                ):(
+                  a_color ? txhuez(mtr,.42) : huez(0xfff, .2); //cnt < 5 ? gfx_a+= (1-gfx_a)*.28/viscnt;
+                  gfsoft() ?(
+                    gf.prect(0,hh0+(hh0?1:0),1,hh-hh0-(hh0?1:0));
+                    gfx_a*= .5; hh0 ? gf.prect(0, hh0, 1, 1); hh ? gf.prect(0, hh, 1, 1);
+                  ): gf.prect(0, hh0, 1, hh-hh0);
+                );
+              ):( 
+                a_color ? txhuez(mtr,.42) : huez(0xfff,.2); //cnt < 5 ? gfx_a+= (1-gfx_a)*.28/viscnt;
+                gf.prect(0, 0, 1, hh);
+                gfsoft() ?( gfx_a*= .5; gf.prect(0,hh,1,1 ); );
+              );
+            );   
+            mtr0= mtr;
+            hh0= hh;
+          );
+        );
+      );
+    ); // loop each txval
+    gfx_dest= -1;
+  ); // ! frz
+
+  // blit hist
+  //gfx_a=egg?.2:1;
+  hue(0,1);
+  //egg2 ? gf.prect(0, 0, gf.pw(), gf.ph()); // cool bg here
+  gfx_blit(0, 1, 0, gf.l_, 0, gf.pw(), gfx_h, gf.l_, 0);
+  
+  // reference db line/txt
+  txthit= tx.pmsy() > _qbz.yy - 2 && tx.pmsx() < xx1;
+  kbon && mshover && ! anyhit && ! anyon && ! txthit ?( //gfleft() || 
+    hue(0xfff,.5); 
+    yy= mr.pmsy();
+    mr.prect(0,yy,mr.pw(),1); 
+    sprintf(#str,"%.1f",a_min+(yy)/mr.ph()*(a_max-a_min));
+    gfx_measurestr(#str,ww,hh);
+    mr.pxx(gfleft() ? -ww-_tw>>1 : mr.pw()+_tw>>1); 
+    mr.pyx(yy - 1); 
+    mr.py() < gfx_texth + 2 ? mr.pyx(yy + gfx_texth + 1);
+    mr.pputs(#str);
+  );
+  
+  // stochastic graph reticule
+  kbon && mshover ?( 
+    srnd.srndseed(_seed);
+    nn= gf.pw() / a_speed / 30; // num seconds in graph, @ 30fps x speed
+    xx= -(gf.pw()/nn +.5|0); 
+    nn1= 0; loop ( (nn|0) + 2, nn1+= 1; xx+= gf.pw()/nn +.5|0;
+      rr= rtmin - 3; nn2= 0; 
+      loop ( rtcnt, rr+= 3; ! (rr % 6) ? nn2+=1;
+        rnd= srnd(1);
+        rnd < a_qbz ?(
+          hh= gf.ph() * min(1,max(0,(rr-a_min)/(a_max-a_min))) +.5|0;
+          rr % 6 ?( _rets & 1 ?( hue(0xfff,.3); gf.prect(xx + (gf.pw()*.5/nn +.5|0), hh, 1, 1 ); ); )
+                : _rets & 2 || ((nn1 & 1) ~ (nn2 & 1)) ?( //((nn1 & 1) && ! (nn2 & 1)) || (! (nn1 & 1) && (nn2 & 1)) ?( 
+                  hue(0xfff,.23);
+                  gf.prect(xx - 2, hh,  5, 1 );
+                  gf.prect(xx, hh - 2,  1, 5 );
+                );
+        );
+      );
+    );
+  );
+
+  mtrhit ?( 
+    // meter hit numerics
+    hue(0xfff,.6); 
+    xx= _PAD; //gfleft()?5*_tw:0;
+    gfleft() ? vv= 5*_tw :( vv= -5*_tw; xx-= vv; );
+    gf.pputsr(xx, yy= gf.ph() - _PAD, sprintf(#,"%3.0f", mtrtxpk));
+    gf.pputsr(xx + vv, yy, sprintf(#,"%c",24));
+    gf.pputsr(xx, yy-= gfx_texth * 2, sprintf(#,"%3.0f", mtrtxrms));
+    gf.pputsr(xx + vv, yy, sprintf(#,"%c",29));
+    mtrhit && mtrdelta(mtrhit) ?(
+      gf.pputsr(xx, yy-= gfx_texth * 2, sprintf(#, "%+3.0f", mtrdelta ));
+      gf.pputsr(xx + vv, yy, sprintf(#,"%c",30));
+    );
+    // ++ HIỂN THỊ BỘ ĐẾM CLIP KHI HOVER CHUỘT ++
+    clip_count_hit = txval(_CLIPCOUNT, mtrhit);
+    clip_count_hit > 0 ? (
+      yy-= gfx_texth * 2; // Di chuyển lên để vẽ trên một dòng mới
+      hue(0xf33, 1.0); // Màu đỏ tươi cho số đếm
+      gf.pputsr(xx, yy, sprintf(#, "%d", clip_count_hit));
+      hue(0xccc, .8); // Màu trắng xám cho nhãn
+      gf.pputsr(xx + vv, yy, "Clips:");
+    );
+    // meter hit wheel: trim
+    kbon ?( 
+      vv= mouse_wheel < 0 ? -1 : mouse_wheel > 0 ? 1 : 0; 
+      vv ?( _MRTRIM[mtrhit-1]= min(24, max(-24, _MRTRIM[mtrhit-1] + vv)); ); 
+    );
+  );
+  
+  // meter hit text
+  kbon && (mtrhit || (_showhlp && mrms()) && (gfleft() || mrms())) ?(
+    hue(0x888,1); yy= _PAD; //tx.ph() - _PAD + gfx_texth;
+    xx= _PAD + (_showhlp && ! gfleft() ? _qbz.x2 : 0);
+    ! gfleft() ? xx+= 32 * _tw;
+    gf.pputsr(xx, yy+= gfx_texth, 
+        mtrdeltahist(mtrhit) ? "right-click   deltas   bar+graph" 
+        : mtrdelta(mtrhit) ? "right-click   deltas - bar" : "right-click   deltas   off" );
+    gf.pputsr(xx, yy+= gfx_texth * 2, sprintf(#,"shift-click   peaks history   %d", a_hidepkbits & (1<<mtrhit) ? 0 : 1) );
+    gf.pputsr(xx, yy+= gfx_texth * 2, sprintf(#,"click   rms history   %d", a_hidebits & (1<<mtrhit) ? 0 : 1) );
+    gf.pputsr(xx, yy+= gfx_texth * 2, sprintf(#,":\"   color mod   %+d", _MRHUE[mtrhit-1]) );
+    gf.pputsr(xx, yy+= gfx_texth * 2, sprintf(#,"wheel []   trim   %+ddb", _MRTRIM[mtrhit-1]) );
+    hue(0xfff,1); gf.pputsr(xx, yy+= gfx_texth * 2, sprintf(#,"   %d", mtrhit) );
+    hue(0x888,1); // FIX: Explicitly set color to grey for "meter" text
+    gf.pputsr("meter");
+  );
+
+  // group
+  xx= yy= 0; hue(0x888,1);
+  _grpt_txt = sprintf(#,"%c%s",str_getchar("abcdefghijklmnop", a_group), frz?".":"");
+  _grpt.txtsl(_grpt_txt, xx, yy, xx1, kbon && mshover && mrms() ? "  group   a-p" : "");
+  _grpt.on ?( _grpt.clk ? group0= a_group 
+                        :( a_group= min(15,max(0,group0 + (tx.pmsx()-_grpt.clkx)/16 +.5|0)); atslider(); ); );
+  mouse_wheel && _grpt.hit ?( a_group= min(15,max(0,a_group + (mouse_wheel<0?-1:1))); atslider(); );
+
+  // Reset all clips button
+  _resetall.txtclk("Reset All", xx + _tw*18, yy, xx1, "Reset all clipping indicators");
+  _resetall.clk ? (
+    nn = 0;
+    loop(_NTX,
+      nn += 1;
+      txvalsx(_CLIP, nn, 0);
+      txvalsx(_CLIPCOUNT, nn, 0);
+    );
+  );
+
+  // ++ v0.9: Clip History Log toggle
+  _cliplog_toggle.txtclk(show_cliplog ? "[Log]" : "Log", xx + _tw*30, yy, xx1, "Show/Hide Clip History");
+  _cliplog_toggle.clk ? show_cliplog = !show_cliplog;
+
+  // parms
+  kbon && mshover && (anyon || mrms()) ?( // && ! mtrhit
+    yy= tx.ph() + gfx_texth;
+
+    _mint.txtsl(sprintf(#,"%ddb", a_min), xx, yy-= gfx_texth * 2, xx1, "  meters minimum");
+    _mint.on ?( _mint.clk ? mint0= a_min
+                          :( a_min= min(24,max(-120,mint0 + (tx.pmsx()-_mint.clkx)/8 +.5|0)); atslider(); ); );
+    _mint.wheel ?( a_min= min(24,max(-120,a_min + _mint.wheel)); atslider(); );
+    _mint.hit && msrclk ?( a_min= -48; atslider(); msrclk= 0; );
+
+    _maxt.txtsl(sprintf(#,"%ddb", a_max), xx, yy-= gfx_texth * 2, xx1, "  meters maximum");
+    _maxt.on ?( _maxt.clk ? maxt0= a_max
+                          :( a_max= min(24,max(-120,maxt0 + (tx.pmsx()-_maxt.clkx)/8 +.5|0)); atslider(); ); );
+    _maxt.wheel ?( a_max= min(24,max(-120,a_max + _maxt.wheel)); atslider(); );
+    _maxt.hit && msrclk ?( a_max= -12; atslider(); msrclk= 0; );
+
+    _rmstmt.txtsl(sprintf(#,"%dms", a_rmstm), xx, yy-= gfx_texth * 2, xx1, "  rms integration time");
+    _rmstmt.on ?( _rmstmt.clk ? rmstm0= a_rmstm
+                              :( a_rmstm= min(12000,max(1,rmstm0 + (tx.pmsx()-_rmstmt.clkx)/2 +.5|0)); atslider(); ); );
+    _rmstmt.wheel ?( a_rmstm= min(12000,max(1,a_rmstm + 10*_rmstmt.wheel)); atslider(); );
+    _rmstmt.hit && msrclk ?( a_rmstm= 300; atslider(); msrclk= 0; );
+
+    _pkholdtmt.txtsl(sprintf(#,"%.1fs", a_pkholdtm), xx, yy-= gfx_texth * 2, xx1, "  peak hold time");
+    _pkholdtmt.on ?( _pkholdtmt.clk ? pkholdtm0= a_pkholdtm
+                              :( a_pkholdtm= min(4,max(.1,pkholdtm0 + (tx.pmsx()-_pkholdtmt.clkx)*.05)); atslider(); ); );
+    _pkholdtmt.wheel ?( a_pkholdtm= min(4,max(.1,a_pkholdtm + .1*_pkholdtmt.wheel)); atslider(); );
+    _pkholdtmt.hit && msrclk ?( a_pkholdtm= .5; atslider(); msrclk= 0; );
+
+    _color.txtsl(sprintf(#,"%+d",a_color - 1), xx, yy-= gfx_texth * 2, xx1, "  color mod   :\"");
+    _color.on ?( _color.clk ? color0= a_color
+                          :( a_color= min(8,max(0,color0 + (tx.pmsx()-_color.clkx)*.1 +.5|0)); atslider(); ); );
+    _color.wheel ?( a_color= min(8,max(0,a_color + _color.wheel)); atslider(); );
+
+    _big.txtclk(sprintf(#,"%s", a_big==2?"bigger":a_big==1?"big":"small"), xx, yy-= gfx_texth * 2, xx1, "  meter size   \\");
+    _big.clk ?( a_big= !a_big?1:a_big==1?2:0 ); 
+    _big.wheel ?( a_big= min(2,max(0,a_big + _big.wheel)); atslider(); );
+
+    _soft.txtclk(sprintf(#,"%s/%s", gfleft()?"back":"forth", gfsoft()?"soft":"sharp"), xx, yy-= gfx_texth * 2, xx1, "  graph kind   -_");
+    _soft.clk ?( gfleftx(! gfleft()); );
+    _soft.wheel ?( gfsoftx( min(1,max(0,gfsoft() + _soft.wheel)) ); atslider(); );
+    _soft.hit && msrclk ?( gfsoftx( gfsoft()?0:1 ); );
+    
+    _alpha.txtsl(sprintf(#,"%+.1f", a_alpha), xx, yy-= gfx_texth * 2, xx1, "  graph lightness   ;'");
+    _alpha.on ?( _alpha.clk ? alpha0= a_alpha
+                            :( a_alpha= min(1,max(-1,alpha0 + (tx.pmsx()-_alpha.clkx)*.01)); ); );
+    _alpha.wheel ?( a_alpha= min(1,max(-1,a_alpha + .1*_alpha.wheel)); );
+    _alpha.hit && msrclk ?( a_alpha= 0; atslider(); msrclk= 0; );
+
+    _speed.txtclk(sprintf(#,"%dx", a_speed), xx, yy-= gfx_texth * 2, xx1, "  graph speed   =");
+    _speed.clk ?( a_speed= a_speed==4?1:a_speed+1; atslider(); ); 
+    _speed.wheel ?( a_speed= min(4,max(1,a_speed + _speed.wheel)); atslider(); );
+
+    _hmode.txtclk(sprintf(#,"%s", gfshow()==2?"pk":gfshow()==1?"rms":"rms+pk"), xx, yy-= gfx_texth * 2, xx1, "  graph shows   ,");
+    _hmode.clk ?( gfshowx( gfshow()==2?0:gfshow()+1 ); atslider(); ); 
+    _hmode.wheel ?( gfshowx( min(2,max(0,gfshow() + _hmode.wheel)) ); atslider(); );
+  
+    _qbz.txtclk("'!0", xx, yy-= gfx_texth * 2, xx1, "  meterz 053 - enjoy!  ()");
+    _qbz.x2= tx.px();
+    _qbz.yy= yy;
+    _qbz.wheel ?( a_qbz= min(1,max(0,a_qbz + .1*_qbz.wheel)); atslider(); );
+    _qbz.clk ?( _seed= rand(0x10000); (_rets+= 1) > 3 ? _rets= 0; );
+    _qbz.hit && msrclk ?( egg= ! egg; msrclk= 0; );
+  );
+
+  // ++ v0.9: Draw Clip History Log if visible
+  show_cliplog && ! anyon ? (
+    log_w = 200;
+    log_h = gfx_h - _PAD*4;
+    log_x = gfx_w - log_w - _PAD;
+    log_y = _PAD*2;
+
+    // Draw background
+    hue(0x111, 0.9);
+    gfx_rect(log_x, log_y, log_w, log_h);
+    hue(0x555, 1);
+    gfx_rect(log_x, log_y, log_w, 1);
+    gfx_rect(log_x, log_y, 1, log_h);
+    gfx_rect(log_x + log_w - 1, log_y, 1, log_h);
+    gfx_rect(log_x, log_y + log_h - 1, log_w, 1);
+
+    // Draw Title and Clear button
+    hue(0xccc, 1);
+    tx.pxyx(log_x + _PAD, log_y + _PAD);
+    tx.pputs("Clip History");
+    
+    _clearlog.txtclk("Clear", tx.pmsx() < log_x+log_w && tx.pmsx() > log_x ? log_x + log_w - pstrw("Clear") - _PAD - tx.l_ : 9999, log_y + _PAD - tx.t_, 0, "Clear the clip history log");
+    _clearlog.clk ? (
+      memset(_CLIPLOG_DATA, 0, _CLIPLOG_MAX_ENTRIES * _CLIPLOG_ENTRY_SIZE);
+      prmsx(_CLIPLOG_PTR, 0);
+    );
+
+    // Draw log entries
+    tx.pyx(tx.py() + gfx_texth * 2.2);
+    log_count = prm(_CLIPLOG_PTR);
+    
+    i = 0;
+    loop(min(log_count, _CLIPLOG_MAX_ENTRIES),
+      read_idx = (log_count - 1 - i) % _CLIPLOG_MAX_ENTRIES;
+      entry_addr = _CLIPLOG_DATA + read_idx * _CLIPLOG_ENTRY_SIZE;
+      
+      timestamp = gmem[entry_addr];
+      group = gmem[entry_addr + 1];
+      meter = gmem[entry_addr + 2];
+      
+      timestamp > 0 ? (
+        minutes = timestamp / 60;
+        seconds = timestamp % 60;
+        
+        hue(0xaaa, 1);
+        tx.pxx(log_x + _PAD);
+        tx.pputs(sprintf(#, "%02d:%.2f", minutes, seconds));
+        
+        hue(0xddd, 1);
+        tx.pxx(log_x + 8*_tw);
+        tx.pputs(sprintf(#, "[%c-%d]", str_getchar("abcdefghijklmnop", group), meter));
+        
+        tx.pyx(tx.py() + gfx_texth * 1.4);
+
+        // Stop if we run out of vertical space
+        tx.pyt(tx.py()) > log_y + log_h - gfx_texth ? i = _CLIPLOG_MAX_ENTRIES;
+      );
+      i += 1;
+    );
+  );
+
+  anyhit= _anyhit;
+  anyclk= _anyclk;
+  anyon= _anyon;
+  msclk && mshover && ! anyclk ? frz= ! frz;
+  mouse_wheel= 0;
+  
+  // bump active meters cnt if nec; do active gui keep alive; refresh & ping active tx 
+  ! grponx ?( grponx= 1; prm_atomic_add(_GRPONP, 1); ); //a.gop+=1; );
+  keepalivetm= time_precise();
+  prm(_GRPONP) < 2 ?( // only works if single meterz visible/active
+    nn= -1; loop ( _NTX, txvalsx(_TXON, nn+=1, 0); ); // clear all on vals; immed reset by active tx
+  );
+);
+atgfx();
+
+@block
+
+grponx && time_precise() - keepalivetm > .2 ?(
+  grponx= 0; 
+  prm_atomic_add(_GRPONP,-1);
+);
+
+a_speed > 1 && tqcnt ?(
+  ! atomic_setifequal(tqlock,0,1) ?( 
+    time_precise() > tqtm ?( 
+      nn= 0; loop ( _NTX, nn+= 1;
+        0[tqin+=1]= txval(_PKHOLD,nn);
+        0[tqin+=1]= txval(_RMS,nn);
+      );
+      tqtm+= tqfreq;
+      tqcnt > 0 ? tqcnt-= 1 : tqcnt= 0;
+    );
+    tqlock= 0
+  )
+);
+
