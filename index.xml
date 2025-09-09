@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="e41a7679ce4ce4d52e6ae4056422683bbeb18d35">
+<index version="1" name="Hosi Scripts" commit="37591a9b87ab6ba0ce15ef8fc73fcb149dd7545e">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -94,6 +94,44 @@
     </reapack>
   </category>
   <category name="Develop/HosiMeter">
+    <reapack name="hmeterz.jsfx" type="effect" desc="hmeterz v0.9">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 meterz\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A minimal, distributed audio levels visualizer.\par}
+}
+]]></description>
+        <link rel="website">https://forum.cockos.com/showthread.php?t=246931</link>
+      </metadata>
+      <version name="0.9" author="Bang - Developed by Hosi" time="2025-09-09T07:16:46Z">
+        <changelog><![CDATA[+ v0.9 - Added Clip History log window with timestamps.
++ v0.8 - "Reset All Clips" button.]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/37591a9b87ab6ba0ce15ef8fc73fcb149dd7545e/Develop/HosiMeter/hmeterz.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="hmeterztx.jsfx" type="effect" desc="hmeterz tx - v0.9">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 meterz tx\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 You will insert the plugin into the audio channels (tracks) that you want to monitor.\par}
+}
+]]></description>
+        <link rel="website">https://forum.cockos.com/showthread.php?t=246931</link>
+      </metadata>
+      <version name="0.9" author="Bang - Developed by Hosi" time="2025-09-09T07:16:46Z">
+        <changelog><![CDATA[+ v0.9 - Added Clip History logging (timestamp and channel).
++ v0.8 - Added Clip Counter logic. Now increments a counter instead of setting a flag.
++ v0.7 - Integrate clipping detection and alert feature.
++ v0.6 - Initial version by Bang.]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/37591a9b87ab6ba0ce15ef8fc73fcb149dd7545e/Develop/HosiMeter/hmeterztx.jsfx</source>
+      </version>
+    </reapack>
     <reapack name="Hosi_hmeterz_Meter_Bridge.lua" type="script" desc="Hosi hmeterz Meter Bridge (ReaImGui Edition)">
       <version name="0.5" author="Hosi" time="2025-09-09T05:17:38Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/e41a7679ce4ce4d52e6ae4056422683bbeb18d35/Develop/HosiMeter/Hosi_hmeterz_Meter_Bridge.lua</source>
