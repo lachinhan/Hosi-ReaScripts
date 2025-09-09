@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="e429252e6ccfaa6b1649519d686b16cdf69fcb47">
+<index version="1" name="Hosi Scripts" commit="a867c084abee11a6d56da418bc54d3d2203b87b1">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -98,6 +98,16 @@
       <version name="1.3" author="Hosi Prod" time="2025-09-02T00:53:17Z">
         <changelog><![CDATA[+ v1.3 (2025-08-31) - Initial release on Reapack.]]></changelog>
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/8ed0f83f0f9f6891da67375725298ab909584740/Freesound%20Search/Hosi_Freesound_Logic_Pro.py</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="FX">
+    <reapack name="Hosi_FX Homie Manager.lua" type="script" desc="FX Homie Manager (Toggleable Window)">
+      <metadata>
+        <link rel="website">https://forum.cockos.com/showthread.php?p=2680992#post2680992</link>
+      </metadata>
+      <version name="1.0.5" author="Sexan &amp; Hosi (Combined)" time="2025-09-04T23:06:55Z">
+        <source main="main" file="Hosi_FX Homie Manager (Toggleable Window).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/a867c084abee11a6d56da418bc54d3d2203b87b1/FX/Hosi_FX%20Homie%20Manager.lua</source>
       </version>
     </reapack>
   </category>
@@ -464,6 +474,10 @@
       <version name="1.1.6-733" author="La Chi Nhan (Hosi Prod)" time="2025-09-04T08:34:06Z">
         <changelog><![CDATA[Brand new REAPER: 7.33, SWS: 2.14.0.3]]></changelog>
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/e429252e6ccfaa6b1649519d686b16cdf69fcb47/Translations/Vietnamese%20Translations.ReaperLangPack</source>
+      </version>
+      <version name="7.45" author="La Chi Nhan (Hosi Prod)" time="2025-09-04T23:06:55Z">
+        <changelog><![CDATA[Brand new REAPER: 7.45, SWS: 2.14.0.3]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/a867c084abee11a6d56da418bc54d3d2203b87b1/Translations/Vietnamese%20Translations.ReaperLangPack</source>
       </version>
     </reapack>
   </category>
