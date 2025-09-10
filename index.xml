@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="37591a9b87ab6ba0ce15ef8fc73fcb149dd7545e">
+<index version="1" name="Hosi Scripts" commit="b1f7939e5e2f374c4e46df4180b4c2a759132a8f">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -140,6 +140,11 @@
     <reapack name="Hosi_Manage hmeterzTX.lua" type="script" desc="Manage hmeterzTX (Add/Configure or Remove All)">
       <version name="0.3" author="Hosi" time="2025-09-09T05:17:38Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/e41a7679ce4ce4d52e6ae4056422683bbeb18d35/Develop/HosiMeter/Hosi_Manage%20hmeterzTX.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Problem_Dashboard.lua" type="script" desc="Problem Dashboard for hmeterz">
+      <version name="0.1" author="Hosi" time="2025-09-10T11:01:23Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/b1f7939e5e2f374c4e46df4180b4c2a759132a8f/Develop/HosiMeter/Hosi_Problem_Dashboard.lua</source>
       </version>
     </reapack>
   </category>
