@@ -1,20 +1,25 @@
 --[[
-@description Manage hmeterzTX (Add/Configure or Remove All)
+@description Manage hmeterzTX (Add/Configure, Offline/Online or Remove All)
 @author      Hosi
-@version     0.3
+@version     0.4
 @provides
   [main] . > Hosi_Manage hmeterzTX.lua
 
 @about
   # Manage hmeterzTX
 
-  This script combines the functionality of adding, configuring, and removing
-  the 'hmeterzTX' JSFX. It provides a GUI to choose the desired action.
+  This script combines the functionality of adding, configuring, toggling offline
+  state, and removing the 'hmeterzTX' JSFX.
+
+   v0.4:
+  - Added "Offline All" and "Online All" functions to quickly bypass or
+    enable all hmeterzTX instances in the project, saving CPU.
 
   ## ACTIONS:
   1. Add with Auto-Grouping: Adds 'hmeterzTX' and automatically assigns groups based on track names.
   2. Add Manually: Adds 'hmeterzTX' to a single specified group.
-  3. Remove All from Project: Scans the entire project and removes all
+  3. Toggle Offline/Online All: Sets all instances to be bypassed (offline) or active (online).
+  4. Remove All from Project: Scans the entire project and removes all
      instances of 'hmeterzTX'.
 
   ## REQUIREMENTS:
@@ -34,8 +39,8 @@ local FX_NAME_TO_FIND = "hmeterz tx"
 local FX_NAME_TO_ADD = "JS: hmeterz tx"
 
 -- ++ AUTO-GROUPING RULES ++
--- Thêm từ khóa cho track của bạn vào đây. Kịch bản sẽ tìm kết quả khớp đầu tiên.
--- Từ khóa KHÔNG phân biệt chữ hoa chữ thường.
+-- Add keywords for your tracks here. The script will find the first match.
+-- Keywords are NOT case-sensitive.
 local AUTO_GROUP_RULES = {
   -- Group 'a' (index 0) - Vocals
   { group_idx = 0, keywords = {"Acapella","Vocal", "VOX", "LeadV", "BGV", "Singer"} },
@@ -51,25 +56,25 @@ local AUTO_GROUP_RULES = {
   { group_idx = 5, keywords = {"FX", "Reverb", "Delay", "EQ"} },
   -- Group 'g' (index 6) - Guitar
   { group_idx = 6, keywords = {"GTR", "Guitar", "Guit"} },
-  -- Group 'h' (index 7) - 
+  -- Group 'h' (index 7) -
   { group_idx = 7, keywords = {"Harmonica", "Harpe", "Hichiriki"} },
-  -- Group 'i' (index 8) - 
+  -- Group 'i' (index 8) -
   { group_idx = 8, keywords = {"Indian flute", "Irish harp"} },
-  -- Group 'j' (index 9) - 
+  -- Group 'j' (index 9) -
   --{ group_idx = 9, keywords = {"Indian flute", "Irish harp"} },
   -- Group 'k' (index 10) - Keyboard
   { group_idx = 10, keywords = {"Keys", "Keyboards"} },
-  -- Group 'l' (index 11) - 
+  -- Group 'l' (index 11) -
   --{ group_idx = 11, keywords = {"Indian flute", "Irish harp"} },
   -- Group 'm' (index 12) - Maracas
   { group_idx = 12, keywords = {"Maracas", "Tambourine", "trombone"} },
-  -- Group 'n' (index 13) - 
+  -- Group 'n' (index 13) -
   --{ group_idx = 13, keywords = {"Indian flute", "Irish harp"} },
   -- Group 'o' (index 14) - Ocarina/Organ
   { group_idx = 14, keywords = {"Ocarina", "Organ"} },
   -- Group 'p' (index 14) - Piano
   { group_idx = 14, keywords = {"Piano", "Pianica", "Synth", "Pad"} },
-  
+
 }
 -- ---------------------
 
@@ -115,6 +120,25 @@ function TrackHas_hmeterzTX(track)
   return false
 end
 
+-- Scans the project for the first hmeterzTX instance and returns its offline state
+function GetCurrentFXState()
+  local tracks_count = reaper.CountTracks(0)
+  for i = 0, tracks_count - 1 do
+    local track = reaper.GetTrack(0, i)
+    if track then
+      local fx_count = reaper.TrackFX_GetCount(track)
+      for fx_index = 0, fx_count - 1 do
+        local _, current_fx_name = reaper.TrackFX_GetFXName(track, fx_index, "", 1024)
+        if string.match(string.lower(current_fx_name), FX_NAME_TO_FIND) then
+          return reaper.TrackFX_GetOffline(track, fx_index)
+        end
+      end
+    end
+  end
+  return nil
+end
+
+
 -- Core logic to add and configure hmeterzTX on selected tracks
 function AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, use_auto_grouping)
   local selected_tracks_count = reaper.CountSelectedTracks(0)
@@ -125,9 +149,9 @@ function AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, use_aut
   end
 
   reaper.Undo_BeginBlock()
-  
+
   local tracks_processed = 0
-  local meter_counters_per_group = {} -- To track meter numbers for each group
+  local meter_counters_per_group = {}
 
   for i = 0, selected_tracks_count - 1 do
     local track = reaper.GetSelectedTrack(0, i)
@@ -136,13 +160,13 @@ function AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, use_aut
         local folder_depth = reaper.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH")
         if folder_depth == 1 then goto continue_loop end
       end
-      
+
       if TrackHas_hmeterzTX(track) then goto continue_loop end
 
       local fx_index = reaper.TrackFX_AddByName(track, FX_NAME_TO_ADD, false, -1)
       if fx_index > -1 then
         local group_to_use = group_idx
-        
+
         if use_auto_grouping then
           local _, track_name = reaper.GetTrackName(track, "")
           local auto_group = GetGroupFromTrackName(track_name)
@@ -151,25 +175,21 @@ function AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, use_aut
           end
         end
 
-        -- Manage meter numbers for each group separately
         if not meter_counters_per_group[group_to_use] then
             meter_counters_per_group[group_to_use] = start_meter - 1
         end
         meter_counters_per_group[group_to_use] = meter_counters_per_group[group_to_use] + 1
         local meter_number = meter_counters_per_group[group_to_use]
 
-        -- Ensure meter number wraps around 1-16
-        if meter_number > 16 then 
+        if meter_number > 16 then
             meter_number = 1
             meter_counters_per_group[group_to_use] = 1
         end
 
         reaper.TrackFX_SetParam(track, fx_index, 0, group_to_use)
         reaper.TrackFX_SetParam(track, fx_index, 1, meter_number)
-        
-        local random_color_index = math.random(0, 7)
-        reaper.TrackFX_SetParam(track, fx_index, 2, random_color_index)
-        
+        reaper.TrackFX_SetParam(track, fx_index, 2, math.random(0, 7))
+
         tracks_processed = tracks_processed + 1
       else
         reaper.ShowMessageBox("Could not find the FX: '" .. FX_NAME_TO_ADD .. "'.\nPlease check the FX name and version in the script's CONFIGURATION section.", "FX Not Found", 0)
@@ -179,7 +199,7 @@ function AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, use_aut
     end
     ::continue_loop::
   end
-  
+
   reaper.Undo_EndBlock("Auto-Setup hmeterzTX on " .. tracks_processed .. " tracks", -1)
   reaper.UpdateArrange()
   reaper.ShowMessageBox("Added " .. tracks_processed .. " instance(s) of hmeterzTX.", "Setup Complete", 0)
@@ -196,7 +216,6 @@ function RemoveAll_hmeterzTX()
     local track = reaper.GetTrack(0, i)
     if track then
       local fx_count = reaper.TrackFX_GetCount(track)
-      -- Loop backwards because deleting an FX shifts the indices
       for fx_index = fx_count - 1, 0, -1 do
         local _, current_fx_name = reaper.TrackFX_GetFXName(track, fx_index, "", 1024)
         if string.match(string.lower(current_fx_name), FX_NAME_TO_FIND) then
@@ -212,12 +231,41 @@ function RemoveAll_hmeterzTX()
   reaper.UpdateArrange()
 end
 
+-- Core logic to toggle the offline state of all instances
+function ToggleOfflineAll_hmeterzTX(go_offline)
+  local tracks_count = reaper.CountTracks(0)
+  local processed_count = 0
+  local action_text = go_offline and "Offlined" or "Onlined"
+  local undo_text = go_offline and "Offline" or "Online"
+
+  reaper.Undo_BeginBlock()
+
+  for i = 0, tracks_count - 1 do
+    local track = reaper.GetTrack(0, i)
+    if track then
+      local fx_count = reaper.TrackFX_GetCount(track)
+      for fx_index = 0, fx_count - 1 do
+        local _, current_fx_name = reaper.TrackFX_GetFXName(track, fx_index, "", 1024)
+        if string.match(string.lower(current_fx_name), FX_NAME_TO_FIND) then
+          reaper.TrackFX_SetOffline(track, fx_index, go_offline)
+          processed_count = processed_count + 1
+        end
+      end
+    end
+  end
+
+  reaper.Undo_EndBlock(undo_text .. " " .. processed_count .. " hmeterzTX instances", -1)
+  reaper.ShowMessageBox(processed_count .. " instance(s) of hmeterzTX have been " .. string.lower(action_text) .. ".", action_text .. " Complete", 0)
+  reaper.UpdateArrange()
+end
+
+
 ---------------------------------------------------------------------
 -- GUI STATE AND DRAWING
 ---------------------------------------------------------------------
 
 -- GUI State Variables
-local current_view = 'main' -- 'main', 'add_auto', 'add_manual', 'remove'
+local current_view = 'main'
 local is_open = true
 local flags = imgui.WindowFlags_NoResize | imgui.WindowFlags_AlwaysAutoResize
 
@@ -232,98 +280,121 @@ local skip_folders = true
 function loop()
   local visible
   visible, is_open = imgui.Begin(ctx, 'hMeterzTX Manager', is_open, flags)
-  
+
   if visible then
+    imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 8, 5)
+    imgui.PushStyleVar(ctx, imgui.StyleVar_ItemSpacing, 8, 6)
+    
+    local content_width = imgui.GetContentRegionAvail(ctx)
+
     -- MAIN MENU VIEW
     if current_view == 'main' then
       imgui.Text(ctx, "Please choose an action:")
       imgui.Separator(ctx)
-      if imgui.Button(ctx, "Add with Auto-Grouping") then
+
+      if imgui.Button(ctx, "Add with Auto-Grouping", content_width, 30) then
         current_view = 'add_auto'
       end
-      if imgui.IsItemHovered(ctx) then
-          imgui.SetTooltip(ctx, "Automatically assign groups based on track names.")
-      end
 
-      if imgui.Button(ctx, "Add Manually (to one Group)") then
+      if imgui.Button(ctx, "Add Manually (to one Group)", content_width, 30) then
         current_view = 'add_manual'
       end
-      if imgui.IsItemHovered(ctx) then
-          imgui.SetTooltip(ctx, "Add FX to all selected tracks and assign them to a single group.")
-      end
 
       imgui.Separator(ctx)
-      if imgui.Button(ctx, "Remove All from Project") then
+
+      local fx_are_offline = GetCurrentFXState()
+      if fx_are_offline ~= nil then
+        local button_text, action_is_to_go_offline
+        if fx_are_offline then
+          button_text = "Set All FX Online"
+          action_is_to_go_offline = false
+        else
+          button_text = "Set All FX Offline"
+          action_is_to_go_offline = true
+        end
+
+        if imgui.Button(ctx, button_text, content_width, 30) then
+          ToggleOfflineAll_hmeterzTX(action_is_to_go_offline)
+        end
+      end
+
+      if imgui.Button(ctx, "Remove All from Project", content_width, 30) then
         current_view = 'remove'
       end
+      
       imgui.Separator(ctx)
-      if imgui.Button(ctx, "Close") then
+      if imgui.Button(ctx, "Close", content_width, 30) then
         is_open = false
       end
-      
+
     -- ADD WITH AUTO-GROUPING VIEW
     elseif current_view == 'add_auto' then
-      imgui.Text(ctx, "Configure Auto-Grouping for selected tracks:")
+      imgui.Text(ctx, "Configure Auto-Grouping")
       imgui.Separator(ctx)
+      imgui.TextWrapped(ctx, "Adds hmeterzTX to selected tracks, guessing the group from the track name.")
 
-      imgui.PushItemWidth(ctx, 220)
+      imgui.PushItemWidth(ctx, -1)
       imgui.Combo(ctx, "Fallback Group", group_idx, groups_string)
-      if imgui.IsItemHovered(ctx) then
-          imgui.SetTooltip(ctx, "Used for tracks that don't match any auto-grouping rules.")
-      end
       imgui.SliderInt(ctx, "Starting Meter", start_meter, 1, 16)
       imgui.PopItemWidth(ctx)
-      
+
       imgui.Checkbox(ctx, "Skip Folder Tracks", skip_folders)
       imgui.Separator(ctx)
-      if imgui.Button(ctx, "Apply and Close") then
+      
+      if imgui.Button(ctx, "Apply and Close", content_width * 0.5 - 4, 30) then
         AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, true)
         is_open = false
       end
-      imgui.SameLine(ctx)
-      if imgui.Button(ctx, "Back") then
+      imgui.SameLine(ctx, 0, 8)
+      if imgui.Button(ctx, "Back", content_width * 0.5 - 4, 30) then
         current_view = 'main'
       end
 
     -- ADD MANUALLY VIEW
     elseif current_view == 'add_manual' then
-      imgui.Text(ctx, "Configure Manual Add for selected tracks:")
+      imgui.Text(ctx, "Configure Manual Add")
       imgui.Separator(ctx)
-
-      imgui.PushItemWidth(ctx, 220)
+      imgui.TextWrapped(ctx, "Adds hmeterzTX to selected tracks, assigning all to a single group.")
+      
+      imgui.PushItemWidth(ctx, -1)
       imgui.Combo(ctx, "Target Group", group_idx, groups_string)
       imgui.SliderInt(ctx, "Starting Meter", start_meter, 1, 16)
       imgui.PopItemWidth(ctx)
 
       imgui.Checkbox(ctx, "Skip Folder Tracks", skip_folders)
       imgui.Separator(ctx)
-      if imgui.Button(ctx, "Apply and Close") then
+      
+      if imgui.Button(ctx, "Apply and Close", content_width * 0.5 - 4, 30) then
         AddAndConfigure_hmeterzTX(group_idx, start_meter, skip_folders, false)
         is_open = false
       end
-      imgui.SameLine(ctx)
-      if imgui.Button(ctx, "Back") then
+      imgui.SameLine(ctx, 0, 8)
+      if imgui.Button(ctx, "Back", content_width * 0.5 - 4, 30) then
         current_view = 'main'
       end
-      
+
     -- REMOVE CONFIRMATION VIEW
     elseif current_view == 'remove' then
-      imgui.Text(ctx, "This will scan the ENTIRE project.")
-      imgui.TextWrapped(ctx, "Are you sure you want to remove all instances of '" .. FX_NAME_TO_FIND .. "'?")
+      imgui.Text(ctx, "Confirm Removal")
       imgui.Separator(ctx)
-      if imgui.Button(ctx, "YES, REMOVE ALL") then
+      imgui.TextWrapped(ctx, "This will scan the ENTIRE project and permanently remove all instances of '" .. FX_NAME_TO_FIND .. "'. This action cannot be undone. Are you sure?")
+      imgui.Separator(ctx)
+      
+      if imgui.Button(ctx, "YES, REMOVE ALL", content_width * 0.5 - 4, 30) then
         RemoveAll_hmeterzTX()
         is_open = false
       end
-      imgui.SameLine(ctx)
-      if imgui.Button(ctx, "Cancel") then
+      
+      imgui.SameLine(ctx, 0, 8)
+      if imgui.Button(ctx, "Cancel", content_width * 0.5 - 4, 30) then
         current_view = 'main'
       end
     end
-    
+
+    imgui.PopStyleVar(ctx, 2)
     imgui.End(ctx)
   end
-  
+
   if is_open then
     reaper.defer(loop)
   end
