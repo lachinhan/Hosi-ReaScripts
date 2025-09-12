@@ -1,5 +1,5 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
--- @version 2.0
+-- @version 2.1
 -- @author Hosi (developed from original concept by phaselab)
 -- @link
 --   Original Script by phaselab
@@ -1086,7 +1086,7 @@ local function drawGUI()
   -- Remove AlwaysAutoResize flag to use the custom size.
   local window_flags = reaper.ImGui_WindowFlags_TopMost()
 
-  local visible, open = reaper.ImGui_Begin(ctx, 'Reanspiration - by phaselab + hosi', true, window_flags)
+  local visible, open = reaper.ImGui_Begin(ctx, 'Reanspiration - by Hosi (orig. phaselab)', true, window_flags)
   if visible then
     
     if reaper.ImGui_CollapsingHeader(ctx, "Core Generation", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
@@ -1205,6 +1205,11 @@ local function drawGUI()
     if generation_info ~= "" then
       reaper.ImGui_Separator(ctx)
       reaper.ImGui_Text(ctx, generation_info)
+    end
+
+    reaper.ImGui_Separator(ctx)
+    if reaper.ImGui_Button(ctx, "Donate") then
+        reaper.CF_ShellExecute("https://paypal.me/nkstudio")
     end
     
     reaper.ImGui_End(ctx)
