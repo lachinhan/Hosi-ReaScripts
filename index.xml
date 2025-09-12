@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="488c8107e0f1761f55c7ac4c8ac4b50f577495ff">
+<index version="1" name="Hosi Scripts" commit="b5751cc2da692d2c0d11c48393ffb34d71a35e0a">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -140,9 +140,12 @@
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/488c8107e0f1761f55c7ac4c8ac4b50f577495ff/Develop/HosiMeter/Hosi_hmeterz_Meter_Bridge.lua</source>
       </version>
     </reapack>
-    <reapack name="Hosi_Manage hmeterzTX.lua" type="script" desc="Manage hmeterzTX (Add/Configure or Remove All)">
+    <reapack name="Hosi_Manage hmeterzTX.lua" type="script" desc="Manage hmeterzTX (Add/Configure, Offline/Online or Remove All)">
       <version name="0.3" author="Hosi" time="2025-09-09T05:17:38Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/e41a7679ce4ce4d52e6ae4056422683bbeb18d35/Develop/HosiMeter/Hosi_Manage%20hmeterzTX.lua</source>
+      </version>
+      <version name="0.4" author="Hosi" time="2025-09-11T03:05:41Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/b5751cc2da692d2c0d11c48393ffb34d71a35e0a/Develop/HosiMeter/Hosi_Manage%20hmeterzTX.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Problem_Dashboard.lua" type="script" desc="Problem Dashboard for hmeterz">
