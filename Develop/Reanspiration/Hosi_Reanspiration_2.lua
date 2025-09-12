@@ -1,9 +1,7 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
--- @version 2.1
+-- @version 2.3
 -- @author Hosi (developed from original concept by phaselab)
--- @link
---   Original Script by phaselab
---   https://forum.cockos.com/showthread.php?t=291623
+-- @link Original Script by phaselab https://forum.cockos.com/showthread.php?t=291623
 -- @about
 --   An all-in-one toolkit for generating harmonically-aware musical ideas.
 --
@@ -16,6 +14,7 @@
 --   - Integrated melody generator.
 --   - Arpeggiator and Strummer.
 --   - Humanizer for timing and velocity.
+--   - Multi-level Undo for creative tool edits.
 -- @end
 
 local reaper = reaper
@@ -1067,11 +1066,31 @@ local add_note = false
 local apply_arp = false -- Trigger for arpeggiator
 local generate_melody_trigger = false -- Trigger for melody generation
 local humanize_trigger = false -- Trigger for humanize function
+local undo_melody_trigger = false
+local undo_arp_trigger = false
 local window_open = true
 local root_note_options = {"Random", "C", "C#/Db", "D", "D#/Eb", "E", "F", "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B"}
 local selected_root_note = 0 -- 0 is "Random"
 local generation_info = "" -- Variable to store feedback message
 local current_progression_options = progression_options_major
+local melody_undo_stack = {}
+local arp_undo_stack = {}
+
+local function captureUndoState(take)
+    if not take then return nil end
+    local notes = {}
+    local note_idx = 0
+    while true do
+        local ret, selected, muted, startppq, endppq, chan, pitch, vel = reaper.MIDI_GetNote(take, note_idx)
+        if not ret then break end
+        table.insert(notes, {
+            selected = selected, muted = muted, startppq = startppq, endppq = endppq,
+            chan = chan, pitch = pitch, vel = vel
+        })
+        note_idx = note_idx + 1
+    end
+    return notes
+end
 
 local function getRandomScaleType()
   local valid_scale_types = {"Major", "Natural Minor"}
@@ -1175,6 +1194,10 @@ local function drawGUI()
         if melody_octave_max < melody_octave_min then melody_octave_max = melody_octave_min end
         if reaper.ImGui_Button(ctx, "Generate Melody") then generate_melody_trigger = true end
         if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Generates a new melody over existing chords.\nDeletes any previous melody.") end
+        if #melody_undo_stack > 0 then
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "Undo Melody") then undo_melody_trigger = true end
+        end
         
         reaper.ImGui_Separator(ctx)
         
@@ -1189,6 +1212,10 @@ local function drawGUI()
         end
         if reaper.ImGui_Button(ctx, "Apply Arp/Strum") then apply_arp = true end
         if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Applies pattern to selected notes (or all if none selected).") end
+        if #arp_undo_stack > 0 then
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "Undo Arp/Strum") then undo_arp_trigger = true end
+        end
 
         reaper.ImGui_Separator(ctx)
 
@@ -1198,7 +1225,7 @@ local function drawGUI()
         changed, humanize_strength_velocity = reaper.ImGui_SliderInt(ctx, "Velocity +/-", humanize_strength_velocity, 0, 30)
         if reaper.ImGui_Button(ctx, "Humanize Notes") then humanize_trigger = true end
         if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Slightly randomizes the timing and velocity of all notes in the item.") end
-        
+
         reaper.ImGui_Unindent(ctx)
     end
     
@@ -1224,6 +1251,9 @@ local function loop()
   drawGUI()
 
   if generate then
+    -- Invalidate all creative undo buffers on new generation
+    melody_undo_stack = {}
+    arp_undo_stack = {}
     reaper.Undo_BeginBlock()
     
     -- 1. Determine the selected scale type from the GUI to establish context
@@ -1307,6 +1337,7 @@ local function loop()
     if item then
       local take = reaper.GetMediaItemTake(item, 0)
       if take and reaper.TakeIsMIDI(take) then
+        table.insert(melody_undo_stack, captureUndoState(take)) -- Add current state to undo stack
         reaper.Undo_BeginBlock()
         deleteExistingMelody(take) -- Delete old melody notes before generating new ones
         local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
@@ -1331,6 +1362,7 @@ local function loop()
       if take and reaper.TakeIsMIDI(take) then
         local pattern = arp_strum_options[selected_arp_strum_pattern + 1]
         if pattern ~= "None" then
+          table.insert(arp_undo_stack, captureUndoState(take)) -- Add current state to undo stack
           reaper.Undo_BeginBlock()
           
           local final_rate_value
@@ -1360,6 +1392,44 @@ local function loop()
           end
       end
       humanize_trigger = false
+  end
+
+  if undo_melody_trigger then
+      local item = reaper.GetSelectedMediaItem(0, 0)
+      if item then
+          local take = reaper.GetMediaItemTake(item, 0)
+          if take and reaper.TakeIsMIDI(take) and #melody_undo_stack > 0 then
+              reaper.Undo_BeginBlock()
+              local last_state = table.remove(melody_undo_stack)
+              deleteExistingNotes(take)
+              for _, note in ipairs(last_state) do
+                  reaper.MIDI_InsertNote(take, note.selected, note.muted, note.startppq, note.endppq, note.chan, note.pitch, note.vel, true)
+              end
+              reaper.MIDI_Sort(take)
+              reaper.UpdateArrange()
+              reaper.Undo_EndBlock("Undo Melody", -1)
+          end
+      end
+      undo_melody_trigger = false
+  end
+
+  if undo_arp_trigger then
+      local item = reaper.GetSelectedMediaItem(0, 0)
+      if item then
+          local take = reaper.GetMediaItemTake(item, 0)
+          if take and reaper.TakeIsMIDI(take) and #arp_undo_stack > 0 then
+              reaper.Undo_BeginBlock()
+              local last_state = table.remove(arp_undo_stack)
+              deleteExistingNotes(take)
+              for _, note in ipairs(last_state) do
+                  reaper.MIDI_InsertNote(take, note.selected, note.muted, note.startppq, note.endppq, note.chan, note.pitch, note.vel, true)
+              end
+              reaper.MIDI_Sort(take)
+              reaper.UpdateArrange()
+              reaper.Undo_EndBlock("Undo Arp/Strum", -1)
+          end
+      end
+      undo_arp_trigger = false
   end
 
   if change_rhythm then
