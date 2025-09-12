@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="b5751cc2da692d2c0d11c48393ffb34d71a35e0a">
+<index version="1" name="Hosi Scripts" commit="56d75716f0573f582b8530c92401b4d23db30dda">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -151,6 +151,32 @@
     <reapack name="Hosi_Problem_Dashboard.lua" type="script" desc="Problem Dashboard for hmeterz">
       <version name="0.1" author="Hosi" time="2025-09-10T11:01:23Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/b1f7939e5e2f374c4e46df4180b4c2a759132a8f/Develop/HosiMeter/Hosi_Problem_Dashboard.lua</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Develop/Reanspiration">
+    <reapack name="Hosi_Reanspiration_2.lua" type="script" desc="Reanspiration - Advanced MIDI Generation Toolkit">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 An all-in-one toolkit for generating harmonically-aware musical ideas.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This script expands upon the original "Reanspiration" by phaselab, adding a comprehensive GUI and numerous features for creating chords, basslines, and melodies.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Features:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Chord generation with scale/progression library.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced voicing (spread, drop voicings).\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Smart bassline generator with multiple patterns.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Integrated melody generator.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Arpeggiator and Strummer.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Humanizer for timing and velocity.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Multi-level Undo for creative tool edits.\sa180\par}
+}
+]]></description>
+        <link rel="website" href="https://forum.cockos.com/showthread.php?t=291623">Original Script by phaselab</link>
+      </metadata>
+      <version name="2.3" author="Hosi (developed from original concept by phaselab)" time="2025-09-12T02:39:09Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/56d75716f0573f582b8530c92401b4d23db30dda/Develop/Reanspiration/Hosi_Reanspiration_2.lua</source>
       </version>
     </reapack>
   </category>
