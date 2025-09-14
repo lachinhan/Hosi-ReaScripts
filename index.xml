@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="dead8c7bfd17f7517b99552920b4924184a099cc">
+<index version="1" name="Hosi Scripts" commit="85d86ea3118f32a630b4b42ac31f82c47390a5ac">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -182,6 +182,20 @@
       </version>
       <version name="2.4" author="Hosi (developed from original concept by phaselab)" time="2025-09-12T07:47:53Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/dead8c7bfd17f7517b99552920b4924184a099cc/Develop/Reanspiration/Hosi_Reanspiration_2.lua</source>
+      </version>
+    </reapack>
+    <reapack name="reanspiration_languages.lua" type="script" desc="Language library for Reanspiration script.">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 This file contains all the text strings for the Reanspiration UI. To add a new language, copy the entire 'en' table, rename the key (e.g., to 'fr' for French), and translate all the string values. Then, update the 'available_languages' table in the main script.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.1 (Added JA, ZH, KO)" author="Hosi (modified by Gemini)" time="2025-09-14T01:51:11Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/85d86ea3118f32a630b4b42ac31f82c47390a5ac/Develop/Reanspiration/reanspiration_languages.lua</source>
       </version>
     </reapack>
   </category>
