@@ -1,7 +1,7 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
 -- @version 3.3 (Improved Voice Leading)
 -- @author Hosi (developed from original concept by phaselab)
--- @link Original Script by phaselab [https://forum.cockos.com/showthread.php?t=291623](https://forum.cockos.com/showthread.php?t=291623)
+-- @link Original Script by phaselab https://forum.cockos.com/showthread.php?t=291623
 -- @about
 --   An all-in-one toolkit for generating harmonically-aware musical ideas.
 --   Now supports external library file ('reanspiration_library.lua') for easy customization.
