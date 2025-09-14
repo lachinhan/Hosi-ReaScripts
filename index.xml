@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="85d86ea3118f32a630b4b42ac31f82c47390a5ac">
+<index version="1" name="Hosi Scripts" commit="3669b091145a56de70791f3160f72c67d64ad55b">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -182,6 +182,62 @@
       </version>
       <version name="2.4" author="Hosi (developed from original concept by phaselab)" time="2025-09-12T07:47:53Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/dead8c7bfd17f7517b99552920b4924184a099cc/Develop/Reanspiration/Hosi_Reanspiration_2.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Reanspiration_3 - Multi-language.lua" type="script" desc="Reanspiration - Advanced MIDI Generation Toolkit">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 An all-in-one toolkit for generating harmonically-aware musical ideas. Now supports external library file ('reanspiration_library.lua') for easy customization.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Features:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Chord generation with expanded scale/progression library.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Automatic Secondary Dominant insertion for richer harmony.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced Voice Leading algorithm for smoother chord transitions.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced chord extensions (9ths, 11ths, 13ths, alterations).\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced voicing (spread, drop voicings).\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Smart bassline generator with multiple patterns.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Integrated melody generator with contour and chord-targeting.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Rhythmic pattern applicator for chords.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Arpeggiator and Strummer.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Humanizer for timing and velocity.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Multi-level Undo for creative tool edits.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Tabbed interface for improved workflow.\sa180\par}
+}
+]]></description>
+        <link rel="website" href="https://forum.cockos.com/showthread.php?t=291623">Original Script by phaselab</link>
+      </metadata>
+      <version name="3.4" author="Hosi (developed from original concept by phaselab)" time="2025-09-14T03:03:12Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c1480bab79f60e8242925cd0026a83e70269ffa3/Develop/Reanspiration/Hosi_Reanspiration_3%20-%20Multi-language.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Reanspiration_3.lua" type="script" desc="Reanspiration - Advanced MIDI Generation Toolkit">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 An all-in-one toolkit for generating harmonically-aware musical ideas. Now supports external library file ('reanspiration_library.lua') for easy customization.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Features:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Chord generation with expanded scale/progression library.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Automatic Secondary Dominant insertion for richer harmony.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced Voice Leading algorithm for smoother chord transitions.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced chord extensions (9ths, 11ths, 13ths, alterations).\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Advanced voicing (spread, drop voicings).\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Smart bassline generator with multiple patterns.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Integrated melody generator with contour and chord-targeting.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Rhythmic pattern applicator for chords.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Arpeggiator and Strummer.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Humanizer for timing and velocity.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Multi-level Undo for creative tool edits.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Tabbed interface for improved workflow.\sa180\par}
+}
+]]></description>
+        <link rel="website" href="https://forum.cockos.com/showthread.php?t=291623">Original Script by phaselab</link>
+      </metadata>
+      <version name="3.3 (Improved Voice Leading)" author="Hosi (developed from original concept by phaselab)" time="2025-09-14T03:03:50Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/3669b091145a56de70791f3160f72c67d64ad55b/Develop/Reanspiration/Hosi_Reanspiration_3.lua</source>
       </version>
     </reapack>
     <reapack name="reanspiration_languages.lua" type="script" desc="Language library for Reanspiration script.">
