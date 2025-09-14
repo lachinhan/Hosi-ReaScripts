@@ -1,7 +1,6 @@
 -- @description Language library for Reanspiration script.
 -- @version 1.1 (Added JA, ZH, KO)
 -- @author Hosi
--- @provides [library] Hosi/reanspiration/reanspiration_languages.lua
 -- @about
 --   This file contains all the text strings for the Reanspiration UI.
 --   To add a new language, copy the entire 'en' table, rename the key (e.g., to 'fr' for French),
