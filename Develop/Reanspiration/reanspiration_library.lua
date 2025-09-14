@@ -1,12 +1,11 @@
 -- @description Library file for Reanspiration script. Contains chord progressions, bass patterns, and rhythm patterns.
 -- @version 2.1 (Expanded with more Pop patterns by Gemini)
 -- @author Hosi
--- @provides [main]Reanspiration - Library
+-- @provides [library] Hosi/reanspiration/reanspiration_library.lua
 -- @about
 --   This is a library file required by the main 'Hosi_Reanspiration_3.lua' script.
 --   It must be placed in the same directory as the main script.
 --   You can safely edit this file to add your own custom chord progressions, bass, and rhythm patterns.
-
 local M = {}
 
 -------------------------------------------
