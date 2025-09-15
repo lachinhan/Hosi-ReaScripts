@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="fa15cc7de968cfe82d9d55c2d9d8f38fd7039122">
+<index version="1" name="Hosi Scripts" commit="f29994363a898972d67d7926cf21cdbb0fa0720c">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -200,6 +200,7 @@
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Smart bassline generator with multiple patterns.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Integrated melody generator with contour and chord-targeting.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Rhythmic pattern applicator for chords.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab NEW: Drum pattern generator.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Arpeggiator and Strummer.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Humanizer for timing and velocity.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Multi-level Undo for creative tool edits.\par}
@@ -210,6 +211,9 @@
       </metadata>
       <version name="3.4" author="Hosi (developed from original concept by phaselab)" time="2025-09-14T03:18:35Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6b6d2a18e967bb2e1cc8ffa5ed607a2578ee8b19/Develop/Reanspiration/Hosi_Reanspiration_3%20-%20Multi-language.lua</source>
+      </version>
+      <version name="3.5 (Added Drum Generator)" author="Hosi (developed from original concept by phaselab)" time="2025-09-15T02:37:21Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/f29994363a898972d67d7926cf21cdbb0fa0720c/Develop/Reanspiration/Hosi_Reanspiration_3%20-%20Multi-language.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Reanspiration_3.lua" type="script" desc="Reanspiration - Advanced MIDI Generation Toolkit">
@@ -253,19 +257,25 @@
       <version name="1.1 (Added JA, ZH, KO)" author="Hosi" time="2025-09-14T03:18:35Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6b6d2a18e967bb2e1cc8ffa5ed607a2578ee8b19/Develop/Reanspiration/reanspiration_languages.lua</source>
       </version>
+      <version name="1.2 (Added Drum Generator text)" author="Hosi" time="2025-09-15T02:37:21Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/f29994363a898972d67d7926cf21cdbb0fa0720c/Develop/Reanspiration/reanspiration_languages.lua</source>
+      </version>
     </reapack>
-    <reapack name="reanspiration_library.lua" type="script" desc="Library file for Reanspiration script. Contains chord progressions, bass patterns, and rhythm patterns.">
+    <reapack name="reanspiration_library.lua" type="script" desc="Library file for Reanspiration script. Contains chord progressions, bass patterns, rhythm, and drum patterns.">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
 \widowctrl\hyphauto
 
-{\pard \ql \f0 \sa180 \li0 \fi0 This is a library file required by the main 'Hosi_Reanspiration_3.lua' script. It must be placed in the same directory as the main script. You can safely edit this file to add your own custom chord progressions, bass, and rhythm patterns.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This is a library file required by the main 'Hosi_Reanspiration_3.lua' script. It must be placed in the same directory as the main script. You can safely edit this file to add your own custom chord progressions, bass, rhythm, and drum patterns.\par}
 }
 ]]></description>
       </metadata>
       <version name="2.1" author="Hosi" time="2025-09-14T03:18:35Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6b6d2a18e967bb2e1cc8ffa5ed607a2578ee8b19/Develop/Reanspiration/reanspiration_library.lua</source>
+      </version>
+      <version name="2.2" author="Hosi" time="2025-09-15T02:37:21Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/f29994363a898972d67d7926cf21cdbb0fa0720c/Develop/Reanspiration/reanspiration_library.lua</source>
       </version>
     </reapack>
   </category>
