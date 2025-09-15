@@ -1,10 +1,10 @@
--- @description Library file for Reanspiration script. Contains chord progressions, bass patterns, and rhythm patterns.
--- @version 2.1
+-- @description Library file for Reanspiration script. Contains chord progressions, bass patterns, rhythm, and drum patterns.
+-- @version 2.2
 -- @author Hosi
 -- @about
 --   This is a library file required by the main 'Hosi_Reanspiration_3.lua' script.
 --   It must be placed in the same directory as the main script.
---   You can safely edit this file to add your own custom chord progressions, bass, and rhythm patterns.
+--   You can safely edit this file to add your own custom chord progressions, bass, rhythm, and drum patterns.
 
 local M = {}
 
@@ -355,6 +355,303 @@ M.rhythm_patterns = {
         name = "Random",
         -- This is a special case handled by the main script to generate a random rhythm.
         pattern = {}
+    }
+}
+
+-------------------------------------------
+-- 4. DRUM PATTERN LIBRARY (NEW v2.2)
+-------------------------------------------
+-- To add a new drum pattern:
+--   a) Add a new entry to the M.drum_patterns table.
+--   b) Give it a 'name' for the GUI.
+--   c) Define the 'pattern' table. This is a list of instruments.
+--   d) Each instrument has:
+--      - 'pitch': The MIDI note number (GM Standard: 36=Kick, 38=Snare, 42=Closed Hat).
+--      - 'vel': The MIDI velocity (1-127).
+--      - 'positions': A table of start positions as a fraction of a 4-beat measure (0.0 to 1.0).
+--         - 0.0 = Beat 1, 0.25 = Beat 2, 0.5 = Beat 3, 0.75 = Beat 4
+--         - 0.125 = 8th note upbeat, etc.
+M.drum_patterns = {
+    {
+        name = "Pop/Rock - Four on the Floor",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Hi-hat 8ths
+        }
+    },
+    {
+        name = "Basic Rock",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.5} }, -- Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Hi-hat 8ths
+        }
+    },
+    {
+        name = "Hip-Hop - Classic",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.0625, 0.5, 0.5625} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Hi-hat 8ths
+        }
+    },
+    {
+        name = "Hip-Hop - Modern",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.375, 0.5} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 80,  positions = {0, 0.0625, 0.125, 0.1875, 0.25, 0.3125, 0.375, 0.4375, 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375} } -- Hi-hat 16ths
+        }
+    },
+    {
+        name = "Trap",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.3125, 0.6875} }, -- Kick
+            { pitch = 38, vel = 120, positions = {0.5} }, -- Snare on 3
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.875} }, -- Hi-hat with rolls
+            { pitch = 46, vel = 100, positions = {0.9375} } -- Open Hat
+        }
+    },
+    {
+        name = "Dubstep",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.625} }, -- Kick
+            { pitch = 38, vel = 125, positions = {0.5} }, -- Snare on 3
+            { pitch = 42, vel = 90,  positions = {0.1875, 0.4375, 0.6875, 0.9375} }, -- Closed Hat
+            { pitch = 46, vel = 100, positions = {0.3125} } -- Open Hat
+        }
+    },
+    {
+        name = "UK Garage",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.375, 0.625} }, -- Kick
+            { pitch = 39, vel = 110, positions = {0.25, 0.75} }, -- Clap
+            { pitch = 42, vel = 100, positions = {0.125, 0.625} }, -- Closed Hat
+            { pitch = 46, vel = 105, positions = {0.875} }, -- Open Hat
+            { pitch = 47, vel = 95,  positions = {0.1875} } -- Mid Tom
+        }
+    },
+    {
+        name = "Drum 'N' Bass",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.625} }, -- Kick
+            { pitch = 38, vel = 120, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 100, positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} }, -- Closed Hat 8ths
+            { pitch = 46, vel = 110, positions = {0.4375, 0.9375} } -- Open Hat
+        }
+    },
+    {
+        name = "Deep House",
+        pattern = {
+            { pitch = 36, vel = 115, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 39, vel = 105, positions = {0.25, 0.75} }, -- Clap
+            { pitch = 42, vel = 90,  positions = {0, 0.25, 0.5, 0.75} }, -- Closed Hat on beat
+            { pitch = 46, vel = 100, positions = {0.125, 0.375, 0.625, 0.875} } -- Open Hat off-beat
+        }
+    },
+    {
+        name = "Disco",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 46, vel = 100, positions = {0.125, 0.375, 0.625, 0.875} } -- Open Hi-hat on the off-beats
+        }
+    },
+    {
+        name = "Reggae 'One Drop' Beat",
+        pattern = {
+            { pitch = 36, vel = 110, positions = {0.5} }, -- Kick on beat 3
+            { pitch = 40, vel = 120, positions = {0.5} }, -- Rimshot/Snare on beat 3
+            { pitch = 42, vel = 90,  positions = {0.125, 0.375, 0.625, 0.875} } -- Hi-hat on off-beats
+        }
+    },
+    -- NEW PATTERNS FROM REFERENCE
+    {
+        name = "Rock - 80s Beat",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.375, 0.5} }, -- Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 95,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Hi-hat
+        }
+    },
+    {
+        name = "Pop - Syncopated Kick",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.1875, 0.375, 0.625, 0.8125} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Hi-hat
+        }
+    },
+    {
+        name = "Motown Beat",
+        pattern = {
+            { pitch = 36, vel = 115, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 38, vel = 120, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 54, vel = 100, positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Tambourine
+        }
+    },
+    {
+        name = "Slow Blues Shuffle",
+        pattern = {
+            { pitch = 36, vel = 110, positions = {0, 0.375} }, -- Kick
+            { pitch = 38, vel = 100, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 51, vel = 90,  positions = {0, 0.1875, 0.25, 0.375, 0.5625, 0.625, 0.75} } -- Ride Cymbal with swing feel
+        }
+    },
+    {
+        name = "Shuffle Feel",
+        pattern = {
+            { pitch = 36, vel = 115, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0, 0.1875, 0.375, 0.5625, 0.75} } -- Hi-hat with shuffle feel
+        }
+    },
+    {
+        name = "Funk - Syncopated Snare",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.4375, 0.625} }, -- Kick
+            { pitch = 38, vel = 120, positions = {0.1875, 0.75} }, -- Snare
+            { pitch = 42, vel = 95,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} }, -- Closed Hat
+            { pitch = 46, vel = 105, positions = {0.9375} } -- Open Hat
+        }
+    },
+    {
+        name = "Funk - Tom Groove",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.1875, 0.4375, 0.8125} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.3125, 0.75} }, -- Snare
+            { pitch = 42, vel = 100, positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} }, -- Closed Hat
+            { pitch = 50, vel = 110, positions = {0.625} }, -- High Tom
+            { pitch = 45, vel = 110, positions = {0.875} }  -- Low Tom
+        }
+    },
+    -- NEW PATTERNS FROM CHEAT SHEET PDF
+    {
+        name = "Riddim",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.5} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 39, vel = 105, positions = {0.25, 0.75} }, -- Clap
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Closed Hat 8ths
+        }
+    },
+    {
+        name = "Hip-Hop - Dirty South",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.25, 0.875} }, -- Kick & Sub Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 40, vel = 100, positions = {0.75, 0.9375} }, -- Clave (using Rimshot)
+            { pitch = 42, vel = 90,  positions = {0, 0.25, 0.5, 0.75} }, -- Closed Hat 4ths
+            { pitch = 46, vel = 100, positions = {0.375} } -- Open Hat
+        }
+    },
+    {
+        name = "Moombahton",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.375, 0.75, 0.875} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.625} }, -- Snare
+            { pitch = 42, vel = 95,  positions = {0.1875, 0.6875} } -- Closed Hat
+        }
+    },
+    {
+        name = "Classic House",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 38, vel = 110, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} }, -- Closed Hat 8ths
+            { pitch = 46, vel = 100, positions = {0.125, 0.375, 0.625, 0.875} } -- Open Hat off-beat
+        }
+    },
+    {
+        name = "Trance",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 39, vel = 110, positions = {0.25, 0.75} }, -- Clap
+            { pitch = 42, vel = 90,  positions = {0, 0.0625, 0.125, 0.1875, 0.25, 0.3125, 0.375, 0.4375, 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375} }, -- Closed Hat 16ths
+            { pitch = 46, vel = 105, positions = {0.125, 0.375, 0.625, 0.875} } -- Open Hat off-beat
+        }
+    },
+    {
+        name = "Trap - Variant",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.5625} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 46, vel = 100, positions = {0.125} } -- Open Hat
+        }
+    },
+    {
+        name = "Hip-Hop - 16th Hats",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.1875, 0.375, 0.625} }, -- Kick
+            { pitch = 38, vel = 115, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 85,  positions = {0, 0.0625, 0.125, 0.1875, 0.25, 0.3125, 0.375, 0.4375, 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375} } -- Hi-hat 16ths
+        }
+    },
+    {
+        name = "Dubstep - Half-Time Variant",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0} }, -- Kick
+            { pitch = 38, vel = 125, positions = {0.5} }, -- Snare
+            { pitch = 42, vel = 90,  positions = {0.375, 0.875} }, -- Closed Hat
+            { pitch = 46, vel = 100, positions = {0.125, 0.625} } -- Open Hat
+        }
+    },
+    {
+        name = "Deep House - Variant",
+        pattern = {
+            { pitch = 36, vel = 120, positions = {0, 0.25, 0.5, 0.75} }, -- Kick
+            { pitch = 39, vel = 110, positions = {0.25, 0.75} }, -- Clap
+            { pitch = 42, vel = 90,  positions = {0, 0.5} }, -- Closed Hat (simplified from image)
+            { pitch = 46, vel = 100, positions = {0.125, 0.375, 0.625, 0.875} } -- Open Hat off-beat
+        }
+    },
+    {
+        name = "Jungle Breakbeat",
+        pattern = {
+            { pitch = 36, vel = 125, positions = {0, 0.5625} }, -- Kick
+            { pitch = 38, vel = 120, positions = {0.25, 0.6875, 0.75} }, -- Snare
+            { pitch = 42, vel = 100, positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.875} }, -- Closed Hat
+            { pitch = 46, vel = 110, positions = {0.75} } -- Open Hat (with snare)
+        }
+    },
+    {
+        name = "Salsa Tumbao",
+        pattern = {
+            { pitch = 36, vel = 90, positions = {0, 0.5} }, -- Kick (Tumbadora bass)
+            { pitch = 75, vel = 110, positions = {0, 0.1875, 0.375, 0.625, 0.75} }, -- Clave
+            { pitch = 63, vel = 100, positions = {0.25, 0.75} }, -- High Conga (Slap)
+            { pitch = 64, vel = 105, positions = {0.375, 0.875} }, -- Low Conga (Open)
+            { pitch = 40, vel = 80, positions = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875} } -- Rimshot (Cascara simulation)
+        }
+    },
+    {
+        name = "R&B - Beat Starter",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0} }, -- Kick
+            { pitch = 38, vel = 100, positions = {0.375, 0.875} }, -- Snare (Less Velocity)
+            { pitch = 42, vel = 127, positions = {0, 0.125, 0.25, 0.4375, 0.5, 0.625, 0.75, 0.9375} }, -- Closed Hats (Full Velocity)
+            { pitch = 42, vel = 100, positions = {0.0625, 0.5625} }, -- Closed Hats (Less Velocity)
+            { pitch = 46, vel = 100, positions = {0.3125, 0.8125} }  -- Open Hats (Less Velocity)
+        }
+    },
+    {
+        name = "Trap - Beat Starter",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.0625, 0.5, 0.8125, 0.875} }, -- Kick
+            { pitch = 38, vel = 100, positions = {0.375, 0.875} }, -- Snare
+            { pitch = 42, vel = 127, positions = {0, 0.25, 0.5, 0.6875, 0.75} }, -- Closed Hats (Full Velocity)
+            { pitch = 42, vel = 100, positions = {0.125, 0.375, 0.5625, 0.625, 0.8125, 0.875, 0.9375} }  -- Closed Hats (Less Velocity)
+        }
+    },
+	{
+        name = "Trap - Beat Starter 8",
+        pattern = {
+            { pitch = 36, vel = 127, positions = {0, 0.125, 0.75} }, -- Kick
+            { pitch = 38, vel = 100, positions = {0.25, 0.75} }, -- Snare
+            { pitch = 42, vel = 127, positions = {0, 0.25, 0.5, 0.75} }, -- Closed Hats (Full Velocity)
+            { pitch = 42, vel = 100, positions = {0.125, 0.375, 0.625, 0.875} }  -- Closed Hats (Less Velocity)
+        }
     }
 }
 

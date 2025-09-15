@@ -1,5 +1,5 @@
 -- @description Language library for Reanspiration script.
--- @version 1.1 (Added JA, ZH, KO)
+-- @version 1.2 (Added Drum Generator text)
 -- @author Hosi
 -- @about
 --   This file contains all the text strings for the Reanspiration UI.
@@ -15,6 +15,7 @@ languages['en'] = {
   tab_generation = "Generation",
   tab_performance = "Performance",
   tab_creative_tools = "Creative Tools",
+  tab_drums = "Drums", -- NEW
 
   -- Generation Tab
   root_note_label = "Root Note",
@@ -73,6 +74,12 @@ languages['en'] = {
   rhythm_apply_button = "Apply Rhythm",
   tooltip_rhythm_apply = "Applies the selected rhythmic pattern to the chords.",
 
+  -- Drums Tab (NEW)
+  drum_pattern_label = "Drum Pattern",
+  drum_generate_button = "Generate Drums",
+  tooltip_drum_generate = "Generates a drum beat for the entire item length.\nDeletes any previous drum notes.",
+  drum_error_no_chords = "Please generate chords or have some MIDI notes in the item first.",
+
   -- Other UI
   donate_button = "Donate",
   feedback_generated = "Generated: %s %s",
@@ -90,6 +97,7 @@ languages['vi'] = {
   tab_generation = "Hòa Âm",
   tab_performance = "Diễn Tấu",
   tab_creative_tools = "Sáng Tạo",
+  tab_drums = "Trống", -- NEW
 
   -- Generation Tab
   root_note_label = "Chủ Âm",
@@ -148,6 +156,12 @@ languages['vi'] = {
   rhythm_apply_button = "Áp Dụng Tiết Tấu",
   tooltip_rhythm_apply = "Áp dụng mẫu tiết tấu đã chọn cho các hợp âm.",
 
+  -- Drums Tab (NEW)
+  drum_pattern_label = "Mẫu Trống",
+  drum_generate_button = "Tạo Trống",
+  tooltip_drum_generate = "Tạo một nhịp trống cho toàn bộ độ dài của item.\nXóa các nốt trống đã tạo trước đó.",
+  drum_error_no_chords = "Vui lòng tạo hợp âm hoặc phải có nốt MIDI trong item trước.",
+
   -- Other UI
   donate_button = "Ủng Hộ",
   feedback_generated = "Đã tạo: %s %s",
@@ -165,6 +179,7 @@ languages['ja'] = {
   tab_generation = "生成",
   tab_performance = "演奏",
   tab_creative_tools = "創作ツール",
+  tab_drums = "ドラム", -- NEW
 
   -- Generation Tab
   root_note_label = "ルート音",
@@ -223,6 +238,12 @@ languages['ja'] = {
   rhythm_apply_button = "リズムを適用",
   tooltip_rhythm_apply = "選択したリズムパターンをコードに適用します。",
 
+  -- Drums Tab (NEW)
+  drum_pattern_label = "ドラムパターン",
+  drum_generate_button = "ドラムを生成",
+  tooltip_drum_generate = "アイテム全体の長さのドラムビートを生成します。\n以前のドラムノートは削除されます。",
+  drum_error_no_chords = "最初にコードを生成するか、アイテム内にMIDIノートを配置してください。",
+
   -- Other UI
   donate_button = "寄付",
   feedback_generated = "生成: %s %s",
@@ -240,6 +261,7 @@ languages['zh'] = {
   tab_generation = "生成",
   tab_performance = "演奏",
   tab_creative_tools = "创意工具",
+  tab_drums = "鼓", -- NEW
 
   -- Generation Tab
   root_note_label = "根音",
@@ -298,6 +320,12 @@ languages['zh'] = {
   rhythm_apply_button = "应用节奏",
   tooltip_rhythm_apply = "将选定的节奏模式应用于和弦。",
 
+  -- Drums Tab (NEW)
+  drum_pattern_label = "鼓模式",
+  drum_generate_button = "生成鼓",
+  tooltip_drum_generate = "为整个项目长度生成鼓点。\n将删除之前生成的任何鼓音符。",
+  drum_error_no_chords = "请先生成和弦或在项目中有MIDI音符。",
+
   -- Other UI
   donate_button = "捐赠",
   feedback_generated = "已生成: %s %s",
@@ -315,6 +343,7 @@ languages['ko'] = {
   tab_generation = "생성",
   tab_performance = "연주",
   tab_creative_tools = "창작 도구",
+  tab_drums = "드럼", -- NEW
 
   -- Generation Tab
   root_note_label = "루트 음",
@@ -373,6 +402,12 @@ languages['ko'] = {
   rhythm_apply_button = "리듬 적용",
   tooltip_rhythm_apply = "선택한 리듬 패턴을 코드에 적용합니다.",
 
+  -- Drums Tab (NEW)
+  drum_pattern_label = "드럼 패턴",
+  drum_generate_button = "드럼 생성",
+  tooltip_drum_generate = "항목 전체 길이에 대한 드럼 비트를 생성합니다.\n이전 드럼 음표는 삭제됩니다.",
+  drum_error_no_chords = "먼저 코드를 생성하거나 항목에 MIDI 음표가 있어야 합니다.",
+
   -- Other UI
   donate_button = "후원하기",
   feedback_generated = "생성됨: %s %s",
@@ -384,4 +419,3 @@ languages['ko'] = {
 }
 
 return languages
-

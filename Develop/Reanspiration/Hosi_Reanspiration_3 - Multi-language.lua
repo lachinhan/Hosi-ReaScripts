@@ -1,5 +1,5 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
--- @version 3.4
+-- @version 3.5 (Added Drum Generator)
 -- @author Hosi (developed from original concept by phaselab)
 -- @link Original Script by phaselab https://forum.cockos.com/showthread.php?t=291623
 -- @about
@@ -15,6 +15,7 @@
 --   - Smart bassline generator with multiple patterns.
 --   - Integrated melody generator with contour and chord-targeting.
 --   - Rhythmic pattern applicator for chords.
+--   - NEW: Drum pattern generator.
 --   - Arpeggiator and Strummer.
 --   - Humanizer for timing and velocity.
 --   - Multi-level Undo for creative tool edits.
@@ -142,6 +143,7 @@ local scale_types = {
 local chord_progressions = Library.chord_progressions
 local bass_patterns = Library.bass_patterns
 local rhythm_patterns = Library.rhythm_patterns
+local drum_patterns = Library.drum_patterns -- NEW
 
 -- GUI Options Setup
 local progression_options_major = {"Random"}
@@ -155,6 +157,9 @@ for _, pattern_data in ipairs(bass_patterns) do table.insert(bass_pattern_option
 local rhythm_pattern_options = {"None"}
 for _, pattern_data in ipairs(rhythm_patterns) do table.insert(rhythm_pattern_options, pattern_data.name) end
 
+local drum_pattern_options = {"None"} -- NEW
+for _, pattern_data in ipairs(drum_patterns) do table.insert(drum_pattern_options, pattern_data.name) end -- NEW
+
 -- GUI State Variables
 local selected_progression = 0
 local selected_transpose_index = 2
@@ -163,7 +168,8 @@ local voicing_options = {"None", "Drop 2", "Drop 3", "Drop 4", "Drop 2+4"}
 local selected_arp_strum_pattern = 0
 local selected_bass_pattern = 1
 local selected_rhythm_pattern = 0
-local add_secondary_dominants = false -- NEW (v3.2)
+local selected_drum_pattern = 0 -- NEW
+local add_secondary_dominants = false
 
 local spread = 0
 local arp_rate = 2
@@ -177,6 +183,7 @@ local humanize_strength_velocity = 8
 
 -- Constants
 local MELODY_CHANNEL = 15
+local DRUM_CHANNEL = 9 -- Standard MIDI Drum Channel 10 (0-indexed)
 local transpose_values = {-24, -12, 0, 12, 24}
 local transpose_labels = {"-2", "-1", "0", "+1", "+2"}
 local arp_rate_options = {"1/4", "1/8", "1/16", "1/32", "Random"}
@@ -408,9 +415,9 @@ local function deleteExistingChords(take)
         local ret, _, _, _, _, chan, pitch, _ = reaper.MIDI_GetNote(take, note_idx)
         if not ret then break end
         
-        -- A note is a chord note if it's NOT a melody note (by channel)
+        -- A note is a chord note if it's NOT a melody, NOT a drum,
         -- AND it's at or above the bass pitch threshold.
-        if chan ~= MELODY_CHANNEL and pitch >= pitch_threshold then
+        if chan ~= MELODY_CHANNEL and chan ~= DRUM_CHANNEL and pitch >= pitch_threshold then
             table.insert(notes_to_delete, note_idx)
         end
         note_idx = note_idx + 1
@@ -638,6 +645,59 @@ local function generateAndInsertBassline(take, chords, item_start_ppq, item_leng
     end
 end
 
+--[[--
+NEW DRUM GENERATOR (v3.5)
+--]]--
+local function deleteExistingDrums(take)
+    local notes_to_delete = {}
+    local note_idx = 0
+    
+    while true do
+        local ret, _, _, _, _, chan, _, _ = reaper.MIDI_GetNote(take, note_idx)
+        if not ret then break end
+        
+        if chan == DRUM_CHANNEL then
+            table.insert(notes_to_delete, note_idx)
+        end
+        note_idx = note_idx + 1
+    end
+    
+    if #notes_to_delete > 0 then
+        table.sort(notes_to_delete, function(a, b) return a > b end) -- Delete from the end
+        for _, index in ipairs(notes_to_delete) do
+            reaper.MIDI_DeleteNote(take, index)
+        end
+    end
+end
+
+local function generateAndInsertDrums(take, item_start_ppq, item_length_ppq, pattern_data)
+    if not pattern_data then return end
+
+    local ppq_per_beat = reaper.MIDI_GetPPQPosFromProjQN(take, 1)
+    if ppq_per_beat <= 0 then return end -- Avoid division by zero
+    local ppq_per_measure = ppq_per_beat * 4 -- Assuming 4/4 time
+
+    local note_len_16th = ppq_per_beat / 4
+
+    for measure_start = item_start_ppq, item_start_ppq + item_length_ppq - 1, ppq_per_measure do
+        for _, instrument_data in ipairs(pattern_data) do
+            local pitch = instrument_data.pitch
+            local vel = instrument_data.vel
+            
+            for _, pos_fraction in ipairs(instrument_data.positions) do
+                local note_start_ppq = measure_start + (pos_fraction * ppq_per_measure)
+                local note_end_ppq = note_start_ppq + note_len_16th
+                
+                -- Ensure the note doesn't exceed the item length
+                if note_start_ppq < item_start_ppq + item_length_ppq then
+                    reaper.MIDI_InsertNote(take, false, false, note_start_ppq, note_end_ppq, DRUM_CHANNEL, pitch, vel, true)
+                end
+            end
+        end
+    end
+end
+
+
 local function transposeMIDI(take, transpose)
   local _, note_count, _, _ = reaper.MIDI_CountEvts(take)
   for i = 0, note_count - 1 do
@@ -850,18 +910,21 @@ local function analyzeChordsAndScale(take)
     local note_idx = 0
     
     while true do
-        local ret, _, _, startppq, endppq, _, pitch, _ = reaper.MIDI_GetNote(take, note_idx)
+        local ret, _, _, startppq, endppq, chan, pitch, _ = reaper.MIDI_GetNote(take, note_idx)
         if not ret then break end
         
-        if not notes_by_start_time[startppq] then
-            notes_by_start_time[startppq] = {}
+        -- Ignore drum notes when analyzing harmony
+        if chan ~= DRUM_CHANNEL then
+            if not notes_by_start_time[startppq] then
+                notes_by_start_time[startppq] = {}
+            end
+            table.insert(notes_by_start_time[startppq], {
+                pitch = pitch,
+                endppq = endppq
+            })
+            
+            all_note_pcs[pitch % 12] = true
         end
-        table.insert(notes_by_start_time[startppq], {
-            pitch = pitch,
-            endppq = endppq
-        })
-        
-        all_note_pcs[pitch % 12] = true
         note_idx = note_idx + 1
     end
 
@@ -880,7 +943,7 @@ local function analyzeChordsAndScale(take)
             
             table.insert(analyzed_chords, {
                 startppq = startppq,
-                endppq = chord_end_ppq,
+                endppq = endppq,
                 notes = notes, -- Full note info
                 chord_tones_pc = chord_tones_pc,
                 root_note_pc = notes[1].pitch % 12 -- Simple heuristic: lowest note is root
@@ -1184,7 +1247,7 @@ local function applyRhythmPattern(take, initialNotes, rhythm_pattern)
         local chords = {}
         local activeNotes = {}
         for _, note in ipairs(notes) do
-            if note.chan ~= MELODY_CHANNEL and note.pitch >= 60 then
+            if note.chan ~= MELODY_CHANNEL and note.chan ~= DRUM_CHANNEL and note.pitch >= 60 then
                 if not activeNotes[note.startppqpos] then activeNotes[note.startppqpos] = {} end
                 table.insert(activeNotes[note.startppqpos], note)
             end
@@ -1210,7 +1273,7 @@ local function applyRhythmPattern(take, initialNotes, rhythm_pattern)
     while true do
         local ret, _, _, startppq, _, chan, pitch, _ = reaper.MIDI_GetNote(take, current_note_idx)
         if not ret then break end
-        if initial_chord_starts[startppq] and chan ~= MELODY_CHANNEL and pitch >= 60 then
+        if initial_chord_starts[startppq] and chan ~= MELODY_CHANNEL and chan ~= DRUM_CHANNEL and pitch >= 60 then
             table.insert(notes_to_delete, current_note_idx)
         end
         current_note_idx = current_note_idx + 1
@@ -1393,6 +1456,7 @@ local delete_chords_trigger = false
 local apply_arp = false -- Trigger for arpeggiator
 local generate_melody_trigger = false -- Trigger for melody generation
 local humanize_trigger = false -- Trigger for humanize function
+local generate_drums_trigger = false -- NEW
 local undo_melody_trigger = false
 local undo_arp_trigger = false
 local undo_humanize_trigger = false
@@ -1598,6 +1662,17 @@ local function drawGUI()
         
         reaper.ImGui_EndTabItem(ctx)
       end
+
+      -- Tab 4: Drums (NEW)
+      if reaper.ImGui_BeginTabItem(ctx, T("tab_drums")) then
+        local changed
+        changed, selected_drum_pattern = reaper.ImGui_Combo(ctx, T("drum_pattern_label"), selected_drum_pattern, table.concat(drum_pattern_options, "\0") .. "\0")
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, T("tooltip_drum_generate")) end
+        
+        if reaper.ImGui_Button(ctx, T("drum_generate_button")) then generate_drums_trigger = true end
+        
+        reaper.ImGui_EndTabItem(ctx)
+      end
       
       reaper.ImGui_EndTabBar(ctx)
     end
@@ -1785,6 +1860,42 @@ local function loop()
     generate_melody_trigger = false
   end
 
+  if generate_drums_trigger then -- NEW
+    local item = reaper.GetSelectedMediaItem(0, 0)
+    if item then
+        local take = reaper.GetMediaItemTake(item, 0)
+        if take and reaper.TakeIsMIDI(take) then
+            local analyzed_chords, _ = analyzeChordsAndScale(take)
+            if #analyzed_chords > 0 or reaper.MIDI_CountEvts(take) > 0 then
+                reaper.Undo_BeginBlock()
+                deleteExistingDrums(take)
+                
+                local pattern_name = drum_pattern_options[selected_drum_pattern + 1]
+                local selected_pattern_data = nil
+                for _, p_data in ipairs(drum_patterns) do
+                    if p_data.name == pattern_name then
+                        selected_pattern_data = p_data.pattern
+                        break
+                    end
+                end
+
+                if selected_pattern_data then
+                    local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
+                    local item_length_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION") + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")) - item_start_ppq
+                    generateAndInsertDrums(take, item_start_ppq, item_length_ppq, selected_pattern_data)
+                end
+                
+                reaper.MIDI_Sort(take)
+                reaper.UpdateArrange()
+                reaper.Undo_EndBlock("Generate Drums", -1)
+            else
+                reaper.ShowMessageBox(T("drum_error_no_chords"), T("tab_drums"), 0)
+            end
+        end
+    end
+    generate_drums_trigger = false
+  end
+
   if apply_arp then
     local item = reaper.GetSelectedMediaItem(0, 0)
     if item then
@@ -1961,4 +2072,3 @@ end
 reaper.Undo_BeginBlock()
 Main()
 reaper.Undo_EndBlock("Generate Chords", -1)
-
