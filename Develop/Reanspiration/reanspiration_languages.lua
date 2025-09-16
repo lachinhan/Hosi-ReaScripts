@@ -1,5 +1,5 @@
 -- @description Language library for Reanspiration script.
--- @version 1.2 (Added Drum Generator text)
+-- @version 1.5 (Added Undo for Rhythm)
 -- @author Hosi
 -- @about
 --   This file contains all the text strings for the Reanspiration UI.
@@ -15,7 +15,8 @@ languages['en'] = {
   tab_generation = "Generation",
   tab_performance = "Performance",
   tab_creative_tools = "Creative Tools",
-  tab_drums = "Drums", -- NEW
+  tab_drums = "Drums",
+  tab_settings = "Settings",
 
   -- Generation Tab
   root_note_label = "Root Note",
@@ -59,6 +60,12 @@ languages['en'] = {
   tooltip_melody_generate = "Generates a new melody over existing chords.\nDeletes any previous melody.",
   undo_melody_button = "Undo Melody",
   
+  bass_section_title = "Bass Generation",
+  bass_pattern_label_creative = "Pattern##BassCreative",
+  bass_generate_button = "Generate Bass",
+  tooltip_bass_generate = "Generates a new bassline over existing chords.\nDeletes any previous bassline.",
+  undo_bass_button = "Undo Bass",
+  
   arp_strum_section_title = "Arpeggiator / Strummer",
   arp_strum_pattern_label = "Pattern##Arp",
   arp_strum_delay_label = "Strum Delay (PPQ)",
@@ -73,17 +80,26 @@ languages['en'] = {
   rhythm_pattern_label = "Rhythm Pattern",
   rhythm_apply_button = "Apply Rhythm",
   tooltip_rhythm_apply = "Applies the selected rhythmic pattern to the chords.",
+  undo_rhythm_button = "Undo Rhythm",
 
-  -- Drums Tab (NEW)
+  -- Drums Tab
   drum_pattern_label = "Drum Pattern",
   drum_generate_button = "Generate Drums",
   tooltip_drum_generate = "Generates a drum beat for the entire item length.\nDeletes any previous drum notes.",
   drum_error_no_chords = "Please generate chords or have some MIDI notes in the item first.",
 
+  -- Settings Tab
+  midi_channel_section_title = "MIDI Channel Assignments",
+  channel_chord_label = "Chords Channel",
+  channel_bass_label = "Bass Channel",
+  channel_melody_label = "Melody Channel",
+  channel_info_text = "Drums are always on Channel 10.",
+
   -- Other UI
   donate_button = "Donate",
   feedback_generated = "Generated: %s %s",
   melody_error_no_chords = "Could not find enough chords in the item to generate a melody.",
+  bass_error_no_chords = "Could not find enough chords in the item to generate a bassline.",
   rhythm_error_no_state = "Error: No initial state found. Generate chords first.\n",
   add_note_error_no_notes = "Error: No notes found. Cannot add a new note.\n",
   add_note_error_no_scale = "Error: Could not detect a suitable scale. Cannot add a new note.\n",
@@ -97,7 +113,8 @@ languages['vi'] = {
   tab_generation = "Hòa Âm",
   tab_performance = "Diễn Tấu",
   tab_creative_tools = "Sáng Tạo",
-  tab_drums = "Trống", -- NEW
+  tab_drums = "Trống",
+  tab_settings = "Cài Đặt",
 
   -- Generation Tab
   root_note_label = "Chủ Âm",
@@ -141,6 +158,12 @@ languages['vi'] = {
   tooltip_melody_generate = "Tạo một giai điệu mới dựa trên các hợp âm có sẵn.\nXóa giai điệu đã tạo trước đó.",
   undo_melody_button = "Hoàn Tác Giai Điệu",
   
+  bass_section_title = "Tạo Bass",
+  bass_pattern_label_creative = "Mẫu Bass##BassCreative",
+  bass_generate_button = "Tạo Bass",
+  tooltip_bass_generate = "Tạo một bè bass mới dựa trên các hợp âm có sẵn.\nXóa bè bass đã tạo trước đó.",
+  undo_bass_button = "Hoàn Tác Bass",
+  
   arp_strum_section_title = "Rải Hợp Âm / Quạt Chả (Arp/Strum)",
   arp_strum_pattern_label = "Mẫu##Arp",
   arp_strum_delay_label = "Độ Trễ (PPQ)",
@@ -155,17 +178,26 @@ languages['vi'] = {
   rhythm_pattern_label = "Mẫu Tiết Tấu",
   rhythm_apply_button = "Áp Dụng Tiết Tấu",
   tooltip_rhythm_apply = "Áp dụng mẫu tiết tấu đã chọn cho các hợp âm.",
+  undo_rhythm_button = "Hoàn Tác Tiết Tấu",
 
-  -- Drums Tab (NEW)
+  -- Drums Tab
   drum_pattern_label = "Mẫu Trống",
   drum_generate_button = "Tạo Trống",
   tooltip_drum_generate = "Tạo một nhịp trống cho toàn bộ độ dài của item.\nXóa các nốt trống đã tạo trước đó.",
   drum_error_no_chords = "Vui lòng tạo hợp âm hoặc phải có nốt MIDI trong item trước.",
 
+  -- Settings Tab
+  midi_channel_section_title = "Phân Kênh MIDI",
+  channel_chord_label = "Kênh Hợp Âm",
+  channel_bass_label = "Kênh Bass",
+  channel_melody_label = "Kênh Giai Điệu",
+  channel_info_text = "Trống luôn được đặt ở Kênh 10.",
+
   -- Other UI
   donate_button = "Ủng Hộ",
   feedback_generated = "Đã tạo: %s %s",
   melody_error_no_chords = "Không tìm thấy đủ hợp âm trong item để tạo giai điệu.",
+  bass_error_no_chords = "Không tìm thấy đủ hợp âm trong item để tạo bè bass.",
   rhythm_error_no_state = "Lỗi: Không tìm thấy trạng thái ban đầu. Hãy tạo hợp âm trước.\n",
   add_note_error_no_notes = "Lỗi: Không tìm thấy nốt nhạc. Không thể thêm nốt mới.\n",
   add_note_error_no_scale = "Lỗi: Không thể nhận diện âm giai phù hợp. Không thể thêm nốt mới.\n",
@@ -179,7 +211,8 @@ languages['ja'] = {
   tab_generation = "生成",
   tab_performance = "演奏",
   tab_creative_tools = "創作ツール",
-  tab_drums = "ドラム", -- NEW
+  tab_drums = "ドラム",
+  tab_settings = "設定",
 
   -- Generation Tab
   root_note_label = "ルート音",
@@ -222,6 +255,12 @@ languages['ja'] = {
   melody_generate_button = "メロディを生成",
   tooltip_melody_generate = "既存のコードの上に新しいメロディを生成します。\n以前のメロディは削除されます。",
   undo_melody_button = "メロディを元に戻す",
+
+  bass_section_title = "ベース生成",
+  bass_pattern_label_creative = "パターン##BassCreative",
+  bass_generate_button = "ベースを生成",
+  tooltip_bass_generate = "既存のコードの上に新しいベースラインを生成します。\n以前のベースラインは削除されます。",
+  undo_bass_button = "ベースを元に戻す",
   
   arp_strum_section_title = "アルペジエーター / ストラマー",
   arp_strum_pattern_label = "パターン##Arp",
@@ -237,17 +276,26 @@ languages['ja'] = {
   rhythm_pattern_label = "リズムパターン",
   rhythm_apply_button = "リズムを適用",
   tooltip_rhythm_apply = "選択したリズムパターンをコードに適用します。",
+  undo_rhythm_button = "リズムを元に戻す",
 
-  -- Drums Tab (NEW)
+  -- Drums Tab
   drum_pattern_label = "ドラムパターン",
   drum_generate_button = "ドラムを生成",
   tooltip_drum_generate = "アイテム全体の長さのドラムビートを生成します。\n以前のドラムノートは削除されます。",
   drum_error_no_chords = "最初にコードを生成するか、アイテム内にMIDIノートを配置してください。",
 
+  -- Settings Tab
+  midi_channel_section_title = "MIDIチャンネル設定",
+  channel_chord_label = "コードチャンネル",
+  channel_bass_label = "ベースチャンネル",
+  channel_melody_label = "メロディチャンネル",
+  channel_info_text = "ドラムは常にチャンネル10です。",
+
   -- Other UI
   donate_button = "寄付",
   feedback_generated = "生成: %s %s",
   melody_error_no_chords = "アイテム内にメロディを生成するのに十分なコードが見つかりませんでした。",
+  bass_error_no_chords = "アイテム内にベースラインを生成するのに十分なコードが見つかりませんでした。",
   rhythm_error_no_state = "エラー: 初期状態が見つかりません。最初にコードを生成してください。\n",
   add_note_error_no_notes = "エラー: ノートが見つかりません。新しいノートを追加できません。\n",
   add_note_error_no_scale = "エラー: 適切なスケールを検出できませんでした。新しいノートを追加できません。\n",
@@ -261,7 +309,8 @@ languages['zh'] = {
   tab_generation = "生成",
   tab_performance = "演奏",
   tab_creative_tools = "创意工具",
-  tab_drums = "鼓", -- NEW
+  tab_drums = "鼓",
+  tab_settings = "设置",
 
   -- Generation Tab
   root_note_label = "根音",
@@ -305,6 +354,12 @@ languages['zh'] = {
   tooltip_melody_generate = "在现有和弦上生成新的旋律。\n将删除之前生成的任何旋律。",
   undo_melody_button = "撤销旋律",
   
+  bass_section_title = "贝斯生成",
+  bass_pattern_label_creative = "模式##BassCreative",
+  bass_generate_button = "生成贝斯",
+  tooltip_bass_generate = "在现有和弦上生成新的贝斯声部。\n将删除之前生成的任何贝斯声部。",
+  undo_bass_button = "撤销贝斯",
+  
   arp_strum_section_title = "琶音/扫弦",
   arp_strum_pattern_label = "模式##Arp",
   arp_strum_delay_label = "扫弦延迟 (PPQ)",
@@ -319,17 +374,26 @@ languages['zh'] = {
   rhythm_pattern_label = "节奏模式",
   rhythm_apply_button = "应用节奏",
   tooltip_rhythm_apply = "将选定的节奏模式应用于和弦。",
+  undo_rhythm_button = "撤销节奏",
 
-  -- Drums Tab (NEW)
+  -- Drums Tab
   drum_pattern_label = "鼓模式",
   drum_generate_button = "生成鼓",
   tooltip_drum_generate = "为整个项目长度生成鼓点。\n将删除之前生成的任何鼓音符。",
   drum_error_no_chords = "请先生成和弦或在项目中有MIDI音符。",
 
+  -- Settings Tab
+  midi_channel_section_title = "MIDI通道分配",
+  channel_chord_label = "和弦通道",
+  channel_bass_label = "贝斯通道",
+  channel_melody_label = "旋律通道",
+  channel_info_text = "鼓组始终在通道10。",
+
   -- Other UI
   donate_button = "捐赠",
   feedback_generated = "已生成: %s %s",
   melody_error_no_chords = "在项目中找不到足够的和弦来生成旋律。",
+  bass_error_no_chords = "在项目中找不到足够的和弦来生成贝斯声部。",
   rhythm_error_no_state = "错误：找不到初始状态。请先生成和弦。\n",
   add_note_error_no_notes = "错误：找不到音符。无法添加新音符。\n",
   add_note_error_no_scale = "错误：无法检测到合适的音阶。无法添加新音符。\n",
@@ -343,7 +407,8 @@ languages['ko'] = {
   tab_generation = "생성",
   tab_performance = "연주",
   tab_creative_tools = "창작 도구",
-  tab_drums = "드럼", -- NEW
+  tab_drums = "드럼",
+  tab_settings = "설정",
 
   -- Generation Tab
   root_note_label = "루트 음",
@@ -387,6 +452,12 @@ languages['ko'] = {
   tooltip_melody_generate = "기존 코드 위에 새로운 멜로디를 생성합니다.\n이전 멜로디는 삭제됩니다.",
   undo_melody_button = "멜로디 취소",
   
+  bass_section_title = "베이스 생성",
+  bass_pattern_label_creative = "패턴##BassCreative",
+  bass_generate_button = "베이스 생성",
+  tooltip_bass_generate = "기존 코드 위에 새로운 베이스라인을 생성합니다.\n이전 베이스라인은 삭제됩니다.",
+  undo_bass_button = "베이스 취소",
+
   arp_strum_section_title = "아르페지에이터 / 스트러머",
   arp_strum_pattern_label = "패턴##Arp",
   arp_strum_delay_label = "스트럼 딜레이 (PPQ)",
@@ -401,17 +472,26 @@ languages['ko'] = {
   rhythm_pattern_label = "리듬 패턴",
   rhythm_apply_button = "리듬 적용",
   tooltip_rhythm_apply = "선택한 리듬 패턴을 코드에 적용합니다.",
+  undo_rhythm_button = "리듬 취소",
 
-  -- Drums Tab (NEW)
+  -- Drums Tab
   drum_pattern_label = "드럼 패턴",
   drum_generate_button = "드럼 생성",
   tooltip_drum_generate = "항목 전체 길이에 대한 드럼 비트를 생성합니다.\n이전 드럼 음표는 삭제됩니다.",
   drum_error_no_chords = "먼저 코드를 생성하거나 항목에 MIDI 음표가 있어야 합니다.",
 
+  -- Settings Tab
+  midi_channel_section_title = "MIDI 채널 할당",
+  channel_chord_label = "코드 채널",
+  channel_bass_label = "베이스 채널",
+  channel_melody_label = "멜로디 채널",
+  channel_info_text = "드럼은 항상 10번 채널입니다.",
+
   -- Other UI
   donate_button = "후원하기",
   feedback_generated = "생성됨: %s %s",
   melody_error_no_chords = "항목에서 멜로디를 생성하기에 충분한 코드를 찾을 수 없습니다.",
+  bass_error_no_chords = "항목에서 베이스라인을 생성하기에 충분한 코드를 찾을 수 없습니다.",
   rhythm_error_no_state = "오류: 초기 상태를 찾을 수 없습니다. 먼저 코드를 생성하십시오.\n",
   add_note_error_no_notes = "오류: 음표를 찾을 수 없습니다. 새 음표를 추가할 수 없습니다.\n",
   add_note_error_no_scale = "오류: 적절한 스케일을 감지할 수 없습니다. 새 음표를 추가할 수 없습니다.\n",
@@ -419,3 +499,4 @@ languages['ko'] = {
 }
 
 return languages
+

@@ -1,5 +1,5 @@
 -- @description Library file for Reanspiration script. Contains chord progressions, bass patterns, rhythm, and drum patterns.
--- @version 2.2
+-- @version 2.3 (MIDI Channel Update)
 -- @author Hosi
 -- @about
 --   This is a library file required by the main 'Hosi_Reanspiration_3.lua' script.
@@ -80,103 +80,103 @@ M.bass_patterns = {
     -- Original Patterns
     {
         name = "Root Notes",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
-            reaper.MIDI_InsertNote(take, false, false, position, position + chord_length, 0, root_note, 100, true)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
+            reaper.MIDI_InsertNote(take, false, false, position, position + chord_length, channel, root_note, 100, true)
         end
     },
     {
         name = "Root + Fifth",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local half_length = chord_length / 2
             local fifth_note = root_note + 7
-            reaper.MIDI_InsertNote(take, false, false, position, position + half_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + half_length, position + chord_length, 0, fifth_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + half_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + half_length, position + chord_length, channel, fifth_note, 100, true)
         end
     },
     -- Added Patterns --
     {
         name = "Quarter Notes",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local quarter_length = chord_length / 4
-            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + quarter_length, position + 2*quarter_length, 0, root_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_length, position + 3*quarter_length, 0, root_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 3*quarter_length, position + chord_length, 0, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + quarter_length, position + 2*quarter_length, channel, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_length, position + 3*quarter_length, channel, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 3*quarter_length, position + chord_length, channel, root_note, 95, true)
         end
     },
     -- NEW POP PATTERNS --
     {
         name = "Pop - Pushing 8ths",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local eighth_length = chord_length / 8
             for i = 0, 7 do
-                reaper.MIDI_InsertNote(take, false, false, position + i*eighth_length, position + (i+1)*eighth_length, 0, root_note, 100 - i*2, true)
+                reaper.MIDI_InsertNote(take, false, false, position + i*eighth_length, position + (i+1)*eighth_length, channel, root_note, 100 - i*2, true)
             end
         end
     },
     {
         name = "Pop - Synth Octaves",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local eighth = chord_length / 8
-            reaper.MIDI_InsertNote(take, false, false, position, position + eighth, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2*eighth, position + 3*eighth, 0, root_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 4*eighth, position + 5*eighth, 0, root_note+12, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 6*eighth, position + 7*eighth, 0, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + eighth, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2*eighth, position + 3*eighth, channel, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 4*eighth, position + 5*eighth, channel, root_note+12, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 6*eighth, position + 7*eighth, channel, root_note, 95, true)
         end
     },
     {
         name = "Pop - Ballad",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local half = chord_length / 2
-            reaper.MIDI_InsertNote(take, false, false, position, position + half, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + half, position + half + chord_length / 4, 0, root_note+7, 90, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + half, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + half, position + half + chord_length / 4, channel, root_note+7, 90, true)
         end
     },
     -- Added Patterns Continued --
     {
         name = "Alberti Bass",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local quarter_length = chord_length / 4
             local third_note = root_note + (chord_data.is_major and 4 or 3)
             local fifth_note = root_note + 7
-            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + quarter_length, position + 2*quarter_length, 0, fifth_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_length, position + 3*quarter_length, 0, third_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 3*quarter_length, position + chord_length, 0, fifth_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + quarter_length, position + 2*quarter_length, channel, fifth_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_length, position + 3*quarter_length, channel, third_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 3*quarter_length, position + chord_length, channel, fifth_note, 95, true)
         end
     },
     {
         name = "Funk Groove",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local sixteenth = chord_length / 16
-            reaper.MIDI_InsertNote(take, false, false, position, position + sixteenth, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2*sixteenth, position + 3*sixteenth, 0, root_note, 90, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 5*sixteenth, position + 6*sixteenth, 0, root_note + 12, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 6*sixteenth, position + 7*sixteenth, 0, root_note, 90, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 10*sixteenth, position + 11*sixteenth, 0, root_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 14*sixteenth, position + 15*sixteenth, 0, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + sixteenth, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2*sixteenth, position + 3*sixteenth, channel, root_note, 90, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 5*sixteenth, position + 6*sixteenth, channel, root_note + 12, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 6*sixteenth, position + 7*sixteenth, channel, root_note, 90, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 10*sixteenth, position + 11*sixteenth, channel, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 14*sixteenth, position + 15*sixteenth, channel, root_note, 95, true)
         end
     },
     {
         name = "Reggae 'One Drop'",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local half_length = chord_length / 2
             -- Note on beat 3
-            reaper.MIDI_InsertNote(take, false, false, position + half_length, position + chord_length, 0, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + half_length, position + chord_length, channel, root_note, 100, true)
         end
     },
     -- Original Patterns Continued
     {
         name = "Simple Walk",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local quarter_length = chord_length / 4
             local root_note_pc = root_note % 12
             local third_note = root_note + (chord_data.is_major and 4 or 3)
             local fifth_note = root_note + 7
             
-            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + quarter_length, position + 2*quarter_length, 0, third_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_length, position + 3*quarter_length, 0, fifth_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + quarter_length, position + 2*quarter_length, channel, third_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_length, position + 3*quarter_length, channel, fifth_note, 95, true)
             
             local passing_note
             if (next_root_pc - root_note_pc) % 12 > 6 then -- Descending motion is shorter
@@ -184,47 +184,47 @@ M.bass_patterns = {
             else -- Ascending motion is shorter
                 passing_note = root_note + ((next_root_pc - root_note_pc) % 12) -1
             end
-            reaper.MIDI_InsertNote(take, false, false, position + 3*quarter_length, position + chord_length, 0, passing_note, 90, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 3*quarter_length, position + chord_length, channel, passing_note, 90, true)
         end
     },
     {
         name = "Arpeggio Up",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local third_length = chord_length / 3
             local third_note = root_note + (chord_data.is_major and 4 or 3)
             local fifth_note = root_note + 7
-            reaper.MIDI_InsertNote(take, false, false, position, position + third_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + third_length, position + 2 * third_length, 0, third_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2 * third_length, position + chord_length, 0, fifth_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + third_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + third_length, position + 2 * third_length, channel, third_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2 * third_length, position + chord_length, channel, fifth_note, 95, true)
         end
     },
     {
         name = "Pop Rhythm",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local quarter_length = chord_length / 4
             local eighth_length = chord_length / 8
-            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2 * quarter_length, position + 2 * quarter_length + eighth_length, 0, root_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2 * quarter_length + eighth_length, position + 3 * quarter_length, 0, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2 * quarter_length, position + 2 * quarter_length + eighth_length, channel, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2 * quarter_length + eighth_length, position + 3 * quarter_length, channel, root_note, 95, true)
         end
     },
     {
         name = "Octaves",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local half_length = chord_length / 2
             local octave_note = root_note + 12
-            reaper.MIDI_InsertNote(take, false, false, position, position + half_length, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + half_length, position + chord_length, 0, octave_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + half_length, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + half_length, position + chord_length, channel, octave_note, 95, true)
         end
     },
     {
         name = "Classic Rock",
-        func = function(take, position, chord_length, chord_data, root_note, next_root_pc)
+        func = function(take, position, chord_length, chord_data, root_note, next_root_pc, channel)
             local quarter_len = chord_length / 4
             local eighth_len = chord_length / 8
-            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_len, 0, root_note, 100, true)
-            reaper.MIDI_InsertNote(take, false, false, position + quarter_len + eighth_len, position + 2*quarter_len, 0, root_note, 95, true)
-            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_len, position + 3*quarter_len, 0, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position, position + quarter_len, channel, root_note, 100, true)
+            reaper.MIDI_InsertNote(take, false, false, position + quarter_len + eighth_len, position + 2*quarter_len, channel, root_note, 95, true)
+            reaper.MIDI_InsertNote(take, false, false, position + 2*quarter_len, position + 3*quarter_len, channel, root_note, 95, true)
         end
     }
 }

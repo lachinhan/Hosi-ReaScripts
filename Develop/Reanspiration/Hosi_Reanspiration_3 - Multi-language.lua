@@ -1,5 +1,5 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
--- @version 3.5 (Added Drum Generator)
+-- @version 3.5 (Added Undo for Rhythm Applicator)
 -- @author Hosi (developed from original concept by phaselab)
 -- @link Original Script by phaselab https://forum.cockos.com/showthread.php?t=291623
 -- @about
@@ -8,6 +8,7 @@
 --
 --   Features:
 --   - Chord generation with expanded scale/progression library.
+--   - Separate Bassline Generation based on existing chords.
 --   - Automatic Secondary Dominant insertion for richer harmony.
 --   - Advanced Voice Leading algorithm for smoother chord transitions.
 --   - Advanced chord extensions (9ths, 11ths, 13ths, alterations).
@@ -15,7 +16,8 @@
 --   - Smart bassline generator with multiple patterns.
 --   - Integrated melody generator with contour and chord-targeting.
 --   - Rhythmic pattern applicator for chords.
---   - NEW: Drum pattern generator.
+--   - Drum pattern generator.
+--   - Automatic MIDI channel routing for Chords, Bass, and Melody.
 --   - Arpeggiator and Strummer.
 --   - Humanizer for timing and velocity.
 --   - Multi-level Undo for creative tool edits.
@@ -166,10 +168,16 @@ local selected_transpose_index = 2
 local selected_voicing = 0
 local voicing_options = {"None", "Drop 2", "Drop 3", "Drop 4", "Drop 2+4"}
 local selected_arp_strum_pattern = 0
-local selected_bass_pattern = 1
+local selected_bass_pattern = 1 -- for generation tab
+local selected_creative_bass_pattern = 1 -- for creative tab
 local selected_rhythm_pattern = 0
 local selected_drum_pattern = 0 -- NEW
 local add_secondary_dominants = false
+-- NEW: MIDI Channel assignments (1-indexed for UI)
+local channel_chord = 1
+local channel_bass = 2
+local channel_melody = 3
+
 
 local spread = 0
 local arp_rate = 2
@@ -182,7 +190,6 @@ local humanize_strength_timing = 5
 local humanize_strength_velocity = 8
 
 -- Constants
-local MELODY_CHANNEL = 15
 local DRUM_CHANNEL = 9 -- Standard MIDI Drum Channel 10 (0-indexed)
 local transpose_values = {-24, -12, 0, 12, 24}
 local transpose_labels = {"-2", "-1", "0", "+1", "+2"}
@@ -405,19 +412,17 @@ local function deleteExistingNotes(take)
   end
 end
 
--- New function to delete only chord notes, preserving bass and melody.
+-- UPDATED: Deletes notes based on the user-defined chord channel.
 local function deleteExistingChords(take)
     local notes_to_delete = {}
     local note_idx = 0
-    local pitch_threshold = 60 -- Heuristic for bass notes: C4
 
     while true do
-        local ret, _, _, _, _, chan, pitch, _ = reaper.MIDI_GetNote(take, note_idx)
+        local ret, _, _, _, _, chan, _, _ = reaper.MIDI_GetNote(take, note_idx)
         if not ret then break end
         
-        -- A note is a chord note if it's NOT a melody, NOT a drum,
-        -- AND it's at or above the bass pitch threshold.
-        if chan ~= MELODY_CHANNEL and chan ~= DRUM_CHANNEL and pitch >= pitch_threshold then
+        -- A note is a chord note if its channel matches the chord channel setting.
+        if chan == (channel_chord - 1) then
             table.insert(notes_to_delete, note_idx)
         end
         note_idx = note_idx + 1
@@ -448,10 +453,10 @@ local function findBassNoteFromChord(chord)
   return bass_note
 end
 
--- Refactored to only insert chord tones, no bass.
-local function insertChord(take, position, chord, length)
+-- UPDATED: now accepts a channel parameter
+local function insertChord(take, position, chord, length, channel)
   for i, note in ipairs(chord) do
-    reaper.MIDI_InsertNote(take, false, false, position, position + length, 0, note, math.random(80, 110), true)
+    reaper.MIDI_InsertNote(take, false, false, position, position + length, channel, note, math.random(80, 110), true)
   end
 end
 
@@ -582,7 +587,7 @@ local function getBestVoiceLeading(prev_chord, chord)
     return best_voicing
 end
 
--- Refactored to not handle bass notes directly.
+-- Refactored to only create chord notes.
 local function createMIDIChords(take, chords, item_start_ppq, item_length_ppq)
   if #chords == 0 then return end
   local num_chords = #chords
@@ -607,42 +612,11 @@ local function createMIDIChords(take, chords, item_start_ppq, item_length_ppq)
     local best_voicing = getBestVoiceLeading(prev_chord, voiced_chord)
     best_voicing = adjustChord(best_voicing)
     
-    insertChord(take, position, best_voicing, chord_length)
+    -- Pass the selected chord channel (0-indexed)
+    insertChord(take, position, best_voicing, chord_length, channel_chord - 1)
     prev_chord = best_voicing
     position = position + chord_length
   end
-end
-
--- Smart Bassline Generation (Now uses external library functions)
-local function generateAndInsertBassline(take, chords, item_start_ppq, item_length_ppq, pattern_name)
-    if pattern_name == "None" or #chords == 0 then return end
-
-    -- Find the selected pattern's function in our library
-    local pattern_func = nil
-    for _, pattern_data in ipairs(bass_patterns) do
-        if pattern_data.name == pattern_name then
-            pattern_func = pattern_data.func
-            break
-        end
-    end
-    
-    -- If we found a valid function, execute it for each chord
-    if pattern_func then
-        local num_chords = #chords
-        local chord_length = item_length_ppq / num_chords
-        local bass_octave = 36 -- MIDI Pitch for C1
-
-        for i = 1, num_chords do
-            local position = item_start_ppq + (i - 1) * chord_length
-            local chord_data = chords[i]
-            local root_note_pc = chord_data.chord[1] % 12
-            local root_note = root_note_pc + bass_octave
-            local next_root_pc = (i < num_chords) and chords[i+1].chord[1] % 12 or root_note_pc
-
-            -- Call the specific pattern's function from the library
-            pattern_func(take, position, chord_length, chord_data, root_note, next_root_pc)
-        end
-    end
 end
 
 --[[--
@@ -657,6 +631,29 @@ local function deleteExistingDrums(take)
         if not ret then break end
         
         if chan == DRUM_CHANNEL then
+            table.insert(notes_to_delete, note_idx)
+        end
+        note_idx = note_idx + 1
+    end
+    
+    if #notes_to_delete > 0 then
+        table.sort(notes_to_delete, function(a, b) return a > b end) -- Delete from the end
+        for _, index in ipairs(notes_to_delete) do
+            reaper.MIDI_DeleteNote(take, index)
+        end
+    end
+end
+
+-- NEW: Deletes bass notes based on the user-defined bass channel.
+local function deleteExistingBass(take)
+    local notes_to_delete = {}
+    local note_idx = 0
+    
+    while true do
+        local ret, _, _, _, _, chan, _, _ = reaper.MIDI_GetNote(take, note_idx)
+        if not ret then break end
+        
+        if chan == (channel_bass - 1) then
             table.insert(notes_to_delete, note_idx)
         end
         note_idx = note_idx + 1
@@ -770,7 +767,7 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
     
     local notes_in_chord = {}
     for _, n in ipairs(chord_notes) do
-      table.insert(notes_in_chord, {pitch = n.pitch, vel = n.vel})
+      table.insert(notes_in_chord, {pitch = n.pitch, vel = n.vel, chan = n.chan}) -- Preserve original channel
     end
     table.sort(notes_in_chord, function(a, b) return a.pitch < b.pitch end)
 
@@ -790,7 +787,7 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
           if direction == "U" then
             final_vel = math.max(1, math.floor(note.vel * (velocity_curve / 100)))
           end
-          reaper.MIDI_InsertNote(take, false, false, pos + strum_offset, pos + strum_offset + duration, 0, note.pitch, final_vel, true)
+          reaper.MIDI_InsertNote(take, false, false, pos + strum_offset, pos + strum_offset + duration, note.chan, note.pitch, final_vel, true)
         end
       end
 
@@ -856,7 +853,7 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
         if #arp_sequence == 0 then break end
         local note_to_play = arp_sequence[(step % #arp_sequence) + 1]
         if note_to_play then
-          reaper.MIDI_InsertNote(take, false, false, current_pos, current_pos + arp_note_len, 0, note_to_play.pitch, note_to_play.vel, true)
+          reaper.MIDI_InsertNote(take, false, false, current_pos, current_pos + arp_note_len, note_to_play.chan, note_to_play.pitch, note_to_play.vel, true)
         end
         current_pos = current_pos + arp_note_len
         step = step + 1
@@ -868,12 +865,7 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
   reaper.UpdateArrange()
 end
 
---[[--
-REFACTOR (v2.6): The heuristic-based melody deletion was still unstable.
-The function is now refactored to use a dedicated MIDI channel for melody notes.
-This provides a 100% reliable way to identify and remove only the generated melody,
-preserving the original performance completely.
---]]--
+-- UPDATED: Uses the user-defined melody channel
 local function deleteExistingMelody(take)
     local notes_to_delete = {}
     local note_idx = 0
@@ -882,7 +874,7 @@ local function deleteExistingMelody(take)
         local ret, _, _, _, _, chan, _, _ = reaper.MIDI_GetNote(take, note_idx)
         if not ret then break end
         
-        if chan == MELODY_CHANNEL then
+        if chan == (channel_melody - 1) then
             table.insert(notes_to_delete, note_idx)
         end
         note_idx = note_idx + 1
@@ -896,24 +888,16 @@ local function deleteExistingMelody(take)
     end
 end
 
---[[--
-NEW ADVANCED MELODY ANALYSIS FUNCTION (v3.1)
-Analyzes the MIDI take to extract both a detailed list of chords and the overall scale.
---]]--
+-- UPDATED: Now also detects if a chord is major/minor
 local function analyzeChordsAndScale(take)
-    -- This function now returns two things:
-    -- 1. A sorted list of chord objects with detailed info.
-    -- 2. A table of unique pitch classes for the overall scale.
-
     local notes_by_start_time = {}
-    local all_note_pcs = {} -- For overall scale detection
+    local all_note_pcs = {}
     local note_idx = 0
     
     while true do
         local ret, _, _, startppq, endppq, chan, pitch, _ = reaper.MIDI_GetNote(take, note_idx)
         if not ret then break end
         
-        -- Ignore drum notes when analyzing harmony
         if chan ~= DRUM_CHANNEL then
             if not notes_by_start_time[startppq] then
                 notes_by_start_time[startppq] = {}
@@ -922,7 +906,6 @@ local function analyzeChordsAndScale(take)
                 pitch = pitch,
                 endppq = endppq
             })
-            
             all_note_pcs[pitch % 12] = true
         end
         note_idx = note_idx + 1
@@ -930,11 +913,26 @@ local function analyzeChordsAndScale(take)
 
     local analyzed_chords = {}
     for startppq, notes in pairs(notes_by_start_time) do
-        -- Consider it a chord if 2 or more notes start at the same time.
         if #notes >= 2 then
             table.sort(notes, function(a, b) return a.pitch < b.pitch end)
             
-            local chord_end_ppq = notes[1].endppq -- Assume all notes in chord have similar length
+            local root_note_pc = notes[1].pitch % 12
+            local is_major = false
+            -- Heuristic to determine if chord is major or minor by checking for the third
+            if #notes >= 2 then
+                for i = 2, #notes do
+                    local interval = (notes[i].pitch - notes[1].pitch) % 12
+                    if interval == 4 then
+                        is_major = true
+                        break
+                    elseif interval == 3 then
+                        is_major = false
+                        break
+                    end
+                end
+            end
+            
+            local chord_end_ppq = notes[1].endppq
             local chord_tones_pc = {}
             for _, note in ipairs(notes) do
                 chord_tones_pc[note.pitch % 12] = true
@@ -943,18 +941,17 @@ local function analyzeChordsAndScale(take)
             
             table.insert(analyzed_chords, {
                 startppq = startppq,
-                endppq = endppq,
-                notes = notes, -- Full note info
+                endppq = chord_end_ppq,
+                notes = notes,
                 chord_tones_pc = chord_tones_pc,
-                root_note_pc = notes[1].pitch % 12 -- Simple heuristic: lowest note is root
+                root_note_pc = root_note_pc,
+                is_major = is_major -- NEW field
             })
         end
     end
 
-    -- Sort chords by their start time, which is crucial for melody generation
     table.sort(analyzed_chords, function(a, b) return a.startppq < b.startppq end)
 
-    -- Build the overall scale from all notes found
     local overall_scale = {}
     for note_pc in pairs(all_note_pcs) do
         table.insert(overall_scale, note_pc)
@@ -1054,7 +1051,7 @@ end
 
 local function insertMelody(take, melody)
     for _, note_data in ipairs(melody) do
-        reaper.MIDI_InsertNote(take, false, false, note_data.pos, note_data.pos + note_data.length, MELODY_CHANNEL, note_data.note, math.random(70, 100), true)
+        reaper.MIDI_InsertNote(take, false, false, note_data.pos, note_data.pos + note_data.length, channel_melody - 1, note_data.note, math.random(70, 100), true)
     end
 end
 
@@ -1088,7 +1085,8 @@ end
 
 -- Rhythm Functions
 local scriptName = "Reanspiration Actions"
-local initialStateKey = "initial_note_state"
+-- KEY ĐƯỢC THAY ĐỔI ĐỂ TRÁNH XUNG ĐỘT
+local itemStateKey = "P_EXT:REANSPIRATION_STATE"
 
 -- FIX v3.4: Re-added helper functions for state serialization that were accidentally removed.
 -- Serialize table to a string
@@ -1120,7 +1118,10 @@ local function stringToTable(str)
   return result
 end
 
-local function storeInitialState(take)
+-- THAY ĐỔI: Hàm bây giờ nhận vào 'item' thay vì 'take' và lưu state vào item.
+local function storeInitialState(item)
+  if not item then return end
+  local take = reaper.GetActiveTake(item)
   if take then
     local noteData = {}
     local note_idx = 0
@@ -1132,12 +1133,16 @@ local function storeInitialState(take)
     end
 
     local noteDataString = tableToString(noteData)
-    reaper.SetProjExtState(0, scriptName, initialStateKey, noteDataString)
+    -- SỬA LỖI: Lưu state vào chính item, không dùng ProjExtState
+    reaper.GetSetMediaItemInfo_String(item, itemStateKey, noteDataString, true)
   end
 end
 
-local function getInitialState()
-  local _, noteDataString = reaper.GetProjExtState(0, scriptName, initialStateKey)
+-- THAY ĐỔI: Hàm bây giờ nhận vào 'item' để đọc state từ chính nó.
+local function getInitialState(item)
+  if not item then return nil end
+  -- SỬA LỖI: Đọc state từ chính item, không dùng ProjExtState
+  local _, noteDataString = reaper.GetSetMediaItemInfo_String(item, itemStateKey, "", false)
   if noteDataString and noteDataString ~= "" then
     return stringToTable(noteDataString)
   end
@@ -1247,7 +1252,8 @@ local function applyRhythmPattern(take, initialNotes, rhythm_pattern)
         local chords = {}
         local activeNotes = {}
         for _, note in ipairs(notes) do
-            if note.chan ~= MELODY_CHANNEL and note.chan ~= DRUM_CHANNEL and note.pitch >= 60 then
+            -- UPDATED: Identify chord notes by their assigned channel
+            if note.chan == (channel_chord - 1) then
                 if not activeNotes[note.startppqpos] then activeNotes[note.startppqpos] = {} end
                 table.insert(activeNotes[note.startppqpos], note)
             end
@@ -1271,9 +1277,10 @@ local function applyRhythmPattern(take, initialNotes, rhythm_pattern)
     for _, ch in ipairs(initial_chords) do initial_chord_starts[ch.startppqpos] = true end
     
     while true do
-        local ret, _, _, startppq, _, chan, pitch, _ = reaper.MIDI_GetNote(take, current_note_idx)
+        local ret, _, _, startppq, _, chan, _, _ = reaper.MIDI_GetNote(take, current_note_idx)
         if not ret then break end
-        if initial_chord_starts[startppq] and chan ~= MELODY_CHANNEL and chan ~= DRUM_CHANNEL and pitch >= 60 then
+        -- UPDATED: Identify chord notes to delete by their assigned channel
+        if initial_chord_starts[startppq] and chan == (channel_chord - 1) then
             table.insert(notes_to_delete, current_note_idx)
         end
         current_note_idx = current_note_idx + 1
@@ -1438,7 +1445,8 @@ local function addNote(take)
     end
   end
 
-  reaper.MIDI_InsertNote(take, false, false, new_position, new_position + new_length, 0, new_pitch, math.random(80, 110), true)
+  -- Add note on the currently assigned chord channel
+  reaper.MIDI_InsertNote(take, false, false, new_position, new_position + new_length, channel_chord - 1, new_pitch, math.random(80, 110), true)
   reaper.MIDI_Sort(take)
   reaper.UpdateArrange()
 end
@@ -1456,10 +1464,13 @@ local delete_chords_trigger = false
 local apply_arp = false -- Trigger for arpeggiator
 local generate_melody_trigger = false -- Trigger for melody generation
 local humanize_trigger = false -- Trigger for humanize function
-local generate_drums_trigger = false -- NEW
+local generate_drums_trigger = false
+local generate_bass_trigger = false
 local undo_melody_trigger = false
 local undo_arp_trigger = false
 local undo_humanize_trigger = false
+local undo_bass_trigger = false
+local undo_rhythm_trigger = false -- NEW
 local window_open = true
 local root_note_options = {"Random", "C", "C#/Db", "D", "D#/Eb", "E", "F", "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B"}
 local selected_root_note = 0 -- 0 is "Random"
@@ -1468,6 +1479,8 @@ local current_progression_options = progression_options_major
 local melody_undo_stack = {}
 local arp_undo_stack = {}
 local humanize_undo_stack = {}
+local bass_undo_stack = {}
+local rhythm_undo_stack = {} -- NEW
 local scale_types_options = {"Random", "Major", "Natural Minor", "Harmonic Minor", "Melodic Minor", "Pentatonic", "Ionian", "Aeolian", "Dorian", "Mixolydian", "Phrygian", "Lydian", "Locrian", "Double Harmonic Major", "Neapolitan Major", "Neapolitan Minor", "Hungarian Minor"}
 local selected_scale_type = 0
 
@@ -1610,7 +1623,6 @@ local function drawGUI()
         -- Melody Generation
         reaper.ImGui_Text(ctx, T("melody_section_title"))
         
-        -- NEW WIDGETS (v3.1)
         changed, selected_melody_contour = reaper.ImGui_Combo(ctx, T("melody_contour_label"), selected_melody_contour, table.concat(melody_contour_options, "\0") .. "\0")
         reaper.ImGui_SameLine(ctx); reaper.ImGui_Text(ctx, "(?)"); if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, T("tooltip_melody_contour")) end
         
@@ -1631,6 +1643,20 @@ local function drawGUI()
         
         reaper.ImGui_Separator(ctx)
         
+        -- NEW: Bass Generation Section
+        reaper.ImGui_Text(ctx, T("bass_section_title"))
+        changed, selected_creative_bass_pattern = reaper.ImGui_Combo(ctx, T("bass_pattern_label_creative"), selected_creative_bass_pattern, table.concat(bass_pattern_options, "\0") .. "\0")
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, T("tooltip_bass_pattern")) end
+        
+        if reaper.ImGui_Button(ctx, T("bass_generate_button")) then generate_bass_trigger = true end
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, T("tooltip_bass_generate")) end
+        if #bass_undo_stack > 0 then
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, T("undo_bass_button")) then undo_bass_trigger = true end
+        end
+        
+        reaper.ImGui_Separator(ctx)
+
         -- Arp/Strum
         reaper.ImGui_Text(ctx, T("arp_strum_section_title"))
         changed, selected_arp_strum_pattern = reaper.ImGui_Combo(ctx, T("arp_strum_pattern_label"), selected_arp_strum_pattern, table.concat(arp_strum_options, "\0") .. "\0")
@@ -1658,7 +1684,10 @@ local function drawGUI()
         changed, selected_rhythm_pattern = reaper.ImGui_Combo(ctx, T("rhythm_pattern_label"), selected_rhythm_pattern, table.concat(rhythm_pattern_options, "\0") .. "\0")
         if reaper.ImGui_Button(ctx, T("rhythm_apply_button")) then apply_rhythm_trigger = true end
         if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, T("tooltip_rhythm_apply")) end
-
+        if #rhythm_undo_stack > 0 then
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, T("undo_rhythm_button")) then undo_rhythm_trigger = true end
+        end
         
         reaper.ImGui_EndTabItem(ctx)
       end
@@ -1674,6 +1703,26 @@ local function drawGUI()
         reaper.ImGui_EndTabItem(ctx)
       end
       
+      -- NEW: Settings Tab
+      if reaper.ImGui_BeginTabItem(ctx, T("tab_settings")) then
+        reaper.ImGui_Text(ctx, T("midi_channel_section_title"))
+        reaper.ImGui_Separator(ctx)
+
+        local changed_ch
+        changed_ch, channel_chord = reaper.ImGui_InputInt(ctx, T("channel_chord_label"), channel_chord)
+        if changed_ch then channel_chord = math.max(1, math.min(16, channel_chord)) end
+
+        changed_ch, channel_bass = reaper.ImGui_InputInt(ctx, T("channel_bass_label"), channel_bass)
+        if changed_ch then channel_bass = math.max(1, math.min(16, channel_bass)) end
+
+        changed_ch, channel_melody = reaper.ImGui_InputInt(ctx, T("channel_melody_label"), channel_melody)
+        if changed_ch then channel_melody = math.max(1, math.min(16, channel_melody)) end
+        
+        reaper.ImGui_Text(ctx, T("channel_info_text"))
+
+        reaper.ImGui_EndTabItem(ctx)
+      end
+
       reaper.ImGui_EndTabBar(ctx)
     end
     
@@ -1730,6 +1779,8 @@ local function loop()
     melody_undo_stack = {}
     arp_undo_stack = {}
     humanize_undo_stack = {}
+    bass_undo_stack = {}
+    rhythm_undo_stack = {}
     reaper.Undo_BeginBlock()
     
     -- 1. Determine the selected scale type from the GUI to establish context
@@ -1817,12 +1868,38 @@ local function loop()
 
         reaper.MIDI_DisableSort(take)
         deleteExistingNotes(take)
+        -- UPDATED: Now only creates chords
         createMIDIChords(take, chords, item_start_ppq, item_length_ppq)
-        generateAndInsertBassline(take, chords, item_start_ppq, item_length_ppq, bass_pattern_options[selected_bass_pattern + 1])
+        -- Bass is now generated separately, but we keep the option here for the combined workflow
+        local pattern_name_gen = bass_pattern_options[selected_bass_pattern + 1]
+        if pattern_name_gen ~= "None" then
+            -- This logic remains for the combined button, using a hardcoded list of chord data
+            local analyzed_chords_for_bass = {}
+            local time_per_chord = item_length_ppq / #chords
+            for i, ch_data in ipairs(chords) do
+                table.insert(analyzed_chords_for_bass, {
+                    startppq = item_start_ppq + (i-1) * time_per_chord,
+                    endppq = item_start_ppq + i * time_per_chord,
+                    root_note_pc = ch_data.chord[1] % 12,
+                    is_major = ch_data.is_major
+                })
+            end
+            
+            local pattern_func
+            for _, p_data in ipairs(bass_patterns) do if p_data.name == pattern_name_gen then pattern_func = p_data.func; break; end end
+
+            if pattern_func then
+                for i, chord_info in ipairs(analyzed_chords_for_bass) do
+                    local next_root_pc = (i < #analyzed_chords_for_bass) and analyzed_chords_for_bass[i+1].root_note_pc or chord_info.root_note_pc
+                    pattern_func(take, chord_info.startppq, time_per_chord, {is_major = chord_info.is_major}, chord_info.root_note_pc + 36, next_root_pc, channel_bass - 1)
+                end
+            end
+        end
+
         transposeMIDI(take, transpose)
         reaper.MIDI_Sort(take)
         reaper.UpdateArrange()
-        storeInitialState(take)
+        storeInitialState(item)
       end
     end
 
@@ -1835,32 +1912,87 @@ local function loop()
     if item then
       local take = reaper.GetMediaItemTake(item, 0)
       if take and reaper.TakeIsMIDI(take) then
-        table.insert(melody_undo_stack, captureUndoState(take)) -- Add current state to undo stack
-        reaper.Undo_BeginBlock()
-        deleteExistingMelody(take) -- Delete old melody notes before generating new ones
-        local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
-        local item_length_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION") + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")) - item_start_ppq
-        
-        -- UPDATED MELODY LOGIC (v3.1)
         local analyzed_chords, overall_scale = analyzeChordsAndScale(take)
         
         if #analyzed_chords > 0 then
+          table.insert(melody_undo_stack, captureUndoState(take))
+          reaper.Undo_BeginBlock()
+          deleteExistingMelody(take)
+          local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
+          local item_length_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION") + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")) - item_start_ppq
+          
           local contour_choice = melody_contour_options[selected_melody_contour + 1]
           local melody = generateMelody(take, analyzed_chords, overall_scale, melody_density, melody_octave_min, melody_octave_max, item_start_ppq, item_length_ppq, contour_choice, melody_target_chord_tones)
           insertMelody(take, melody)
+          
+          reaper.MIDI_Sort(take)
+          reaper.UpdateArrange()
+          reaper.Undo_EndBlock("Generate Melody", -1)
         else
           reaper.ShowMessageBox(T("melody_error_no_chords"), T("melody_section_title"), 0)
         end
-        
-        reaper.MIDI_Sort(take)
-        reaper.UpdateArrange()
-        reaper.Undo_EndBlock("Generate Melody", -1)
       end
     end
     generate_melody_trigger = false
   end
 
-  if generate_drums_trigger then -- NEW
+  if generate_bass_trigger then
+    local item = reaper.GetSelectedMediaItem(0, 0)
+    if item then
+        local take = reaper.GetMediaItemTake(item, 0)
+        if take and reaper.TakeIsMIDI(take) then
+            local analyzed_chords, _ = analyzeChordsAndScale(take)
+            if #analyzed_chords > 0 then
+                table.insert(bass_undo_stack, captureUndoState(take))
+                reaper.Undo_BeginBlock()
+                deleteExistingBass(take)
+
+                local pattern_name = bass_pattern_options[selected_creative_bass_pattern + 1]
+                if pattern_name ~= "None" then
+                    local pattern_func = nil
+                    for _, pattern_data in ipairs(bass_patterns) do
+                        if pattern_data.name == pattern_name then
+                            pattern_func = pattern_data.func
+                            break
+                        end
+                    end
+
+                    if pattern_func then
+                        local bass_octave = 36 -- C1
+
+                        for i, chord_info in ipairs(analyzed_chords) do
+                            local position = chord_info.startppq
+                            local chord_length
+                            if i < #analyzed_chords then
+                                chord_length = analyzed_chords[i+1].startppq - chord_info.startppq
+                            else
+                                -- For the last chord, use its actual duration from analysis
+                                chord_length = chord_info.endppq - chord_info.startppq
+                            end
+
+                            if chord_length > 0 then
+                                local root_note = chord_info.root_note_pc + bass_octave
+                                local next_root_pc = (i < #analyzed_chords) and analyzed_chords[i+1].root_note_pc or chord_info.root_note_pc
+                                local chord_data = { is_major = chord_info.is_major }
+                                
+                                pattern_func(take, position, chord_length, chord_data, root_note, next_root_pc, channel_bass - 1)
+                            end
+                        end
+                    end
+                end
+                
+                reaper.MIDI_Sort(take)
+                reaper.UpdateArrange()
+                reaper.Undo_EndBlock("Generate Bass", -1)
+            else
+                reaper.ShowMessageBox(T("bass_error_no_chords"), T("bass_section_title"), 0)
+            end
+        end
+    end
+    generate_bass_trigger = false
+  end
+
+  if generate_drums_trigger then
     local item = reaper.GetSelectedMediaItem(0, 0)
     if item then
         local take = reaper.GetMediaItemTake(item, 0)
@@ -1954,6 +2086,25 @@ local function loop()
       end
       undo_melody_trigger = false
   end
+  
+  if undo_bass_trigger then
+      local item = reaper.GetSelectedMediaItem(0, 0)
+      if item then
+          local take = reaper.GetMediaItemTake(item, 0)
+          if take and reaper.TakeIsMIDI(take) and #bass_undo_stack > 0 then
+              reaper.Undo_BeginBlock()
+              local last_state = table.remove(bass_undo_stack)
+              deleteExistingNotes(take)
+              for _, note in ipairs(last_state) do
+                  reaper.MIDI_InsertNote(take, note.selected, note.muted, note.startppq, note.endppq, note.chan, note.pitch, note.vel, true)
+              end
+              reaper.MIDI_Sort(take)
+              reaper.UpdateArrange()
+              reaper.Undo_EndBlock("Undo Bass", -1)
+          end
+      end
+      undo_bass_trigger = false
+  end
 
   if undo_arp_trigger then
       local item = reaper.GetSelectedMediaItem(0, 0)
@@ -1992,6 +2143,25 @@ local function loop()
       end
       undo_humanize_trigger = false
   end
+  
+  if undo_rhythm_trigger then
+      local item = reaper.GetSelectedMediaItem(0, 0)
+      if item then
+          local take = reaper.GetMediaItemTake(item, 0)
+          if take and reaper.TakeIsMIDI(take) and #rhythm_undo_stack > 0 then
+              reaper.Undo_BeginBlock()
+              local last_state = table.remove(rhythm_undo_stack)
+              deleteExistingNotes(take)
+              for _, note in ipairs(last_state) do
+                  reaper.MIDI_InsertNote(take, note.selected, note.muted, note.startppq, note.endppq, note.chan, note.pitch, note.vel, true)
+              end
+              reaper.MIDI_Sort(take)
+              reaper.UpdateArrange()
+              reaper.Undo_EndBlock("Undo Rhythm", -1)
+          end
+      end
+      undo_rhythm_trigger = false
+  end
 
   if apply_rhythm_trigger then
       local pattern_name = rhythm_pattern_options[selected_rhythm_pattern + 1]
@@ -2000,10 +2170,11 @@ local function loop()
           if item then
               local take = reaper.GetMediaItemTake(item, 0)
               if take and reaper.TakeIsMIDI(take) then
-                  local initialNotes = getInitialState()
+                  local initialNotes = getInitialState(item)
                   if not initialNotes then
                       reaper.ShowConsoleMsg(T("rhythm_error_no_state"))
                   else
+                      table.insert(rhythm_undo_stack, captureUndoState(take))
                       reaper.Undo_BeginBlock()
                       if pattern_name == "Random" then
                           changeRhythmRandomly(take, initialNotes)
@@ -2072,3 +2243,4 @@ end
 reaper.Undo_BeginBlock()
 Main()
 reaper.Undo_EndBlock("Generate Chords", -1)
+
