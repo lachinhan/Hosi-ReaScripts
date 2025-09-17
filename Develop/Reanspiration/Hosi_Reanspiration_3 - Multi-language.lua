@@ -1,10 +1,11 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
--- @version 3.5 (Added Undo for Rhythm Applicator)
+-- @version 3.5 (Melody, Bass, Drums, Rhythm, Arp/Strum working with Chord Track)
 -- @author Hosi (developed from original concept by phaselab)
 -- @link Original Script by phaselab https://forum.cockos.com/showthread.php?t=291623
 -- @about
 --   An all-in-one toolkit for generating harmonically-aware musical ideas.
---   Now supports external library file ('reanspiration_library.lua') for easy customization.
+--   NEW in v3.5: Creative tools (Melody, Bass, Drums, Rhythm, Arp/Strum) can now read chords from a
+--   dedicated track, allowing you to generate MIDI onto empty items.
 --
 --   Features:
 --   - Chord generation with expanded scale/progression library.
@@ -98,7 +99,7 @@ if not LangData then return end -- Stop if languages fail to load
 -- NEW: Language state variables
 local available_languages = {"English", "Tiếng Việt", "日本語", "中文", "한국어"}
 local language_keys = {"en", "vi", "ja", "zh", "ko"}
-local selected_language_index = 0
+local selected_language_index = 0 -- Default to English
 local L = LangData[language_keys[selected_language_index + 1]] -- The current language table
 
 -- NEW: Helper function to get translated text
@@ -145,7 +146,7 @@ local scale_types = {
 local chord_progressions = Library.chord_progressions
 local bass_patterns = Library.bass_patterns
 local rhythm_patterns = Library.rhythm_patterns
-local drum_patterns = Library.drum_patterns -- NEW
+local drum_patterns = Library.drum_patterns
 
 -- GUI Options Setup
 local progression_options_major = {"Random"}
@@ -159,8 +160,8 @@ for _, pattern_data in ipairs(bass_patterns) do table.insert(bass_pattern_option
 local rhythm_pattern_options = {"None"}
 for _, pattern_data in ipairs(rhythm_patterns) do table.insert(rhythm_pattern_options, pattern_data.name) end
 
-local drum_pattern_options = {"None"} -- NEW
-for _, pattern_data in ipairs(drum_patterns) do table.insert(drum_pattern_options, pattern_data.name) end -- NEW
+local drum_pattern_options = {"None"}
+for _, pattern_data in ipairs(drum_patterns) do table.insert(drum_pattern_options, pattern_data.name) end
 
 -- GUI State Variables
 local selected_progression = 0
@@ -171,12 +172,15 @@ local selected_arp_strum_pattern = 0
 local selected_bass_pattern = 1 -- for generation tab
 local selected_creative_bass_pattern = 1 -- for creative tab
 local selected_rhythm_pattern = 0
-local selected_drum_pattern = 0 -- NEW
+local selected_drum_pattern = 0
 local add_secondary_dominants = false
--- NEW: MIDI Channel assignments (1-indexed for UI)
+-- MIDI Channel assignments (1-indexed for UI)
 local channel_chord = 1
 local channel_bass = 2
 local channel_melody = 3
+-- NEW: Chord Track State
+local use_chord_track = false
+local chord_track_name = "Chord Track"
 
 
 local spread = 0
@@ -541,10 +545,7 @@ local function createChordProgression(scale_notes, degrees_specs, is_major, comp
   return chords
 end
 
---[[--
-REPLACED (v3.3): Replaced getClosestInversion with a more advanced voice leading algorithm
-that prioritizes smooth melodic movement in the top voice.
---]]--
+
 local function getBestVoiceLeading(prev_chord, chord)
     local min_score = math.huge
     local best_voicing = chord
@@ -564,18 +565,14 @@ local function getBestVoiceLeading(prev_chord, chord)
             table.sort(candidate_chord)
             
             -- Calculate score for this candidate
-            -- 1. Top note movement score (heavily weighted)
             local top_note = candidate_chord[#candidate_chord]
             local top_note_penalty = math.abs(top_note - prev_top_note)
 
-            -- 2. Overall movement score (less weighted)
             local total_movement_penalty = 0
             for j = 1, math.min(#prev_chord, #candidate_chord) do
                 total_movement_penalty = total_movement_penalty + math.abs(candidate_chord[j] - prev_chord[j])
             end
-
-            -- 3. Weighted final score
-            -- The top note's movement is 4 times more important than the sum of all movements.
+            
             local score = (top_note_penalty * 4) + (total_movement_penalty * 1)
 
             if score < min_score then
@@ -619,9 +616,6 @@ local function createMIDIChords(take, chords, item_start_ppq, item_length_ppq)
   end
 end
 
---[[--
-NEW DRUM GENERATOR (v3.5)
---]]--
 local function deleteExistingDrums(take)
     local notes_to_delete = {}
     local note_idx = 0
@@ -703,98 +697,56 @@ local function transposeMIDI(take, transpose)
   end
 end
 
--- Arpeggiator and Strummer Function
-local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velocity_curve)
+-- Arpeggiator and Strummer Function (REWRITTEN for v3.6 to support Chord Track)
+local function applyArpeggioOrStrum(take, item, chords_to_process, pattern, rate_value, strum_delay, velocity_curve)
   reaper.MIDI_DisableSort(take)
-
-  -- 1. Collect all notes and identify selected notes.
-  local all_notes = {}
-  local selected_notes = {}
-  local has_selection = false
   
-  local note_count = reaper.MIDI_CountEvts(take)
-  for i = 0, note_count - 1 do
-    local retval, selected, muted, start, endp, chan, pitch, vel = reaper.MIDI_GetNote(take, i)
-    if retval then
-      local note_info = {
-        index = i, selected = selected, muted = muted, startppq = start, endppq = endp, chan = chan, pitch = pitch, vel = vel
-      }
-      table.insert(all_notes, note_info)
-      if selected then
-        table.insert(selected_notes, note_info)
-        has_selection = true
-      end
-    end
-  end
-
-  -- 2. Determine which set of notes to process.
-  local notes_to_process
-  if has_selection then
-    notes_to_process = selected_notes
-  else
-    notes_to_process = all_notes
-  end
-  
-  if #notes_to_process == 0 then
-    reaper.MIDI_Sort(take)
-    reaper.UpdateArrange()
-    return
-  end
-  
-  -- 3. Group the notes to be processed into chords and identify their indices for deletion.
-  local chords = {}
-  local notes_to_delete = {}
-
-  for _, note in ipairs(notes_to_process) do
-    table.insert(notes_to_delete, note.index)
-    if not chords[note.startppq] then
-      chords[note.startppq] = {}
-    end
-    table.insert(chords[note.startppq], note)
-  end
-
-  -- 4. Delete ONLY the processed notes.
-  table.sort(notes_to_delete, function(a, b) return a > b end)
-  for _, index in ipairs(notes_to_delete) do
-    reaper.MIDI_DeleteNote(take, index)
-  end
-  
+  local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
   local ppq_per_beat = reaper.MIDI_GetPPQPosFromProjQN(take, 1)
 
-  -- 5. Process each chord.
-  for startppq, chord_notes in pairs(chords) do
-    local original_duration = chord_notes[1].endppq - chord_notes[1].startppq
+  -- The function now iterates over the pre-analyzed chords
+  for i, chord_info in ipairs(chords_to_process) do
+    local startppq_abs = chord_info.startppq
+    local startppq_rel = startppq_abs - item_start_ppq
+    local original_duration = chord_info.endppq - chord_info.startppq
     
+    if original_duration <= 0 then goto continue end
+
     local notes_in_chord = {}
-    for _, n in ipairs(chord_notes) do
-      table.insert(notes_in_chord, {pitch = n.pitch, vel = n.vel, chan = n.chan}) -- Preserve original channel
+    for _, n in ipairs(chord_info.notes) do
+      -- Use the channel from the source chord, but fallback to the current setting if needed
+      local note_channel = n.chan or (channel_chord - 1)
+      table.insert(notes_in_chord, {pitch = n.pitch, vel = n.vel, chan = note_channel})
     end
     table.sort(notes_in_chord, function(a, b) return a.pitch < b.pitch end)
+
+    if #notes_in_chord == 0 then goto continue end
 
     if string.find(pattern, "Strum") then
       -- Strumming patterns
       local function performStrumHit(pos, direction, duration)
         local notes_to_strum = {}
         if direction == "D" then -- Down-strum
-          for i = 1, #notes_in_chord do table.insert(notes_to_strum, notes_in_chord[i]) end
+          for j = 1, #notes_in_chord do table.insert(notes_to_strum, notes_in_chord[j]) end
         else -- Up-strum
-          for i = #notes_in_chord, 1, -1 do table.insert(notes_to_strum, notes_in_chord[i]) end
+          for j = #notes_in_chord, 1, -1 do table.insert(notes_to_strum, notes_in_chord[j]) end
         end
 
-        for i, note in ipairs(notes_to_strum) do
-          local strum_offset = (i - 1) * strum_delay
+        for j, note in ipairs(notes_to_strum) do
+          local strum_offset = (j - 1) * strum_delay
           local final_vel = note.vel
           if direction == "U" then
             final_vel = math.max(1, math.floor(note.vel * (velocity_curve / 100)))
           end
+          -- Insert note with relative position
           reaper.MIDI_InsertNote(take, false, false, pos + strum_offset, pos + strum_offset + duration, note.chan, note.pitch, final_vel, true)
         end
       end
 
       if pattern == "Strum Down" then
-        performStrumHit(startppq, "D", original_duration)
+        performStrumHit(startppq_rel, "D", original_duration)
       elseif pattern == "Strum Up" then
-        performStrumHit(startppq, "U", original_duration)
+        performStrumHit(startppq_rel, "U", original_duration)
       else
         -- Rhythmic Strumming Patterns
         local rhythms = {
@@ -805,11 +757,11 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
         
         if rhythm_info then
           local step_size = ppq_per_beat * rhythm_info.rate
-          local note_len = step_size - (ppq_per_beat * 0.05) -- Create a small gap between strums
-          local current_pos = startppq
+          local note_len = step_size - (ppq_per_beat * 0.05)
+          local current_pos = startppq_rel
           local step = 0
           
-          while current_pos < startppq + original_duration do
+          while current_pos < startppq_rel + original_duration do
             local direction = rhythm_info.pattern[(step % #rhythm_info.pattern) + 1]
             if not direction then break end
             
@@ -836,20 +788,20 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
         arp_sequence = notes_in_chord
       elseif pattern == "Arp Up/Down" then
         arp_sequence = notes_in_chord
-        for i = #notes_in_chord - 1, 2, -1 do
-          table.insert(arp_sequence, notes_in_chord[i])
+        for j = #notes_in_chord - 1, 2, -1 do
+          table.insert(arp_sequence, notes_in_chord[j])
         end
       elseif pattern == "Arp Random" then
-        for i = #notes_in_chord, 1, -1 do
-          local j = math.random(i)
-          notes_in_chord[i], notes_in_chord[j] = notes_in_chord[j], notes_in_chord[i]
+        for j = #notes_in_chord, 1, -1 do
+          local k = math.random(j)
+          notes_in_chord[j], notes_in_chord[k] = notes_in_chord[k], notes_in_chord[j]
         end
         arp_sequence = notes_in_chord
       end
       
-      local current_pos = startppq
+      local current_pos = startppq_rel
       local step = 0
-      while current_pos < startppq + original_duration do
+      while current_pos < startppq_rel + original_duration do
         if #arp_sequence == 0 then break end
         local note_to_play = arp_sequence[(step % #arp_sequence) + 1]
         if note_to_play then
@@ -859,6 +811,7 @@ local function applyArpeggioOrStrum(take, pattern, rate_value, strum_delay, velo
         step = step + 1
       end
     end
+    ::continue::
   end
 
   reaper.MIDI_Sort(take)
@@ -895,7 +848,7 @@ local function analyzeChordsAndScale(take)
     local note_idx = 0
     
     while true do
-        local ret, _, _, startppq, endppq, chan, pitch, _ = reaper.MIDI_GetNote(take, note_idx)
+        local ret, _, _, startppq, endppq, chan, pitch, vel = reaper.MIDI_GetNote(take, note_idx)
         if not ret then break end
         
         if chan ~= DRUM_CHANNEL then
@@ -904,7 +857,9 @@ local function analyzeChordsAndScale(take)
             end
             table.insert(notes_by_start_time[startppq], {
                 pitch = pitch,
-                endppq = endppq
+                endppq = endppq,
+                vel = vel,
+                chan = chan
             })
             all_note_pcs[pitch % 12] = true
         end
@@ -961,10 +916,7 @@ local function analyzeChordsAndScale(take)
     return analyzed_chords, overall_scale
 end
 
---[[--
-NEW INTELLIGENT MELODY GENERATOR (v3.1)
-Creates a melody that follows a user-defined contour and targets chord tones on strong beats.
---]]--
+
 local function generateMelody(take, analyzed_chords, scale, density, oct_min, oct_max, item_start_ppq, item_length_ppq, contour_name, target_chord_tones)
     if #scale == 0 or #analyzed_chords == 0 then return {} end
 
@@ -1085,7 +1037,7 @@ end
 
 -- Rhythm Functions
 local scriptName = "Reanspiration Actions"
--- KEY ĐƯỢC THAY ĐỔI ĐỂ TRÁNH XUNG ĐỘT
+-- KEY ĐƯỢỢC THAY ĐỔI ĐỂ TRÁNH XUNG ĐỘT
 local itemStateKey = "P_EXT:REANSPIRATION_STATE"
 
 -- FIX v3.4: Re-added helper functions for state serialization that were accidentally removed.
@@ -1149,170 +1101,112 @@ local function getInitialState(item)
   return nil
 end
 
-local function changeRhythmRandomly(take, initialNotes)
-  reaper.MIDI_DisableSort(take)
-  
-  local currentNotes = {}
-  local note_idx = 0
-  while true do
-    local ret, selected, muted, startppqpos, endppqpos, chan, pitch, vel = reaper.MIDI_GetNote(take, note_idx)
-    if not ret then break end
-    table.insert(currentNotes, {startppqpos = startppqpos, endppqpos = endppqpos, chan = chan, pitch = pitch, vel = vel, selected = selected, muted = muted, index = note_idx})
-    note_idx = note_idx + 1
-  end
-
-  if #currentNotes ~= #initialNotes then
-    reaper.MIDI_Sort(take)
-    return
-  end
-
-  local function findChords(notes)
-    local chords = {}
-    local activeNotes = {}
-
-    for _, note in ipairs(notes) do
-      if not activeNotes[note.startppqpos] then activeNotes[note.startppqpos] = {} end
-      table.insert(activeNotes[note.startppqpos], note)
-    end
-
-    for startppqpos, chordNotes in pairs(activeNotes) do
-      table.insert(chords, {startppqpos = startppqpos, notes = chordNotes})
-    end
-
-    table.sort(chords, function(a, b) return a.startppqpos < b.startppqpos end)
-    return chords
-  end
-
-  local function applyRhythmChange(chords)
-    local factors = {0.5, 1, 1.5, 2}
-    local newDurations = {}
-    local totalChange = 0
-
-    for i, chord in ipairs(chords) do
-      if chord.notes and chord.notes[1] then
-        local originalDuration = chord.notes[1].endppqpos - chord.notes[1].startppqpos
-        local factor = factors[math.random(1, #factors)]
-        newDurations[i] = {
-          original = originalDuration,
-          new = math.floor(originalDuration * factor),
-          factor = factor
-        }
-        totalChange = totalChange + (newDurations[i].new - originalDuration)
-      end
-    end
-
-    while totalChange ~= 0 do
-      local index = math.random(1, #chords)
-      if newDurations[index] then
-        local currentFactor = newDurations[index].factor
-        local currentFactorIndex = table.indexOf(factors, currentFactor)
-
-        if totalChange > 0 and currentFactorIndex > 1 then
-          newDurations[index].factor = factors[currentFactorIndex - 1]
-        elseif totalChange < 0 and currentFactorIndex < #factors then
-          newDurations[index].factor = factors[currentFactorIndex + 1]
-        else
-          goto continue
-        end
-
-        local newDuration = math.floor(newDurations[index].original * newDurations[index].factor)
-        totalChange = totalChange + (newDuration - newDurations[index].new)
-        newDurations[index].new = newDuration
-      end
-      ::continue::
-    end
-
-    if #chords > 0 and chords[1].startppqpos then
-      local currentPos = chords[1].startppqpos
-      for i, chord in ipairs(chords) do
-        if newDurations[i] then
-          local newDuration = newDurations[i].new
-          for _, note in ipairs(chord.notes) do
-            reaper.MIDI_SetNote(take, note.index, note.selected, note.muted, currentPos, currentPos + newDuration, note.chan, note.pitch, note.vel, false)
-          end
-          currentPos = currentPos + newDuration
-        end
-      end
-    end
-  end
-
-  local chords = findChords(initialNotes)
-  if #chords > 0 then
-    applyRhythmChange(chords)
-  end
-
-  reaper.MIDI_Sort(take)
-  reaper.UpdateArrange()
-end
-
-local function applyRhythmPattern(take, initialNotes, rhythm_pattern)
-    reaper.MIDI_DisableSort(take)
-    
-    local function findChords(notes)
-        local chords = {}
-        local activeNotes = {}
-        for _, note in ipairs(notes) do
-            -- UPDATED: Identify chord notes by their assigned channel
-            if note.chan == (channel_chord - 1) then
-                if not activeNotes[note.startppqpos] then activeNotes[note.startppqpos] = {} end
-                table.insert(activeNotes[note.startppqpos], note)
-            end
-        end
-        for startppqpos, chordNotes in pairs(activeNotes) do
-            table.insert(chords, {startppqpos = startppqpos, notes = chordNotes})
-        end
-        table.sort(chords, function(a, b) return a.startppqpos < b.startppqpos end)
-        return chords
-    end
-
-    local initial_chords = findChords(initialNotes)
-    if #initial_chords == 0 then
-        reaper.MIDI_Sort(take)
+-- NEW/REFACTORED: Applies a specific rhythmic pattern to a set of analyzed chords.
+-- This function DELETES existing chords and CREATES new ones.
+local function applyRhythmPattern(take, analyzed_chords, rhythm_pattern, item_start_ppq)
+    if not analyzed_chords or #analyzed_chords == 0 or not rhythm_pattern then
         return
     end
 
-    local notes_to_delete = {}
-    local current_note_idx = 0
-    local initial_chord_starts = {}
-    for _, ch in ipairs(initial_chords) do initial_chord_starts[ch.startppqpos] = true end
+    reaper.MIDI_DisableSort(take)
+    deleteExistingChords(take)
     
-    while true do
-        local ret, _, _, startppq, _, chan, _, _ = reaper.MIDI_GetNote(take, current_note_idx)
-        if not ret then break end
-        -- UPDATED: Identify chord notes to delete by their assigned channel
-        if initial_chord_starts[startppq] and chan == (channel_chord - 1) then
-            table.insert(notes_to_delete, current_note_idx)
-        end
-        current_note_idx = current_note_idx + 1
-    end
-    
-    table.sort(notes_to_delete, function(a, b) return a > b end)
-    for _, index in ipairs(notes_to_delete) do
-        reaper.MIDI_DeleteNote(take, index)
-    end
-    
-    for i, chord in ipairs(initial_chords) do
-        local chord_start_pos = chord.startppqpos
+    for i, chord_info in ipairs(analyzed_chords) do
+        local chord_start_pos_abs = chord_info.startppq
         local chord_duration
-        
-        if initial_chords[i+1] then
-            chord_duration = initial_chords[i+1].startppqpos - chord.startppqpos
+
+        if analyzed_chords[i+1] then
+            chord_duration = analyzed_chords[i+1].startppq - chord_info.startppq
         else
-            chord_duration = chord.notes[1].endppqpos - chord.notes[1].startppqpos
+            chord_duration = chord_info.endppq - chord_info.startppq
         end
         
         if chord_duration <= 0 then goto continue end
 
+        local chord_notes_data = {}
+        for _, note in ipairs(chord_info.notes) do
+            table.insert(chord_notes_data, {pitch = note.pitch, vel = math.random(80, 110)})
+        end
+        if #chord_notes_data == 0 then goto continue end
+
         for _, rhythm_hit in ipairs(rhythm_pattern) do
-            local new_start = chord_start_pos + (chord_duration * rhythm_hit.start)
-            local new_duration = (chord_duration * rhythm_hit.duration) * 0.98
-            local new_end = new_start + new_duration
+            local new_start_abs = chord_start_pos_abs + (chord_duration * rhythm_hit.start)
+            local new_duration = (chord_duration * rhythm_hit.duration) * 0.98 -- small gap
+            local new_start_relative = new_start_abs - item_start_ppq
             
-            for _, note in ipairs(chord.notes) do
-                reaper.MIDI_InsertNote(take, false, false, new_start, new_end, note.chan, note.pitch, note.vel, true)
+            for _, note_data in ipairs(chord_notes_data) do
+                reaper.MIDI_InsertNote(take, false, false, new_start_relative, new_start_relative + new_duration, channel_chord - 1, note_data.pitch, note_data.vel, true)
             end
         end
         ::continue::
+    end
+
+    reaper.MIDI_Sort(take)
+    reaper.UpdateArrange()
+end
+
+
+-- NEW: Applies a random rhythm to a set of analyzed chords from scratch.
+local function applyRandomRhythm(take, analyzed_chords, item_start_ppq)
+    if not analyzed_chords or #analyzed_chords == 0 then return end
+    
+    reaper.MIDI_DisableSort(take)
+    deleteExistingChords(take)
+
+    local factors = {0.5, 1, 1.5, 2}
+    local newDurations = {}
+    
+    local original_total_duration = 0
+    if #analyzed_chords > 1 then
+      original_total_duration = analyzed_chords[#analyzed_chords].startppq - analyzed_chords[1].startppq
+      -- Add last chord duration
+      original_total_duration = original_total_duration + (analyzed_chords[#analyzed_chords].endppq - analyzed_chords[#analyzed_chords].startppq)
+    elseif #analyzed_chords == 1 then
+      original_total_duration = analyzed_chords[1].endppq - analyzed_chords[1].startppq
+    end
+
+
+    for i, chord_info in ipairs(analyzed_chords) do
+        local originalDuration
+        if analyzed_chords[i+1] then
+            originalDuration = analyzed_chords[i+1].startppq - chord_info.startppq
+        else
+            originalDuration = chord_info.endppq - chord_info.startppq
+        end
+        
+        local factor = factors[math.random(#factors)]
+        newDurations[i] = {
+            original = originalDuration,
+            new = math.floor(originalDuration * factor)
+        }
+    end
+    
+    local new_total_duration = 0
+    for i=1, #newDurations do new_total_duration = new_total_duration + newDurations[i].new end
+    
+    if new_total_duration > 0 then
+      local scaling_factor = original_total_duration / new_total_duration
+      for i=1, #newDurations do
+          newDurations[i].new = math.floor(newDurations[i].new * scaling_factor)
+      end
+    end
+    
+    local currentPos_abs = analyzed_chords[1].startppq
+    for i, chord_info in ipairs(analyzed_chords) do
+        if newDurations[i] and newDurations[i].new > 0 then
+            local newDuration = newDurations[i].new
+            local currentPos_relative = currentPos_abs - item_start_ppq
+            
+            local chord_pitches = {}
+            for _, note in ipairs(chord_info.notes) do table.insert(chord_pitches, note.pitch) end
+
+            if #chord_pitches > 0 then
+                for _, pitch in ipairs(chord_pitches) do
+                    reaper.MIDI_InsertNote(take, false, false, currentPos_relative, currentPos_relative + newDuration, channel_chord - 1, pitch, math.random(80, 110), true)
+                end
+            end
+            currentPos_abs = currentPos_abs + newDuration
+        end
     end
 
     reaper.MIDI_Sort(take)
@@ -1509,6 +1403,101 @@ local function getRandomScaleType()
   local valid_scale_types = {"Major", "Natural Minor"}
   return selectRandom(valid_scale_types)
 end
+
+-- NEW: Find a track by its name
+local function findTrackByName(name)
+    if not name or name == "" then return nil end
+    for i = 0, reaper.CountTracks(0) - 1 do
+        local track = reaper.GetTrack(0, i)
+        local _, trackName = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
+        if trackName == name then
+            return track
+        end
+    end
+    return nil
+end
+
+-- NEW: Central function to get chord data from either the selected item or a dedicated chord track
+local function getChordDataFromSource(target_item)
+    if not target_item then return {}, {} end
+
+    if use_chord_track and chord_track_name ~= "" then
+        local chord_track = findTrackByName(chord_track_name)
+        if not chord_track then
+            reaper.ShowMessageBox(string.format(T("error_chord_track_not_found"), chord_track_name), T("window_title"), 0)
+            return {}, {}
+        end
+
+        local target_item_start_time = reaper.GetMediaItemInfo_Value(target_item, "D_POSITION")
+        local target_item_end_time = target_item_start_time + reaper.GetMediaItemInfo_Value(target_item, "D_LENGTH")
+
+        local combined_chords = {}
+        local combined_scale_pcs = {}
+
+        local num_items_on_track = reaper.CountTrackMediaItems(chord_track)
+        for i = 0, num_items_on_track - 1 do
+            local source_item = reaper.GetTrackMediaItem(chord_track, i)
+            local source_item_start_time = reaper.GetMediaItemInfo_Value(source_item, "D_POSITION")
+            local source_item_end_time = source_item_start_time + reaper.GetMediaItemInfo_Value(source_item, "D_LENGTH")
+
+            -- Check for time overlap
+            if source_item_start_time < target_item_end_time and source_item_end_time > target_item_start_time then
+                local take = reaper.GetActiveTake(source_item)
+                if take and reaper.TakeIsMIDI(take) then
+                    local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, source_item_start_time)
+                    local analyzed_chords_from_take, scale_from_take = analyzeChordsAndScale(take)
+
+                    for _, chord in ipairs(analyzed_chords_from_take) do
+                        -- Offset the chord's PPQ position to be absolute project PPQ
+                        chord.startppq = chord.startppq + item_start_ppq
+                        chord.endppq = chord.endppq + item_start_ppq
+                        table.insert(combined_chords, chord)
+                    end
+                    for _, pc in ipairs(scale_from_take) do
+                        combined_scale_pcs[pc] = true
+                    end
+                end
+            end
+        end
+        
+        if #combined_chords == 0 then
+            reaper.ShowMessageBox(string.format(T("error_no_chords_on_track"), chord_track_name), T("window_title"), 0)
+            return {}, {}
+        end
+
+        local final_scale = {}
+        for pc in pairs(combined_scale_pcs) do table.insert(final_scale, pc) end
+        table.sort(final_scale)
+        table.sort(combined_chords, function(a, b) return a.startppq < b.startppq end)
+
+        return combined_chords, final_scale
+
+    else -- The original behavior
+        local take = reaper.GetActiveTake(target_item)
+        if take and reaper.TakeIsMIDI(take) then
+            local analyzed_chords, overall_scale = analyzeChordsAndScale(take)
+            local _, note_count = reaper.MIDI_CountEvts(take)
+            
+            if #analyzed_chords > 0 or note_count > 0 then
+                 -- For internal analysis, we need to offset the positions to be absolute as well, for consistency
+                local item_start_time = reaper.GetMediaItemInfo_Value(target_item, "D_POSITION")
+                local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, item_start_time)
+                for _, chord in ipairs(analyzed_chords) do
+                    chord.startppq = chord.startppq + item_start_ppq
+                    chord.endppq = chord.endppq + item_start_ppq
+                end
+                return analyzed_chords, overall_scale
+            else
+                reaper.ShowMessageBox(T("error_item_not_midi_or_empty"), T("window_title"), 0)
+                return {}, {}
+            end
+        else
+            reaper.ShowMessageBox(T("error_item_not_midi_or_empty"), T("window_title"), 0)
+            return {}, {}
+        end
+    end
+end
+
 
 -- Function to draw the GUI
 local function drawGUI()
@@ -1720,6 +1709,19 @@ local function drawGUI()
         
         reaper.ImGui_Text(ctx, T("channel_info_text"))
 
+        reaper.ImGui_Separator(ctx)
+
+        -- NEW CHORD TRACK UI
+        reaper.ImGui_Text(ctx, T("chord_source_section_title"))
+        local changed_ct
+        changed_ct, use_chord_track = reaper.ImGui_Checkbox(ctx, T("use_chord_track_checkbox"), use_chord_track)
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, T("tooltip_use_chord_track")) end
+        
+        if not use_chord_track then reaper.ImGui_BeginDisabled(ctx, true) end
+        changed_ct, chord_track_name = reaper.ImGui_InputText(ctx, T("chord_track_name_label"), chord_track_name)
+        if not use_chord_track then reaper.ImGui_EndDisabled(ctx) end
+
+
         reaper.ImGui_EndTabItem(ctx)
       end
 
@@ -1733,7 +1735,7 @@ local function drawGUI()
 
     reaper.ImGui_Separator(ctx)
     if reaper.ImGui_Button(ctx, T("donate_button")) then
-        reaper.CF_ShellExecute("[https://paypal.me/nkstudio](https://paypal.me/nkstudio)")
+        reaper.CF_ShellExecute("https://paypal.me/nkstudio")
     end
     
     -- Language button on the same line, aligned to the right
@@ -1783,18 +1785,15 @@ local function loop()
     rhythm_undo_stack = {}
     reaper.Undo_BeginBlock()
     
-    -- 1. Determine the selected scale type from the GUI to establish context
     local selected_scale_type_name = scale_types_options[selected_scale_type + 1]
     local is_major_context = string.find(selected_scale_type_name:lower(), "major") 
                            or string.find(selected_scale_type_name:lower(), "ionian") 
                            or string.find(selected_scale_type_name:lower(), "lydian") 
                            or string.find(selected_scale_type_name:lower(), "mixolydian")
 
-    -- 2. Finalize the actual scale type name (resolve "Random")
     local final_scale_type_name = selected_scale_type_name
     if final_scale_type_name == "Random" then final_scale_type_name = getRandomScaleType() end
 
-    -- 3. Finalize the root note info (resolve "Random")
     local final_scale_info
     if selected_root_note == 0 then
       final_scale_info = selectRandom(scales)
@@ -1802,17 +1801,14 @@ local function loop()
       final_scale_info = scales[selected_root_note]
     end
 
-    -- 4. Update GUI feedback
     generation_info = string.format(T("feedback_generated"), final_scale_info.name, final_scale_type_name)
 
-    -- 5. Build the final scale notes
     local scale_notes = {}
     local root_note_pitch = final_scale_info.notes[1]
     for _, note in ipairs(scale_types[final_scale_type_name]) do
       table.insert(scale_notes, (root_note_pitch + note) % 12)
     end
 
-    -- 6. Get the progression degrees
     local degrees_to_generate
     local current_options = is_major_context and progression_options_major or progression_options_minor
     local progression_name = current_options[selected_progression + 1]
@@ -1822,18 +1818,15 @@ local function loop()
       local current_num_chords = num_chords
       for i=1, current_num_chords do table.insert(degrees_to_generate, math.random(1, 7)) end
     else
-      -- Use the context from step 1 to look up the progression safely
       local p_type = is_major_context and "major" or "minor"
       degrees_to_generate = chord_progressions[p_type][progression_name]
     end
     
-    -- This flag must be based on the FINAL scale, for modal interchange to work correctly.
     local is_major_final = string.find(final_scale_type_name:lower(), "major") 
                          or string.find(final_scale_type_name:lower(), "ionian") 
                          or string.find(final_scale_type_name:lower(), "lydian") 
                          or string.find(final_scale_type_name:lower(), "mixolydian")
 
-    -- 7. Pre-process degrees for secondary dominants (NEW v3.2)
     local degrees_specs = {}
     if add_secondary_dominants then
         local chord_types_major = {"major", "minor", "minor", "major", "major", "minor", "diminished"}
@@ -1855,25 +1848,20 @@ local function loop()
         end
     end
 
-    -- 8. Create the chord progression
     local chords = createChordProgression(scale_notes, degrees_specs, is_major_final, complexity, root_note_pitch)
 
-    -- 9. Insert chords into the MIDI item
     local item = reaper.GetSelectedMediaItem(0, 0)
     if item then
-      local take = reaper.GetMediaItemTake(item, 0)
+      local take = reaper.GetActiveTake(item)
       if take and reaper.TakeIsMIDI(take) then
         local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
         local item_length_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION") + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")) - item_start_ppq
 
         reaper.MIDI_DisableSort(take)
         deleteExistingNotes(take)
-        -- UPDATED: Now only creates chords
         createMIDIChords(take, chords, item_start_ppq, item_length_ppq)
-        -- Bass is now generated separately, but we keep the option here for the combined workflow
         local pattern_name_gen = bass_pattern_options[selected_bass_pattern + 1]
         if pattern_name_gen ~= "None" then
-            -- This logic remains for the combined button, using a hardcoded list of chord data
             local analyzed_chords_for_bass = {}
             local time_per_chord = item_length_ppq / #chords
             for i, ch_data in ipairs(chords) do
@@ -1912,12 +1900,13 @@ local function loop()
     if item then
       local take = reaper.GetMediaItemTake(item, 0)
       if take and reaper.TakeIsMIDI(take) then
-        local analyzed_chords, overall_scale = analyzeChordsAndScale(take)
+        local analyzed_chords, overall_scale = getChordDataFromSource(item)
         
-        if #analyzed_chords > 0 then
+        if #analyzed_chords > 0 and #overall_scale > 0 then
           table.insert(melody_undo_stack, captureUndoState(take))
           reaper.Undo_BeginBlock()
           deleteExistingMelody(take)
+          
           local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
           local item_length_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION") + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")) - item_start_ppq
           
@@ -1928,7 +1917,7 @@ local function loop()
           reaper.MIDI_Sort(take)
           reaper.UpdateArrange()
           reaper.Undo_EndBlock("Generate Melody", -1)
-        else
+        elseif not use_chord_track then
           reaper.ShowMessageBox(T("melody_error_no_chords"), T("melody_section_title"), 0)
         end
       end
@@ -1941,7 +1930,8 @@ local function loop()
     if item then
         local take = reaper.GetMediaItemTake(item, 0)
         if take and reaper.TakeIsMIDI(take) then
-            local analyzed_chords, _ = analyzeChordsAndScale(take)
+            local analyzed_chords, _ = getChordDataFromSource(item)
+
             if #analyzed_chords > 0 then
                 table.insert(bass_undo_stack, captureUndoState(take))
                 reaper.Undo_BeginBlock()
@@ -1966,8 +1956,13 @@ local function loop()
                             if i < #analyzed_chords then
                                 chord_length = analyzed_chords[i+1].startppq - chord_info.startppq
                             else
-                                -- For the last chord, use its actual duration from analysis
-                                chord_length = chord_info.endppq - chord_info.startppq
+                                -- For the last chord, estimate duration based on previous chord
+                                if i > 1 then
+                                    chord_length = analyzed_chords[i].startppq - analyzed_chords[i-1].startppq
+                                else
+                                    -- fallback to a full bar
+                                    chord_length = reaper.MIDI_GetPPQPosFromProjQN(take, 4)
+                                end
                             end
 
                             if chord_length > 0 then
@@ -1984,7 +1979,7 @@ local function loop()
                 reaper.MIDI_Sort(take)
                 reaper.UpdateArrange()
                 reaper.Undo_EndBlock("Generate Bass", -1)
-            else
+            elseif not use_chord_track then
                 reaper.ShowMessageBox(T("bass_error_no_chords"), T("bass_section_title"), 0)
             end
         end
@@ -1997,8 +1992,17 @@ local function loop()
     if item then
         local take = reaper.GetMediaItemTake(item, 0)
         if take and reaper.TakeIsMIDI(take) then
-            local analyzed_chords, _ = analyzeChordsAndScale(take)
-            if #analyzed_chords > 0 or reaper.MIDI_CountEvts(take) > 0 then
+            local analyzed_chords, _ = getChordDataFromSource(item)
+            
+            local should_generate = false
+            if use_chord_track then
+                if #analyzed_chords > 0 then should_generate = true end
+            else
+                local _, note_count = reaper.MIDI_CountEvts(take)
+                if #analyzed_chords > 0 or note_count > 0 then should_generate = true end
+            end
+
+            if should_generate then
                 reaper.Undo_BeginBlock()
                 deleteExistingDrums(take)
                 
@@ -2020,7 +2024,7 @@ local function loop()
                 reaper.MIDI_Sort(take)
                 reaper.UpdateArrange()
                 reaper.Undo_EndBlock("Generate Drums", -1)
-            else
+            elseif not use_chord_track then
                 reaper.ShowMessageBox(T("drum_error_no_chords"), T("tab_drums"), 0)
             end
         end
@@ -2035,19 +2039,31 @@ local function loop()
       if take and reaper.TakeIsMIDI(take) then
         local pattern = arp_strum_options[selected_arp_strum_pattern + 1]
         if pattern ~= "None" then
-          table.insert(arp_undo_stack, captureUndoState(take)) -- Add current state to undo stack
-          reaper.Undo_BeginBlock()
+          local chords_to_process, _ = getChordDataFromSource(item)
           
-          local final_rate_value
-          local rate_name = arp_rate_options[arp_rate + 1]
-          if rate_name == "Random" then
-            final_rate_value = -1 -- Signal for random rate per chord
+          if #chords_to_process > 0 then
+              table.insert(arp_undo_stack, captureUndoState(take))
+              reaper.Undo_BeginBlock()
+              
+              -- Clear existing notes on the chord channel before applying new ones
+              deleteExistingChords(take)
+              
+              local final_rate_value
+              local rate_name = arp_rate_options[arp_rate + 1]
+              if rate_name == "Random" then
+                final_rate_value = -1
+              else
+                final_rate_value = arp_rate_values[arp_rate + 1]
+              end
+              
+              -- Call the new, refactored function
+              applyArpeggioOrStrum(take, item, chords_to_process, pattern, final_rate_value, strum_delay_ppq, strum_groove)
+              
+              reaper.Undo_EndBlock("Apply Arp/Strum", -1)
           else
-            final_rate_value = arp_rate_values[arp_rate + 1]
+              -- Show an error if no chords were found (and it wasn't due to chord track error, which is handled in getChordDataFromSource)
+              reaper.ShowMessageBox(T("arp_error_no_chords"), T("arp_strum_section_title"), 0)
           end
-          
-          applyArpeggioOrStrum(take, pattern, final_rate_value, strum_delay_ppq, strum_groove)
-          reaper.Undo_EndBlock("Apply Arp/Strum", -1)
         end
       end
     end
@@ -2170,27 +2186,42 @@ local function loop()
           if item then
               local take = reaper.GetMediaItemTake(item, 0)
               if take and reaper.TakeIsMIDI(take) then
-                  local initialNotes = getInitialState(item)
-                  if not initialNotes then
-                      reaper.ShowConsoleMsg(T("rhythm_error_no_state"))
+                  
+                  local chords_to_process
+                  local item_start_ppq = reaper.MIDI_GetPPQPosFromProjTime(take, reaper.GetMediaItemInfo_Value(item, "D_POSITION"))
+
+                  if use_chord_track then
+                      chords_to_process, _ = getChordDataFromSource(item) -- Returns absolute PPQ
                   else
+                      chords_to_process, _ = analyzeChordsAndScale(take) -- Returns relative PPQ
+                      -- Convert relative positions to absolute for consistent processing
+                      for _, ch in ipairs(chords_to_process) do
+                          ch.startppq = ch.startppq + item_start_ppq
+                          ch.endppq = ch.endppq + item_start_ppq
+                      end
+                  end
+
+                  if chords_to_process and #chords_to_process > 0 then
                       table.insert(rhythm_undo_stack, captureUndoState(take))
                       reaper.Undo_BeginBlock()
+                      
                       if pattern_name == "Random" then
-                          changeRhythmRandomly(take, initialNotes)
+                          applyRandomRhythm(take, chords_to_process, item_start_ppq)
                       else
                           local selected_pattern_data
-                          for _, p in ipairs(rhythm_patterns) do
-                              if p.name == pattern_name then
-                                  selected_pattern_data = p
-                                  break
-                              end
+                          for _, p in ipairs(rhythm_patterns) do 
+                              if p.name == pattern_name then 
+                                  selected_pattern_data = p.pattern 
+                                  break 
+                              end 
                           end
                           if selected_pattern_data then
-                              applyRhythmPattern(take, initialNotes, selected_pattern_data.pattern)
+                              applyRhythmPattern(take, chords_to_process, selected_pattern_data, item_start_ppq)
                           end
                       end
                       reaper.Undo_EndBlock("Apply Rhythm", -1)
+                  else
+                      reaper.ShowMessageBox(T("rhythm_error_no_chords_found"), T("rhythm_section_title"), 0)
                   end
               end
           end

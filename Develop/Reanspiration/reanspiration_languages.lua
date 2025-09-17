@@ -1,5 +1,5 @@
 -- @description Language library for Reanspiration script.
--- @version 1.5 (Added Undo for Rhythm)
+-- @version 1.6 (Added Chord Track Feature)
 -- @author Hosi
 -- @about
 --   This file contains all the text strings for the Reanspiration UI.
@@ -94,16 +94,24 @@ languages['en'] = {
   channel_bass_label = "Bass Channel",
   channel_melody_label = "Melody Channel",
   channel_info_text = "Drums are always on Channel 10.",
+  chord_source_section_title = "Chord Source",
+  use_chord_track_checkbox = "Read chords from a specific track",
+  tooltip_use_chord_track = "When enabled, creative tools will get harmony from the track specified below instead of the selected item.",
+  chord_track_name_label = "Chord Track Name",
 
   -- Other UI
   donate_button = "Donate",
   feedback_generated = "Generated: %s %s",
   melody_error_no_chords = "Could not find enough chords in the item to generate a melody.",
   bass_error_no_chords = "Could not find enough chords in the item to generate a bassline.",
-  rhythm_error_no_state = "Error: No initial state found. Generate chords first.\n",
+  arp_error_no_chords = "Could not find any chords in the item (or chord track) to apply Arp/Strum to.",
+  rhythm_error_no_state = "Error: Could not find any notes in the item to apply rhythm to. Please select an item with MIDI notes.\n",
   add_note_error_no_notes = "Error: No notes found. Cannot add a new note.\n",
   add_note_error_no_scale = "Error: Could not detect a suitable scale. Cannot add a new note.\n",
   add_note_error_no_chords = "Error: No chords found. Cannot add a new note.\n",
+  error_chord_track_not_found = "Error: Could not find a track named '%s'.",
+  error_no_chords_on_track = "Error: No MIDI chords found on track '%s' within the selected item's time range.",
+  error_item_not_midi_or_empty = "Error: Selected item must contain MIDI notes, or 'Read from Chord Track' must be enabled.",
 }
 
 -- Vietnamese Language Table
@@ -192,16 +200,25 @@ languages['vi'] = {
   channel_bass_label = "Kênh Bass",
   channel_melody_label = "Kênh Giai Điệu",
   channel_info_text = "Trống luôn được đặt ở Kênh 10.",
+  chord_source_section_title = "Nguồn Hợp Âm",
+  use_chord_track_checkbox = "Đọc hợp âm từ một track chỉ định",
+  tooltip_use_chord_track = "Khi bật, các công cụ sáng tạo sẽ lấy hòa âm từ track được chỉ định bên dưới thay vì từ item đang chọn.",
+  chord_track_name_label = "Tên Track Hợp Âm",
+
 
   -- Other UI
   donate_button = "Ủng Hộ",
   feedback_generated = "Đã tạo: %s %s",
   melody_error_no_chords = "Không tìm thấy đủ hợp âm trong item để tạo giai điệu.",
   bass_error_no_chords = "Không tìm thấy đủ hợp âm trong item để tạo bè bass.",
-  rhythm_error_no_state = "Lỗi: Không tìm thấy trạng thái ban đầu. Hãy tạo hợp âm trước.\n",
+  arp_error_no_chords = "Không tìm thấy hợp âm nào trong item (hoặc track hợp âm) để áp dụng Arp/Strum.",
+  rhythm_error_no_state = "Lỗi: Không tìm thấy nốt nhạc nào trong item để áp dụng tiết tấu. Vui lòng chọn item có chứa nốt MIDI.\n",
   add_note_error_no_notes = "Lỗi: Không tìm thấy nốt nhạc. Không thể thêm nốt mới.\n",
   add_note_error_no_scale = "Lỗi: Không thể nhận diện âm giai phù hợp. Không thể thêm nốt mới.\n",
   add_note_error_no_chords = "Lỗi: Không tìm thấy hợp âm. Không thể thêm nốt mới.\n",
+  error_chord_track_not_found = "Lỗi: Không tìm thấy track nào có tên '%s'.",
+  error_no_chords_on_track = "Lỗi: Không tìm thấy hợp âm MIDI nào trên track '%s' trong khoảng thời gian của item đang chọn.",
+  error_item_not_midi_or_empty = "Lỗi: Item được chọn phải chứa nốt MIDI, hoặc phải bật chức năng 'Đọc từ Track Hợp Âm'.",
 }
 
 -- Japanese Language Table
@@ -290,16 +307,24 @@ languages['ja'] = {
   channel_bass_label = "ベースチャンネル",
   channel_melody_label = "メロディチャンネル",
   channel_info_text = "ドラムは常にチャンネル10です。",
+  chord_source_section_title = "コードソース",
+  use_chord_track_checkbox = "特定のトラックからコードを読み取る",
+  tooltip_use_chord_track = "有効にすると、クリエイティブツールは選択したアイテムの代わりに以下のトラックからハーモニーを取得します。",
+  chord_track_name_label = "コードトラック名",
 
   -- Other UI
   donate_button = "寄付",
   feedback_generated = "生成: %s %s",
   melody_error_no_chords = "アイテム内にメロディを生成するのに十分なコードが見つかりませんでした。",
   bass_error_no_chords = "アイテム内にベースラインを生成するのに十分なコードが見つかりませんでした。",
-  rhythm_error_no_state = "エラー: 初期状態が見つかりません。最初にコードを生成してください。\n",
+  arp_error_no_chords = "アイテム内（またはコードトラック）にアルペジオ/ストラムを適用するコードが見つかりませんでした。",
+  rhythm_error_no_state = "エラー: リズムを適用するノートがアイテム内に見つかりません。MIDIノートのあるアイテムを選択してください。\n",
   add_note_error_no_notes = "エラー: ノートが見つかりません。新しいノートを追加できません。\n",
   add_note_error_no_scale = "エラー: 適切なスケールを検出できませんでした。新しいノートを追加できません。\n",
   add_note_error_no_chords = "エラー: コードが見つかりません。新しいノートを追加できません。\n",
+  error_chord_track_not_found = "エラー: '%s' という名前のトラックが見つかりませんでした。",
+  error_no_chords_on_track = "エラー: 選択したアイテムの時間範囲内に、トラック '%s' にMIDIコードが見つかりませんでした。",
+  error_item_not_midi_or_empty = "エラー: 選択したアイテムにはMIDIノートが含まれているか、「コードトラックから読み取る」を有効にする必要があります。",
 }
 
 -- Chinese (Simplified) Language Table
@@ -388,16 +413,24 @@ languages['zh'] = {
   channel_bass_label = "贝斯通道",
   channel_melody_label = "旋律通道",
   channel_info_text = "鼓组始终在通道10。",
+  chord_source_section_title = "和弦来源",
+  use_chord_track_checkbox = "从特定轨道读取和弦",
+  tooltip_use_chord_track = "启用后，创意工具将从下面指定的轨道获取和声，而不是从选定的项目。",
+  chord_track_name_label = "和弦轨道名称",
 
   -- Other UI
   donate_button = "捐赠",
   feedback_generated = "已生成: %s %s",
   melody_error_no_chords = "在项目中找不到足够的和弦来生成旋律。",
   bass_error_no_chords = "在项目中找不到足够的和弦来生成贝斯声部。",
-  rhythm_error_no_state = "错误：找不到初始状态。请先生成和弦。\n",
+  arp_error_no_chords = "在项目（或和弦轨道）中找不到可应用琶音/扫弦的和弦。",
+  rhythm_error_no_state = "错误：在项目中找不到任何音符来应用节奏。请选择一个包含MIDI音符的项目。\n",
   add_note_error_no_notes = "错误：找不到音符。无法添加新音符。\n",
   add_note_error_no_scale = "错误：无法检测到合适的音阶。无法添加新音符。\n",
   add_note_error_no_chords = "错误：找不到和弦。无法添加新音符。\n",
+  error_chord_track_not_found = "错误：找不到名为“%s”的轨道。",
+  error_no_chords_on_track = "错误：在选定项目的时间范围内，在轨道“%s”上找不到MIDI和弦。",
+  error_item_not_midi_or_empty = "错误：选定的项目必须包含MIDI音符，或者必须启用“从和弦轨道读取”。",
 }
 
 -- Korean Language Table
@@ -486,16 +519,24 @@ languages['ko'] = {
   channel_bass_label = "베이스 채널",
   channel_melody_label = "멜로디 채널",
   channel_info_text = "드럼은 항상 10번 채널입니다.",
+  chord_source_section_title = "코드 소스",
+  use_chord_track_checkbox = "특정 트랙에서 코드 읽기",
+  tooltip_use_chord_track = "활성화하면 크리에이티브 도구가 선택한 항목 대신 아래에 지정된 트랙에서 하모니를 가져옵니다.",
+  chord_track_name_label = "코드 트랙 이름",
 
   -- Other UI
   donate_button = "후원하기",
   feedback_generated = "생성됨: %s %s",
   melody_error_no_chords = "항목에서 멜로디를 생성하기에 충분한 코드를 찾을 수 없습니다.",
   bass_error_no_chords = "항목에서 베이스라인을 생성하기에 충분한 코드를 찾을 수 없습니다.",
-  rhythm_error_no_state = "오류: 초기 상태를 찾을 수 없습니다. 먼저 코드를 생성하십시오.\n",
+  arp_error_no_chords = "항목(또는 코드 트랙)에서 아르페지오/스트럼을 적용할 코드를 찾을 수 없습니다.",
+  rhythm_error_no_state = "오류: 리듬을 적용할 음표를 항목에서 찾을 수 없습니다. MIDI 음표가 있는 항목을 선택하십시오.\n",
   add_note_error_no_notes = "오류: 음표를 찾을 수 없습니다. 새 음표를 추가할 수 없습니다.\n",
   add_note_error_no_scale = "오류: 적절한 스케일을 감지할 수 없습니다. 새 음표를 추가할 수 없습니다.\n",
   add_note_error_no_chords = "오류: 코드를 찾을 수 없습니다. 새 음표를 추가할 수 없습니다.\n",
+  error_chord_track_not_found = "오류: '%s'라는 이름의 트랙을 찾을 수 없습니다.",
+  error_no_chords_on_track = "오류: 선택한 항목의 시간 범위 내에서 '%s' 트랙에 MIDI 코드를 찾을 수 없습니다.",
+  error_item_not_midi_or_empty = "오류: 선택한 항목에 MIDI 음표가 있거나 '코드 트랙에서 읽기'가 활성화되어 있어야 합니다.",
 }
 
 return languages
