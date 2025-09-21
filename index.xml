@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="cefaa8f4b5edb78e52657537445e8016fbb6ebf8">
+<index version="1" name="Hosi Scripts" commit="43fd248c067d0a35af7a85ada944ad8847d3ce4b">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -132,12 +132,20 @@
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/37591a9b87ab6ba0ce15ef8fc73fcb149dd7545e/Develop/HosiMeter/hmeterztx.jsfx</source>
       </version>
     </reapack>
+    <reapack name="Hosi_Gain_Matcher_for_hmeterz.lua" type="script" desc="Hosi Gain Matcher for hmeterz">
+      <version name="1.0" author="Hosi (based on the hmeterz system and idea)" time="2025-09-19T12:58:49Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/43fd248c067d0a35af7a85ada944ad8847d3ce4b/Develop/HosiMeter/Hosi_Gain_Matcher_for_hmeterz.lua</source>
+      </version>
+    </reapack>
     <reapack name="Hosi_hmeterz_Meter_Bridge.lua" type="script" desc="Hosi hmeterz Meter Bridge (ReaImGui Edition)">
       <version name="0.5" author="Hosi" time="2025-09-09T05:17:38Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/e41a7679ce4ce4d52e6ae4056422683bbeb18d35/Develop/HosiMeter/Hosi_hmeterz_Meter_Bridge.lua</source>
       </version>
       <version name="0.6" author="Hosi" time="2025-09-10T12:00:26Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/488c8107e0f1761f55c7ac4c8ac4b50f577495ff/Develop/HosiMeter/Hosi_hmeterz_Meter_Bridge.lua</source>
+      </version>
+      <version name="0.7" author="Hosi" time="2025-09-19T12:58:49Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/43fd248c067d0a35af7a85ada944ad8847d3ce4b/Develop/HosiMeter/Hosi_hmeterz_Meter_Bridge.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Manage hmeterzTX.lua" type="script" desc="Manage hmeterzTX (Add/Configure, Offline/Online or Remove All)">
