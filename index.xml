@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="43fd248c067d0a35af7a85ada944ad8847d3ce4b">
+<index version="1" name="Hosi Scripts" commit="956a3eb20c4d8c3c08f106e625290ef881a2e51b">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -696,6 +696,11 @@
     <reapack name="Hosi - Tempo Detect Item - GUI.lua" type="script" desc="Hosi Tempo Detect Item (GUI Version)">
       <version name="2.0" author="Hosi Prod (Algorithm by MPL)" time="2025-09-02T09:32:41Z">
         <source main="main" file="Hosi_Detect item tempo (GUI).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/Hosi%20-%20Tempo%20Detect%20Item%20-%20GUI.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Project Notes Viewer.lua" type="script" desc="Project Notes Editor (ReaImGui Version)">
+      <version name="1.0" author="Hosi" time="2025-09-21T03:58:54Z">
+        <source main="main" file="Hosi_Project Notes Editor (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/956a3eb20c4d8c3c08f106e625290ef881a2e51b/Utility/Hosi_Project%20Notes%20Viewer.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Script Generator for Toggling Plugins.lua" type="script" desc="Script Generator for Hosi's Toggle Plugin">
