@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="956a3eb20c4d8c3c08f106e625290ef881a2e51b">
+<index version="1" name="Hosi Scripts" commit="9c519534e4c29ca2e5b6b05f5fec1091129df400">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -701,6 +701,9 @@
     <reapack name="Hosi_Project Notes Viewer.lua" type="script" desc="Project Notes Editor (ReaImGui Version)">
       <version name="1.0" author="Hosi" time="2025-09-21T03:58:54Z">
         <source main="main" file="Hosi_Project Notes Editor (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/956a3eb20c4d8c3c08f106e625290ef881a2e51b/Utility/Hosi_Project%20Notes%20Viewer.lua</source>
+      </version>
+      <version name="1.2" author="Hosi (Modified for two-way sync)" time="2025-09-22T01:56:55Z">
+        <source main="main" file="Hosi_Project Notes Editor (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/9c519534e4c29ca2e5b6b05f5fec1091129df400/Utility/Hosi_Project%20Notes%20Viewer.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Script Generator for Toggling Plugins.lua" type="script" desc="Script Generator for Hosi's Toggle Plugin">
