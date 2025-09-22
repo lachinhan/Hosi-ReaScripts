@@ -1,7 +1,7 @@
 --[[
 @description    Project Notes Editor (ReaImGui Version)
-@author         Hosi
-@version        1.0
+@author         Hosi (Modified for two-way sync)
+@version        1.2
 @provides
   [main] . > Hosi_Project Notes Editor (ReaImGui).lua
 
@@ -16,18 +16,28 @@
   - Displays the total project duration and frame rate.
   - Edit Title, Author, and Notes directly in the window.
   - Auto-saves changes every few seconds when you are not typing.
-  - Always sets the project title from the filename on start.
-  - Always sets the author to "Hosi Prod" on start.
+  - Options to enable/disable auto-setting Title and Author on start.
   
   Changelog:
-  Changelog:
-  v1.0: 20-09-2025 - Initial release.
+  v1.1: 22-Sep-2025 - Added configuration options to enable/disable auto-setting Title and Author on startup.
+					- Fixed sync issue where changes made in REAPER's Project Settings would be overwritten by the script's auto-save.
+  v1.0: 20-Sep-2025 - Initial release.
 --]]
 
 -- --- CONFIGURATION ---
 local config = {
   win_title = "Project Notes Editor",
-  refresh_interval = 2.0 -- Time in seconds for auto-refresh and auto-save
+  refresh_interval = 2.0, -- Time in seconds for auto-refresh and auto-save
+  
+  -- <<<< NEW OPTIONS HERE >>>>
+  -- Set to `false` to retain the existing project title when the script starts.
+  auto_set_title_on_start = true, 
+  
+  -- Set to `false` to retain the existing author name when the script starts.
+  auto_set_author_on_start = true,
+  
+  -- The default author name will be set if `auto_set_author_on_start` is `true`.
+  default_author = "Hosi Prod"
 }
 
 -- Initialize ReaImGui correctly
@@ -44,6 +54,7 @@ local ctx = imgui.CreateContext(config.win_title)
 local project_data = { title = "", author = "", notes = "", length = 0, framerate = 0 }
 local is_open = true
 local last_refresh_time = 0
+local data_has_changed_in_script = false -- The "dirty flag" to track changes
 
 -- --- DATA FUNCTIONS ---
 
@@ -99,8 +110,13 @@ end
 -- --- MAIN GUI LOOP ---
 function loop()
   local current_time = reaper.time_precise()
+  
   if not imgui.IsAnyItemActive(ctx) and current_time > last_refresh_time + config.refresh_interval then
-      SaveProjectData()
+      if data_has_changed_in_script then
+          SaveProjectData()
+          data_has_changed_in_script = false 
+      end
+      
       project_data = FetchProjectData()
       last_refresh_time = current_time
   end
@@ -112,13 +128,19 @@ function loop()
     imgui.Text(ctx, string.format("Title: (Frame Rate: %.3f fps)", project_data.framerate))
     imgui.PushItemWidth(ctx, -1)
     local title_changed, new_title = imgui.InputText(ctx, '##Title', project_data.title, 512)
-    if title_changed then project_data.title = new_title end
+    if title_changed then 
+      project_data.title = new_title 
+      data_has_changed_in_script = true 
+    end
     imgui.PopItemWidth(ctx)
 
     imgui.Text(ctx, "Author:")
     imgui.PushItemWidth(ctx, -1)
     local author_changed, new_author = imgui.InputText(ctx, '##Author', project_data.author, 512)
-    if author_changed then project_data.author = new_author end
+    if author_changed then 
+      project_data.author = new_author
+      data_has_changed_in_script = true 
+    end
     imgui.PopItemWidth(ctx)
 
     imgui.Separator(ctx)
@@ -126,7 +148,10 @@ function loop()
 
     imgui.PushItemWidth(ctx, -1)
     local notes_changed, new_notes = imgui.InputTextMultiline(ctx, '##NotesEditor', project_data.notes, 0, -10)
-    if notes_changed then project_data.notes = new_notes end
+    if notes_changed then 
+      project_data.notes = new_notes
+      data_has_changed_in_script = true 
+    end
     imgui.PopItemWidth(ctx)
 
     imgui.End(ctx)
@@ -140,15 +165,30 @@ end
 -- --- SCRIPT INITIALIZATION ---
 function Main()
   project_data = FetchProjectData()
+  local needs_initial_save = false
 
-  local proj_name = GetProjectName()
-  if proj_name and proj_name ~= "" then
-    project_data.title = proj_name
+  -- <<<< MODIFIED: Tùy chọn đặt tiêu đề khi khởi động
+  if config.auto_set_title_on_start then
+    local proj_name = GetProjectName()
+    if proj_name and proj_name ~= "" and project_data.title ~= proj_name then
+      project_data.title = proj_name
+      needs_initial_save = true
+    end
   end
   
-  project_data.author = "Hosi Prod"
+  -- <<<< MODIFIED: Tùy chọn đặt tên tác giả khi khởi động
+  if config.auto_set_author_on_start then
+    if project_data.author ~= config.default_author then
+      project_data.author = config.default_author
+      needs_initial_save = true
+    end
+  end
 
-  SaveProjectData() 
+  -- Chỉ lưu lại nếu có sự thay đổi khi khởi động
+  if needs_initial_save then
+    SaveProjectData() 
+  end
+  
   last_refresh_time = reaper.time_precise()
   loop()
 end
