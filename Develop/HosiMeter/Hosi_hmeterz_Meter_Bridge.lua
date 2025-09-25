@@ -1,45 +1,46 @@
 --[[
 @description Hosi hmeterz Meter Bridge (ReaImGui Edition)
 @author      Hosi
-@version     0.7
+@version     0.7.1
 @provides
   [main] . > Hosi_hmeterz_Meter_Bridge.lua
 
 @changelog
-  + v0.7: Thêm chức năng ghi lại mức peak cao nhất (Max Peak) vào gmem
-          để các script khác (như Gain Matcher) có thể đọc được.
-  + v0.6: Thêm chế độ "Mini View".
+  + v0.7.1: Added feature to pin 'Gain Monitor' track and hide 'VIDEO' track from the menu.
+  + v0.7: Added functionality to record the highest peak level (Max Peak) to gmem
+          for other scripts (like Gain Matcher) to read.
+  + v0.6: Added 'Mini View' mode.
 
 @about
   # Hosi hmeterz Meter Bridge (ReaImGui Edition)
 
-  Hiển thị các thang đo từ tất cả các nhóm hmeterz trong một cửa sổ duy nhất.
+  Displays meters from all hmeterz groups in a single window.
 --]]
 
 
 local reaper = reaper
 
 -- =============================================================================
--- KHỞI TẠO VÀ KIỂM TRA REAIMGUI
+-- INITIALIZE AND CHECK REAIMGUI
 -- =============================================================================
 package.path = reaper.ImGui_GetBuiltinPath() .. '/?.lua;' .. package.path
 local imgui = require('imgui')('0.10')
 
 if not imgui or type(imgui) ~= "table" then
-    reaper.ShowMessageBox("Lỗi: Không thể khởi tạo thư viện ReaImGui.\n\nVui lòng cài đặt ReaImGui (khuyến nghị v0.10+) từ ReaPack.", "Lỗi Thư Viện", 0)
+    reaper.ShowMessageBox("Error: Could not initialize ReaImGui library.\n\nPlease install ReaImGui (v0.10+ recommended) from ReaPack.", "Library Error", 0)
     return
 end
 
 -- =============================================================================
--- KẾT NỐI BỘ NHỚ CHIA SẺ
+-- ATTACH SHARED MEMORY
 -- =============================================================================
 reaper.gmem_attach("meterz")
 
 -- =============================================================================
--- HẰNG SỐ VÀ CẤU HÌNH
+-- CONSTANTS AND CONFIGURATION
 -- =============================================================================
 
--- Bố cục bộ nhớ 'meterz' (tương thích với JSFX gốc)
+-- 'meterz' memory layout (compatible with original JSFX)
 local _NGRP, _NTX = 16, 16
 local _PRMSZ, _PRMP = _NGRP * 16, 256
 local _TXSZ = _NGRP * _NTX
@@ -51,16 +52,16 @@ local gmem_base = {
   _HUE       = _PRMP + _PRMSZ + _TXSZ * 4,
   _CLIP      = _PRMP + _PRMSZ + _TXSZ * 5,
   _CLIPCOUNT = _PRMP + _PRMSZ + _TXSZ * 6,
-  -- ++ v0.7: VÙNG NHỚ MỚI ĐỂ LƯU MAX PEAK CHO GAIN MATCHER ++
+  -- ++ v0.7: NEW MEMORY REGION TO STORE MAX PEAK FOR GAIN MATCHER ++
   _MAXPEAK   = _PRMP + _PRMSZ + _TXSZ * 7,
 }
 local _LDB = 8.685889638065 -- 20/ln(10)
 
--- Cấu hình GUI
+-- GUI Configuration
 local SCRIPT_NAME = "Hosi hmeterz Meter Bridge"
 local DB_MIN, DB_MAX = -60, 6
 local DB_RANGE = DB_MAX - DB_MIN
-local METER_INACTIVE_TIMEOUT = 1.0 -- (giây)
+local METER_INACTIVE_TIMEOUT = 1.0 -- (seconds)
 local script_enabled = true
 local show_max_peak = true
 local show_settings = false
@@ -77,7 +78,7 @@ local ctx = imgui.CreateContext(SCRIPT_NAME)
 local is_open = true
 local flags = imgui.WindowFlags_HorizontalScrollbar
 
--- Bảng màu
+-- Color Palette
 local colors = {
   meter_bg        = {  60,  60,  60, 255 }, peak_hold_temp  = { 220, 220, 220, 255 },
   peak_hold_max   = { 255, 255, 100, 255 }, clip            = { 255,  40,  40, 255 },
@@ -101,9 +102,9 @@ local meter_colors = {
   }
 }
 
--- Bảng trạng thái
+-- State Tables
 local known_meters = {}
-local highest_peaks = {} -- Bảng này bây giờ sẽ được đồng bộ với gmem
+local highest_peaks = {} -- This table will now be synchronized with gmem
 local clip_detected = {}
 local group_names = {}
 local track_map = {}
@@ -111,7 +112,7 @@ local highest_dr_values = {}
 local lowest_dr_values = {}
 local solo_group_idx = nil
 -- =============================================================================
--- CÁC HÀM TIỆN ÍCH
+-- UTILITY FUNCTIONS
 -- =============================================================================
 
 function PackColor(r, g, b, a)
@@ -141,7 +142,53 @@ function add_clip_marker(gmem_index)
   reaper.AddProjectMarker(0, false, pos, 0, marker_name, 1)
 end
 
--- Hàm lưu/tải cài đặt
+-- ++ NEW FUNCTIONS FOR PINNING TRACKS ++
+function FindTrackByName(target_name)
+  -- Find a track by name (case-insensitive)
+  local num_tracks = reaper.CountTracks(0)
+  for i = 0, num_tracks - 1 do
+    local track = reaper.GetTrack(0, i)
+    local _, track_name = reaper.GetTrackName(track, "")
+    if string.lower(track_name) == string.lower(target_name) then
+      return track
+    end
+  end
+  return nil
+end
+
+function TogglePinGainMonitor()
+  reaper.Undo_BeginBlock() -- Add undo point
+  -- Main logic to pin/unpin 'Gain Monitor' track and show/hide 'VIDEO' track
+  local gain_monitor_track = FindTrackByName("Gain Monitor")
+  local video_track = FindTrackByName("VIDEO")
+
+  if gain_monitor_track then
+    local is_pinned = reaper.GetMediaTrackInfo_Value(gain_monitor_track, "B_TCPPIN") == 1
+    if is_pinned then
+      -- If pinned -> Unpin and show video track
+      reaper.SetMediaTrackInfo_Value(gain_monitor_track, "B_TCPPIN", 0)
+      if video_track then
+        reaper.SetMediaTrackInfo_Value(video_track, "B_SHOWINTCP", 1) -- Show in TCP
+        reaper.SetMediaTrackInfo_Value(video_track, "B_SHOWINMIXER", 1) -- Show in Mixer
+      end
+    else
+      -- If not pinned -> Pin and hide video track
+      reaper.SetMediaTrackInfo_Value(gain_monitor_track, "B_TCPPIN", 1)
+      if video_track then
+        reaper.SetMediaTrackInfo_Value(video_track, "B_SHOWINTCP", 0) -- Hide in TCP
+        reaper.SetMediaTrackInfo_Value(video_track, "B_SHOWINMIXER", 0) -- Hide in Mixer
+      end
+    end
+    reaper.TrackList_AdjustWindows(false) -- Update track list window
+    reaper.UpdateArrange()
+  else
+    reaper.ShowMessageBox("Track 'Gain Monitor' not found.", "Error", 0)
+  end
+  reaper.Undo_EndBlock("Toggle Pin Gain Monitor & Video Track Visibility", -1) -- End undo point
+end
+-- ++ END OF NEW FUNCTIONS ++
+
+-- Save/Load Settings Functions
 function SaveGroupNames()
   local names_string = table.concat(group_names, "|")
   reaper.SetProjExtState(0, SCRIPT_NAME, "GroupNames", names_string)
@@ -182,7 +229,7 @@ function LoadLayoutSettings()
   end
 end
 
--- Quét dự án để tìm track
+-- Scan Project for Tracks
 function ScanProjectForTracks()
   track_map = {}
   local num_tracks = reaper.CountTracks(0)
@@ -204,7 +251,7 @@ function ScanProjectForTracks()
   end
 end
 
--- Đồng bộ màu track
+-- Sync Track Colors
 function SyncTrackColors()
   reaper.Undo_BeginBlock()
   local colored_tracks = 0
@@ -236,7 +283,7 @@ end
 
 
 -- =============================================================================
--- HÀM VẼ CHÍNH
+-- MAIN DRAW FUNCTION
 -- =============================================================================
 function loop()
   local visible
@@ -259,10 +306,10 @@ function loop()
               reaper.gmem_write(gmem_base._CLIP + i, 0)
               reaper.gmem_write(gmem_base._CLIPCOUNT + i, 0)
               reaper.gmem_write(gmem_base._PKHOLD + i, 0)
-              -- ++ v0.7: RESET MAX PEAK TRONG GMEM ++
+              -- ++ v0.7: RESET MAX PEAK IN GMEM ++
               reaper.gmem_write(gmem_base._MAXPEAK + i, 0)
             end
-            highest_peaks = {} -- Reset cả bảng trong script
+            highest_peaks = {} -- Also reset the table in the script
             highest_dr_values = {}
             lowest_dr_values = {}
           end
@@ -274,6 +321,23 @@ function loop()
           imgui.Separator(ctx)
           if imgui.MenuItem(ctx, "Rescan Tracks for Names") then ScanProjectForTracks() end
           if imgui.MenuItem(ctx, "Sync Track Colors to Groups") then SyncTrackColors() end
+          
+          -- ++ NEW MENU ITEM FOR PINNING TRACK ++
+          imgui.Separator(ctx)
+          local gain_monitor_track = FindTrackByName("Gain Monitor")
+          if gain_monitor_track then
+              local is_pinned = reaper.GetMediaTrackInfo_Value(gain_monitor_track, "B_TCPPIN") == 1
+              local pin_label = is_pinned and "Unpin 'Gain Monitor' Track" or "Pin 'Gain Monitor' & Hide Video"
+              if imgui.MenuItem(ctx, pin_label) then
+                  TogglePinGainMonitor()
+              end
+          else
+              -- Display a disabled item if the track is not found
+              imgui.BeginDisabled(ctx)
+              imgui.MenuItem(ctx, "Pin 'Gain Monitor' (not found)")
+              imgui.EndDisabled(ctx)
+          end
+
           imgui.Separator(ctx)
           local changed_settings, new_settings = imgui.MenuItem(ctx, "Show Settings Panel", "", show_settings)
           if changed_settings then show_settings = new_settings end
@@ -284,7 +348,7 @@ function loop()
         end
     end
 
-    -- Bảng cài đặt
+    -- Settings Panel
     if show_settings and not is_mini_view then
       imgui.Separator(ctx)
       imgui.Text(ctx, "Custom Group Names:")
@@ -336,7 +400,7 @@ function loop()
         if current_time - last_seen > METER_INACTIVE_TIMEOUT then
           known_meters[index] = nil
           highest_peaks[index] = nil
-          reaper.gmem_write(gmem_base._MAXPEAK + index, 0) -- Clear khi không hoạt động
+          reaper.gmem_write(gmem_base._MAXPEAK + index, 0) -- Clear when inactive
           highest_dr_values[index] = nil
           lowest_dr_values[index] = nil
         else
@@ -416,10 +480,10 @@ function loop()
               local peak_db = lin_to_db(meter_data.peak_val)
               local pkh_db = lin_to_db(meter_data.pkh_val)
 
-              -- ++ v0.7: LOGIC GHI MAX PEAK VÀO GMEM ++
+              -- ++ v0.7: LOGIC TO WRITE MAX PEAK TO GMEM ++
               if not highest_peaks[gmem_index] or meter_data.peak_val > highest_peaks[gmem_index] then
                 highest_peaks[gmem_index] = meter_data.peak_val
-                -- Ghi giá trị mới vào gmem để các script khác có thể đọc
+                -- Write new value to gmem for other scripts to read
                 reaper.gmem_write(gmem_base._MAXPEAK + gmem_index, meter_data.peak_val)
               end
               local max_peak_db_so_far = lin_to_db(highest_peaks[gmem_index] or 0)
@@ -520,7 +584,7 @@ function loop()
                   if track_map[group_info.index] and track_map[group_info.index][meter_data.num] then
                       local target_track = track_map[group_info.index][meter_data.num].ptr
                       if target_track then
-                          reaper.Main_OnCommand(40297, 0) -- Bỏ chọn tất cả track
+                          reaper.Main_OnCommand(40297, 0) -- Unselect all tracks
                           reaper.SetTrackSelected(target_track, true)
                       end
                   end
@@ -566,7 +630,7 @@ function loop()
 end
 
 -- =============================================================================
--- ĐIỂM BẮT ĐẦU SCRIPT
+-- SCRIPT ENTRY POINT
 -- =============================================================================
 LoadGroupNames()
 LoadLayoutSettings()
