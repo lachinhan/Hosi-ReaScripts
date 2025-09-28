@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="6cbc5f7c97c31b9b0c2381f0bb647e41915c470b">
+<index version="1" name="Hosi Scripts" commit="c348bad272ed3148832f282617311e2f13b64939">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -677,6 +677,46 @@
       </metadata>
       <version name="1.0" author="Hosi" time="2025-09-02T03:41:11Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/93c6b784fcf33c34d03c3b64d736646f8fe08c7a/JSFX/PhaseAlign_Pro.jsfx</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Midi">
+    <reapack name="Import Chordino to MIDI - Snap.lua" type="script" desc="Import Chordino Chords to MIDI (Fixed with Snap to Grid)">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Import Chordino Chords to MIDI\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Imports a .txt or .csv chord file from Chordino and directly creates MIDI items with the corresponding chords on a new track. The items will snap to the project grid.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Instructions:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Run the script from the Action List.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Select a .txt or .csv file exported from Chordino.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab The script will create a new track with MIDI items representing the chords, snapped to the grid.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="2.1" author="Hosi, X-Raym, ReaTrak" time="2025-09-28T08:39:48Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c348bad272ed3148832f282617311e2f13b64939/Midi/Import%20Chordino%20to%20MIDI%20-%20Snap.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Import Chordino to MIDI.lua" type="script" desc="Import Chordino Chords to MIDI">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Import Chordino Chords to MIDI\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Imports a .txt or .csv chord file from Chordino and directly creates MIDI items with the corresponding chords on a new track.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Instructions:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Run the script from the Action List.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Select a .txt or .csv file exported from Chordino.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab The script will create a new track with MIDI items representing the chords.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="2.0" author="Hosi, X-Raym, ReaTrak" time="2025-09-28T08:39:48Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c348bad272ed3148832f282617311e2f13b64939/Midi/Import%20Chordino%20to%20MIDI.lua</source>
       </version>
     </reapack>
   </category>
