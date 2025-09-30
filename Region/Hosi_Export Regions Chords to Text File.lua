@@ -1,9 +1,20 @@
--- @description Export project regions to a simple .txt chord sheet with a ReaImGui save dialog.
--- @version 0.1
--- @author Hosi
--- @website https://www.lachinhan.xyz
--- @changelog
--- v0.1: 30 - Sep - 2025
+--[[
+@description    Export project regions to a simple .txt chord sheet
+@author         Hosi (La Chí Nhân)
+@version        0.1
+@website        https://www.lachinhan.xyz
+@provides
+  [main] . > Hosi_Export project regions to chord sheet.lua
+
+@about
+  # Export Project Regions to Chord Sheet
+
+  Exports all project regions to a simple .txt chord sheet,
+  using a ReaImGui dialog to select the save location.
+
+@changelog
+  + v0.1 (2025-09-30) - Initial release.
+--]]
 
 -- Initialize ReaImGui
 package.path = reaper.ImGui_GetBuiltinPath() .. '/?.lua;' .. package.path
