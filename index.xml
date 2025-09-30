@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="c348bad272ed3148832f282617311e2f13b64939">
+<index version="1" name="Hosi Scripts" commit="d78f9f76247f5bee2bddb0fe1c51aa03541880d6">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -717,6 +717,16 @@
       </metadata>
       <version name="2.0" author="Hosi, X-Raym, ReaTrak" time="2025-09-28T08:39:48Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c348bad272ed3148832f282617311e2f13b64939/Midi/Import%20Chordino%20to%20MIDI.lua</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Region">
+    <reapack name="Hosi_Export Regions Chords to Text File.lua" type="script" desc="Export project regions to a simple .txt chord sheet">
+      <metadata>
+        <link rel="website">https://www.lachinhan.xyz</link>
+      </metadata>
+      <version name="0.1" author="Hosi (La Chí Nhân)" time="2025-09-30T02:12:19Z">
+        <source main="main" file="Hosi_Export project regions to chord sheet.lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/d78f9f76247f5bee2bddb0fe1c51aa03541880d6/Region/Hosi_Export%20Regions%20Chords%20to%20Text%20File.lua</source>
       </version>
     </reapack>
   </category>
