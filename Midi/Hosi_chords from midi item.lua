@@ -3,7 +3,7 @@
 @author         Hosi
 @version        0.1
 @provides
-  [main] . > Hosi_Create chord regions from MIDI item.lua
+  [main] . > Hosi_Create chord regions from MIDI item (Fixed).lua
 
 @about
   # Create Chord Regions from MIDI Item
@@ -14,6 +14,8 @@
   readability and compatibility. For example:
   - 'Dmaj' or 'D major' becomes 'D'
   - 'Dmin' or 'D minor' becomes 'Dm'
+  - 'DDom7th' becomes 'D7'
+  - 'Em7th' becomes 'Em7'
 
   ## Instructions:
   1. Select a MIDI item that contains chord information as text events.
@@ -48,20 +50,24 @@ function normalize_chord_name(name)
     name = name:gsub("[Mm]in", "m")
     
     -- Step 5: Standardize major variations. We will remove the words "major" or "maj" entirely.
-    -- This way, "C Major" becomes "C", which is a highly compatible format that most chord
-    -- tools will interpret as C Major by default. This is the key fix for the "one note" issue.
     name = name:gsub("[Mm]ajor", "")
     name = name:gsub("[Mm]aj", "")
+
+    -- FIX A: Standardize dominant variations. "Dom" is redundant with "7", so we remove it.
+    name = name:gsub("[Dd]om", "")
+
+    -- FIX B (REVISED): Remove ordinal indicators like "th", "st", "nd", "rd" from numbers.
+    -- The previous pattern was incorrect for Lua. This version uses separate, case-insensitive replacements.
+    name = name:gsub("([1-9])[tT][hH]", "%1")
+    name = name:gsub("([1-9])[sS][tT]", "%1")
+    name = name:gsub("([1-9])[nN][dD]", "%1")
+    name = name:gsub("([1-9])[rR][dD]", "%1")
 
     -- Step 6: Remove colons (e.g., "D:m" -> "Dm")
     name = name:gsub(":", "")
 
     -- Step 7: Remove all remaining spaces to create a compact chord name like "Cm7"
     name = name:gsub("%s+", "")
-    
-    -- Step 8: (REMOVED) The original script added "Maj" to root notes (e.g. "C" -> "CMaj"). 
-    -- This was the most likely cause of the parsing error in the chord generation script.
-    -- We now leave root notes as they are.
     
     return name
 end
@@ -94,14 +100,9 @@ while string_pos < midi_blob:len() do
     
     -- Check for MIDI meta-message (0xFF) which contains text events
     if msg:byte(1) == 0xFF then
-        -- This part of the script assumes the MIDI text event's data is formatted like "text ChordName"
-        -- This might be specific to a certain workflow. The normalization function will clean it up.
         local chord_name = msg:match("text (.+)")
         if not chord_name and msg:byte(2) == 0x01 then
-            -- Fallback for standard MIDI text events (FF 01 len data)
-            -- We extract the text data directly.
             local len_byte_start = 3
-            -- Note: This doesn't handle multi-byte variable length, but should work for typical chord names.
             local data_start = len_byte_start + 1
             if msg:len() >= data_start then
               chord_name = msg:sub(data_start)
@@ -154,3 +155,4 @@ reaper.Undo_EndBlock2(0, "Convert MIDI chords to regions (Fixed)", -1)
 
 -- Close the MIDI editor window
 reaper.MIDIEditor_OnCommand(hwnd, 40029) -- File: Close window
+
