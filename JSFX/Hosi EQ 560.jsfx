@@ -1,0 +1,282 @@
+desc:Hosi :: Hosi API 560
+// version: 1.0
+// author: Hosi
+// changelog:
+//   + v1.0: 03 - Oct - 2025
+
+// Gán thanh trượt cho Gain, 10 dải tần EQ và Saturation
+slider1:0<-15,15,0.1>Gain (dB)
+
+slider10:0<-12,12,0.1>31 Hz
+slider11:0<-12,12,0.1>63 Hz
+slider12:0<-12,12,0.1>125 Hz
+slider13:0<-12,12,0.1>250 Hz
+slider14:0<-12,12,0.1>500 Hz
+slider15:0<-12,12,0.1>1 kHz
+slider16:0<-12,12,0.1>2 kHz
+slider17:0<-12,12,0.1>4 kHz
+slider18:0<-12,12,0.1>8 kHz
+slider19:0<-12,12,0.1>16 kHz
+
+// Thanh trượt cho Đồng hồ VU
+slider20:-18<-36,0,1>VU Ref Level (dBFS)
+slider21:-6<-20,0,1>VU Peak Level (dBFS)
+
+// Thanh trượt cho tính năng Analog Color
+slider22:0<0,100,1>Saturation (%)
+
+
+import Tale/rbj_filter.jsfx-inc
+
+@init
+// Các hàm được định nghĩa ở đây, trước khi được gọi trong @slider
+function os_os2()
+  instance(y18, y17, y16, y15, y14, y13, y12, y11, y10,
+		y9, y8, y7, y6, y5, y4, y3, y2, y1, y0)
+(
+  y18 = y16; y17 = y15; y16 = y14; y15 = y13;
+  y14 = y12; y13 = y11; y12 = y10; y11 =  y9;
+  y10 =  y8;  y9 =  y7;  y8 =  y6;  y7 =  y5;
+   y6 =  y4;  y5 =  y3;  y4 =  y2;  y3 =  y1;
+   y2 =  y0;
+);
+
+function os_up2(x)
+  instance(x9, x8, x7, x6, x5, x4, x3, x2, x1, x0,
+	   y18, y17, y16, y15, y14, y13, y12, y11, y10,
+		y9, y8, y7, y6, y5, y4, y3, y2, y1, y0)
+(
+  x9 = x8; x8 = x7; x7 = x6; x6 = x5; x5 = x4; x4 = x3;
+  x3 = x2; x2 = x1; x1 = x0; x0 = x * 2;
+
+  this.os_os2();
+  y1 = 0.0028*(x0+x9) - 0.0118*(x1+x8) + 0.0334*(x2+x7)
+  - 0.0849*(x3+x6) + 0.3106*(x4+x5);
+  y0 = 0.5*x4;
+);
+
+function os_down2()
+  instance(y18, y16, y14, y12, y10, y9, y8, y6, y4, y2, y0)
+(
+  0.0028*(y0+y18) - 0.0118*(y2+y16) + 0.0334*(y4+y14)
+  - 0.0849*(y6+y12) + 0.3106*(y8+y10) + 0.5*y9;
+);
+
+function db2r(db) ( 10^(db * 0.05); );
+
+// --- Saturation Function ---
+// Hàm hyperbolic tangent (tanh) tự định nghĩa để tạo saturation.
+// Đã được viết lại để tránh lỗi cú pháp.
+function tanh_approx(x) local(ex, ex_inv) (
+  ex = exp(x);
+  ex_inv = 1/ex;
+  (ex - ex_inv) / (ex + ex_inv + 0.000000001);
+);
+
+
+// --- VU Meter Init ---
+nd_posL = nd_posR = 0;
+nd_speedL = nd_speedR = 0;
+dt = 10 / srate;
+mom = 0.00042;
+damp = 1 - 0.0053 * (48000 / srate);
+overL = overR = 0;
+scnt = 0;
+offset = 0.0074;
+
+// Labels for VU scale
+vu_labels[0] = "-20"; vu_labels[1] = "-10"; vu_labels[2] = "-7";
+vu_labels[3] = "-5";  vu_labels[4] = "-3";  vu_labels[5] = "-2";
+vu_labels[6] = "-1";  vu_labels[7] = "0";   vu_labels[8] = "+1";
+vu_labels[9] = "+2";  vu_labels[10] = "+3";
+vu_label_count = 11;
+
+// Positions on scale for labels
+vu_positions[0] = 0;    vu_positions[1] = 0.165; vu_positions[2] = 0.264;
+vu_positions[3] = 0.352; vu_positions[4] = 0.463; vu_positions[5] = 0.528;
+vu_positions[6] = 0.602; vu_positions[7] = 0.685; vu_positions[8] = 0.778;
+vu_positions[9] = 0.882; vu_positions[10] = 1.0;
+
+
+@slider
+gain = db2r(slider1);
+Q = 1.414; // Q factor for 10-band EQ
+
+// Initialize Left Channel Filters
+band00.rbj_eq(31*0.5, Q, db2r(slider10)); band01.rbj_eq(63*0.5, Q, db2r(slider11));
+band02.rbj_eq(125*0.5, Q, db2r(slider12)); band03.rbj_eq(250*0.5, Q, db2r(slider13));
+band04.rbj_eq(500*0.5, Q, db2r(slider14)); band05.rbj_eq(1000*0.5, Q, db2r(slider15));
+band06.rbj_eq(2000*0.5, Q, db2r(slider16)); band07.rbj_eq(4000*0.5, Q, db2r(slider17));
+band08.rbj_eq(8000*0.5, Q, db2r(slider18)); band09.rbj_eq(16000*0.5, Q, db2r(slider19));
+
+// Initialize Right Channel Filters
+band10.rbj_eq(31*0.5, Q, db2r(slider10)); band11.rbj_eq(63*0.5, Q, db2r(slider11));
+band12.rbj_eq(125*0.5, Q, db2r(slider12)); band13.rbj_eq(250*0.5, Q, db2r(slider13));
+band14.rbj_eq(500*0.5, Q, db2r(slider14)); band15.rbj_eq(1000*0.5, Q, db2r(slider15));
+band16.rbj_eq(2000*0.5, Q, db2r(slider16)); band17.rbj_eq(4000*0.5, Q, db2r(slider17));
+band18.rbj_eq(8000*0.5, Q, db2r(slider18)); band19.rbj_eq(16000*0.5, Q, db2r(slider19));
+
+// --- VU Meter Sliders ---
+fact_up = 10 ^ (( -slider20 - 10)/20) * 0.3785;
+peak_lim = 10 ^ (slider21 / 20);
+
+// --- Saturation Slider ---
+// Map the 0-100% slider to a drive factor from 1 (no drive) to 10.
+saturation_drive = 1 + (slider22 / 100) * 9;
+
+@sample
+spl0 *= gain;
+spl1 *= gain;
+
+// 2x Oversampling
+os0.os_up2(spl0);
+os1.os_up2(spl1);
+
+// Left Channel EQ Processing
+os0.y1 = band00.rbj_tdf2(os0.y1); os0.y1 = band01.rbj_tdf2(os0.y1);
+os0.y1 = band02.rbj_tdf2(os0.y1); os0.y1 = band03.rbj_tdf2(os0.y1);
+os0.y1 = band04.rbj_tdf2(os0.y1); os0.y1 = band05.rbj_tdf2(os0.y1);
+os0.y1 = band06.rbj_tdf2(os0.y1); os0.y1 = band07.rbj_tdf2(os0.y1);
+os0.y1 = band08.rbj_tdf2(os0.y1); os0.y1 = band09.rbj_tdf2(os0.y1);
+os0.y0 = band00.rbj_tdf2(os0.y0); os0.y0 = band01.rbj_tdf2(os0.y0);
+os0.y0 = band02.rbj_tdf2(os0.y0); os0.y0 = band03.rbj_tdf2(os0.y0);
+os0.y0 = band04.rbj_tdf2(os0.y0); os0.y0 = band05.rbj_tdf2(os0.y0);
+os0.y0 = band06.rbj_tdf2(os0.y0); os0.y0 = band07.rbj_tdf2(os0.y0);
+os0.y0 = band08.rbj_tdf2(os0.y0); os0.y0 = band09.rbj_tdf2(os0.y0);
+
+// Right Channel EQ Processing
+os1.y1 = band10.rbj_tdf2(os1.y1); os1.y1 = band11.rbj_tdf2(os1.y1);
+os1.y1 = band12.rbj_tdf2(os1.y1); os1.y1 = band13.rbj_tdf2(os1.y1);
+os1.y1 = band14.rbj_tdf2(os1.y1); os1.y1 = band15.rbj_tdf2(os1.y1);
+os1.y1 = band16.rbj_tdf2(os1.y1); os1.y1 = band17.rbj_tdf2(os1.y1);
+os1.y1 = band18.rbj_tdf2(os1.y1); os1.y1 = band19.rbj_tdf2(os1.y1);
+os1.y0 = band10.rbj_tdf2(os1.y0); os1.y0 = band11.rbj_tdf2(os1.y0);
+os1.y0 = band12.rbj_tdf2(os1.y0); os1.y0 = band13.rbj_tdf2(os1.y0);
+os1.y0 = band14.rbj_tdf2(os1.y0); os1.y0 = band15.rbj_tdf2(os1.y0);
+os1.y0 = band16.rbj_tdf2(os1.y0); os1.y0 = band17.rbj_tdf2(os1.y0);
+os1.y0 = band18.rbj_tdf2(os1.y0); os1.y0 = band19.rbj_tdf2(os1.y0);
+
+// Downsampling
+spl0 = os0.os_down2();
+spl1 = os1.os_down2();
+
+// --- Analog Saturation Stage ---
+// Apply saturation if the slider is moved above 0%.
+// This uses a soft-clipping algorithm (tanh) to add harmonic distortion.
+slider22 > 0 ? (
+  spl0 = tanh_approx(spl0 * saturation_drive);
+  spl1 = tanh_approx(spl1 * saturation_drive);
+);
+
+// --- VU Meter Logic ---
+smpL = abs(spl0);
+smpR = abs(spl1);
+
+scnt += 1;
+scnt === 10 ? ( // Update VU meter every 10 samples to save CPU
+    // Left needle
+    forceL = smpL * fact_up  -  (nd_posL * .1 + offset);
+    nd_speedL += forceL * dt / mom;
+    nd_speedL *= damp;
+    nd_posL += nd_speedL * dt;
+    nd_posL = min(max(nd_posL, 0), 1);
+
+    // Right needle
+    forceR = smpR * fact_up - (nd_posR * .1 + offset);
+    nd_speedR += forceR * dt / mom;
+    nd_speedR *= damp;
+    nd_posR += nd_speedR * dt;
+    nd_posR = min(max(nd_posR, 0), 1);
+
+    overL -= 10;
+    overR -= 10;
+    scnt = 0;
+);
+
+smpL > peak_lim ? overL = srate * 0.5; // Hold peak for 0.5s
+smpR > peak_lim ? overR = srate * 0.5;
+
+@gfx 400 180
+
+// Transfer variables to the graphics thread
+nd_posL_g = nd_posL;
+nd_posR_g = nd_posR;
+overL_g = overL;
+overR_g = overR;
+
+// Drawing
+gfx_clear = 20 + 25*256 + 30*65536; // Dark background color
+
+// Loop to draw both meters
+channel = 0;
+loop(2,
+  // Calculate positions
+  meter_w = gfx_w / 2 - 20;
+  meter_h = gfx_h - 40;
+  meter_x = 10 + channel * (meter_w + 20);
+  meter_y = 10;
+  center_x = meter_x + meter_w / 2;
+  center_y = meter_y + meter_h * 0.9;
+  radius = meter_h * 0.8;
+
+  // Draw meter background
+  gfx_r = 1; gfx_g = 1; gfx_b = 0.8; gfx_a = 0.1;
+  gfx_rect(meter_x, meter_y, meter_w, meter_h);
+
+  // Draw scale
+  gfx_r = 1; gfx_g = 1; gfx_b = 0.8; gfx_a = 0.8;
+  i = 0;
+  loop(vu_label_count,
+    angle = (45 + vu_positions[i] * 90) * $pi / 180;
+    cos_a = cos(angle); sin_a = sin(angle);
+
+    x1 = center_x - cos_a * radius * 0.9;
+    y1 = center_y - sin_a * radius * 0.9;
+    x2 = center_x - cos_a * radius;
+    y2 = center_y - sin_a * radius;
+    gfx_line(x1, y1, x2, y2, 1);
+
+    // Draw numbers
+    gfx_x = center_x - cos_a * radius * 1.15 - 8;
+    gfx_y = center_y - sin_a * radius * 1.15 - 5;
+    gfx_drawstr(vu_labels[i]);
+
+    i += 1;
+  );
+  
+  // Draw red arc
+  gfx_r = 1; gfx_g = 0.2; gfx_b = 0.2;
+  arc_start_angle = (45 + vu_positions[7] * 90) * $pi/180;
+  arc_end_angle = (45 + vu_positions[10] * 90) * $pi/180;
+  gfx_arc(center_x, center_y, radius*0.95, arc_start_angle, arc_end_angle, 1);
+
+  // Draw needle
+  needle_pos = channel == 0 ? nd_posL_g : nd_posR_g;
+  angle = (45 + needle_pos * 90) * $pi / 180;
+  cos_a = cos(angle); sin_a = sin(angle);
+  
+  x1 = center_x - cos_a * radius * 0.1;
+  y1 = center_y - sin_a * radius * 0.1;
+  x2 = center_x - cos_a * radius;
+  y2 = center_y - sin_a * radius;
+
+  gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.1; gfx_line(x1+1, y1+1, x2+1, y2+1, 1); // Shadow
+  gfx_r = 0.9; gfx_g = 0.2; gfx_b = 0.2; gfx_line(x1, y1, x2, y2, 1); // Needle
+
+  // Draw needle hub
+  gfx_r = 0.1; gfx_g = 0.1; gfx_b = 0.1;
+  gfx_circle(center_x, center_y, 5, 1, 1);
+
+  // Draw Peak LED
+  peak_on = channel == 0 ? overL_g > 0 : overR_g > 0;
+  peak_on ? ( gfx_r = 1; gfx_g = 0.1; gfx_b = 0.1; ) : ( gfx_r = 0.5; gfx_g = 0.1; gfx_b = 0.1; gfx_a = 0.5; );
+  gfx_circle(meter_x + meter_w - 15, meter_y + meter_h - 15, 5, 1, 1);
+  
+  // Draw channel label
+  gfx_r = 1; gfx_g = 1; gfx_b = 1; gfx_a = 0.8;
+  gfx_x = meter_x + 5; gfx_y = meter_y + meter_h - 20;
+  channel == 0 ? gfx_drawstr("LEFT") : gfx_drawstr("RIGHT");
+
+  channel += 1;
+);
+
