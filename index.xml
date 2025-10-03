@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="d415da6c746c73d469913f56174788f573d32e90">
+<index version="1" name="Hosi Scripts" commit="2eac6fa476bcf7ca6023fd60c88f34101e9f2cfc">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -407,6 +407,12 @@
       </metadata>
       <version name="2.4" author="Enhanced by Hosi - Green Line Reference Only" time="2025-09-02T03:41:11Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/93c6b784fcf33c34d03c3b64d736646f8fe08c7a/JSFX/Hosi%20Advanced%20Smooth%20Gain%20RLR.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi EQ 560.jsfx" type="effect" desc="Hosi :: Hosi API 560">
+      <version name="1.0" author="Hosi" time="2025-10-03T03:24:56Z">
+        <changelog><![CDATA[+ v1.0: 03 - Oct - 2025]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/2eac6fa476bcf7ca6023fd60c88f34101e9f2cfc/JSFX/Hosi%20EQ%20560.jsfx</source>
       </version>
     </reapack>
     <reapack name="Hosi JSFX Notepad.jsfx" type="effect" desc="JSFX Notepad">
