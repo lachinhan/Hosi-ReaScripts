@@ -1,6 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="2eac6fa476bcf7ca6023fd60c88f34101e9f2cfc">
+<index version="1" name="Hosi Scripts" commit="bc344fd0cb50bab4689859f114efee2437617e86">
   <category name="AI Tool">
+    <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Displays a window to select an AI Model and processing device (CPU/GPU), then separates the selected audio item. Includes a GPU compatibility check.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab This version is modified to run on Windows, macOS, and Linux.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Requirements: ReaImGui must be installed via ReaPack.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.1" author="Hosi" time="2025-10-11T01:49:43Z">
+        <changelog><![CDATA[+ v1.1 - Added cross-platform support for Windows, macOS, and Linux.
++ v1.0 - Initial release.]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/bc344fd0cb50bab4689859f114efee2437617e86/AI%20Tool/Hosi_Demucs_Separator_Gui-Cross_Platform.lua</source>
+      </version>
+    </reapack>
     <reapack name="Hosi_Demucs_Separator_Gui.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
