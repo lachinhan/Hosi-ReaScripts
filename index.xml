@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="bc344fd0cb50bab4689859f114efee2437617e86">
+<index version="1" name="Hosi Scripts" commit="a121ca301c4fb4b42b48785d5f33156d2abde777">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -788,6 +788,13 @@
       </metadata>
       <version name="0.1" author="Hosi" time="2025-10-01T08:09:10Z">
         <source main="main" file="Hosi_Import project regions from ChordPulse file.lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/d415da6c746c73d469913f56174788f573d32e90/Region/Hosi_Import%20Regions%20From%20ChordPulse.lua</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Track">
+    <reapack name="Hosi_Auto-Pin Tracks By Name.lua" type="script" desc="Auto-Pin Tracks GUI with Auto-Saving Profile">
+      <version name="1.0" author="Hosi" time="2025-10-12T11:43:30Z">
+        <source main="main" file="Hosi_Auto-Pin Tracks GUI.lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/48448ff27b4f369e4c99e77319f74f51862dffbf/Track/Hosi_Auto-Pin%20Tracks%20By%20Name.lua</source>
       </version>
     </reapack>
   </category>
