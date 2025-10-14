@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="a121ca301c4fb4b42b48785d5f33156d2abde777">
+<index version="1" name="Hosi Scripts" commit="eb2cb1e7f56ac5746a338455ee3e0b1f6205d780">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -822,6 +822,9 @@
     <reapack name="Hosi Mini Track Mixer - ReaImGui.lua" type="script" desc="Hosi Mini Track Mixer (ReaImGui Version)">
       <version name="1.1" author="Hosi" time="2025-09-23T08:25:07Z">
         <source main="main" file="Hosi_Mini Track Mixer (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/c0659938b9c139d2d18550636e6391c9e5656c6a/Utility/Hosi%20Mini%20Track%20Mixer%20-%20ReaImGui.lua</source>
+      </version>
+      <version name="1.3" author="Hosi" time="2025-10-13T04:31:57Z">
+        <source main="main" file="Hosi_Mini Track Mixer (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/eb2cb1e7f56ac5746a338455ee3e0b1f6205d780/Utility/Hosi%20Mini%20Track%20Mixer%20-%20ReaImGui.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Project Notes Viewer.lua" type="script" desc="Project Notes Editor (ReaImGui Version)">
