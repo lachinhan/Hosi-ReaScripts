@@ -1,11 +1,10 @@
 -- @description Reanspiration - Advanced MIDI Generation Toolkit
--- @version 3.5 (Melody, Bass, Drums, Rhythm, Arp/Strum working with Chord Track)
+-- @version 3.6 (Drum Map Editor)
 -- @author Hosi (developed from original concept by phaselab)
 -- @link Original Script by phaselab https://forum.cockos.com/showthread.php?t=291623
 -- @about
 --   An all-in-one toolkit for generating harmonically-aware musical ideas.
---   NEW in v3.5: Creative tools (Melody, Bass, Drums, Rhythm, Arp/Strum) can now read chords from a
---   dedicated track, allowing you to generate MIDI onto empty items.
+--   NEW in v3.6: Added a customizable Drum Map Editor in the Settings tab.
 --
 --   Features:
 --   - Chord generation with expanded scale/progression library.
@@ -17,7 +16,7 @@
 --   - Smart bassline generator with multiple patterns.
 --   - Integrated melody generator with contour and chord-targeting.
 --   - Rhythmic pattern applicator for chords.
---   - Drum pattern generator.
+--   - Drum pattern generator with customizable Drum Map.
 --   - Automatic MIDI channel routing for Chords, Bass, and Melody.
 --   - Arpeggiator and Strummer.
 --   - Humanizer for timing and velocity.
@@ -107,6 +106,73 @@ local function T(key)
     return L[key] or key -- Return the key itself as a fallback if translation is missing
 end
 
+-- NEW: Drum Map Persistence
+local extStateKey = "Hosi_Reanspiration_DrumMap"
+local extStateSection = "MapDataV1"
+local drum_map_key_order -- will be defined after map is loaded
+
+local function serializeDrumMap()
+    local parts = {}
+    -- Iterate in a defined order to ensure consistency (optional, but good practice)
+    local sorted_keys = {}
+    for key in pairs(Library.drum_map) do table.insert(sorted_keys, key) end
+    table.sort(sorted_keys)
+    
+    for _, key in ipairs(sorted_keys) do
+        table.insert(parts, key .. "=" .. tostring(Library.drum_map[key]))
+    end
+    return table.concat(parts, ",")
+end
+
+local function saveDrumMap()
+    local map_string = serializeDrumMap()
+    reaper.SetExtState(extStateKey, extStateSection, map_string, true)
+end
+
+local function loadDrumMap()
+    -- This function is called *after* Library is loaded.
+    -- It loads saved settings and *overwrites* the defaults from the library file.
+    local map_string = reaper.GetExtState(extStateKey, extStateSection)
+    if map_string and map_string ~= "" then
+        for pair in string.gmatch(map_string, "([^,]+)") do
+            local key, value = pair:match("([^=]+)=(.+)")
+            if key and value and Library.drum_map[key] then
+                local num_val = tonumber(value)
+                if num_val then
+                    Library.drum_map[key] = num_val
+                end
+            end
+        end
+    end
+    
+    -- Now, define the key order for the GUI
+    -- This order is based on your Drum Map.txt and GM standard layout
+    drum_map_key_order = {
+        "BassDrum", "SnareStick", "SnareHit", "Snare/Clap", "SnareEdge",
+        "Tom1", "HiHatClosed", "Tom2", "HiHatPedal", "Tom3", "HiHatOpen", "MidTom",
+        "Crash", "HighTom", "RideCrash", "RideBell", "Tambourine", "Crash2",
+        "OpenHiConga", "LowConga", "Claves"
+    }
+    
+    -- Add any keys from drum_map that might be missing in the order list (for future proofing)
+    local key_exists = {}
+    for _, key in ipairs(drum_map_key_order) do key_exists[key] = true end
+    
+    local sorted_new_keys = {}
+    for key in pairs(Library.drum_map) do
+        if not key_exists[key] then
+            table.insert(sorted_new_keys, key)
+        end
+    end
+    table.sort(sorted_new_keys)
+    for _, key in ipairs(sorted_new_keys) do
+        table.insert(drum_map_key_order, key)
+    end
+end
+
+-- Load the saved drum map over the library defaults
+loadDrumMap()
+
 
 local scales = {
   {name = "C", notes = {0, 2, 4, 5, 7, 9, 11}},
@@ -147,6 +213,7 @@ local chord_progressions = Library.chord_progressions
 local bass_patterns = Library.bass_patterns
 local rhythm_patterns = Library.rhythm_patterns
 local drum_patterns = Library.drum_patterns
+-- Note: Library.drum_map is now loaded and potentially modified by user settings
 
 -- GUI Options Setup
 local progression_options_major = {"Random"}
@@ -672,7 +739,7 @@ local function generateAndInsertDrums(take, item_start_ppq, item_length_ppq, pat
 
     for measure_start = item_start_ppq, item_start_ppq + item_length_ppq - 1, ppq_per_measure do
         for _, instrument_data in ipairs(pattern_data) do
-            local pitch = instrument_data.pitch
+            local pitch = instrument_data.pitch -- This now comes from Library.drum_map
             local vel = instrument_data.vel
             
             for _, pos_fraction in ipairs(instrument_data.positions) do
@@ -1498,6 +1565,54 @@ local function getChordDataFromSource(target_item)
     end
 end
 
+-- NEW: Function to draw the Drum Map Editor UI
+local function DrawDrumMapEditor()
+    reaper.ImGui_Text(ctx, T("drum_map_section_title"))
+    reaper.ImGui_Text(ctx, T("drum_map_info_text"))
+    reaper.ImGui_Separator(ctx)
+
+    -- Create a scrollable region for the drum map editor
+    if reaper.ImGui_BeginChild(ctx, "DrumMapScrollRegion", 0, 250, 0) then
+        
+        -- NEW: Use Table API instead of obsolete Columns API
+        if reaper.ImGui_BeginTable(ctx, "DrumMapTable", 2, reaper.ImGui_TableFlags_None()) then
+            -- Setup columns: one fixed, one stretches
+            reaper.ImGui_TableSetupColumn(ctx, "LabelColumn", reaper.ImGui_TableColumnFlags_WidthFixed(), 120.0)
+            reaper.ImGui_TableSetupColumn(ctx, "InputColumn", reaper.ImGui_TableColumnFlags_WidthStretch())
+
+            for _, key in ipairs(drum_map_key_order) do
+                -- Handle keys with '/' like "Snare/Clap"
+                local lang_key = "drum_map_" .. key:gsub("/", "_")
+                local label = T(lang_key)
+                if label == lang_key then label = key end -- Fallback if translation is missing
+
+                local current_val = Library.drum_map[key] or 0
+                
+                reaper.ImGui_PushID(ctx, key) -- Unique ID for ImGui
+                
+                reaper.ImGui_TableNextColumn(ctx) -- Move to first column
+                reaper.ImGui_Text(ctx, label)
+                
+                reaper.ImGui_TableNextColumn(ctx) -- Move to second column
+                reaper.ImGui_SetNextItemWidth(ctx, -1) -- Make InputInt fill the column
+                local changed, new_val = reaper.ImGui_InputInt(ctx, "##val" .. key, current_val, 0, 0)
+                if changed then
+                    new_val = math.max(0, math.min(127, new_val))
+                    if Library.drum_map[key] ~= new_val then
+                        Library.drum_map[key] = new_val
+                        saveDrumMap() -- Save immediately on change
+                    end
+                end
+                
+                reaper.ImGui_PopID(ctx)
+            end
+            
+            reaper.ImGui_EndTable(ctx)
+        end
+        reaper.ImGui_EndChild(ctx)
+    end
+end
+
 
 -- Function to draw the GUI
 local function drawGUI()
@@ -1720,6 +1835,11 @@ local function drawGUI()
         if not use_chord_track then reaper.ImGui_BeginDisabled(ctx, true) end
         changed_ct, chord_track_name = reaper.ImGui_InputText(ctx, T("chord_track_name_label"), chord_track_name)
         if not use_chord_track then reaper.ImGui_EndDisabled(ctx) end
+
+        reaper.ImGui_Separator(ctx)
+        
+        -- NEW DRUM MAP EDITOR UI
+        DrawDrumMapEditor()
 
 
         reaper.ImGui_EndTabItem(ctx)
