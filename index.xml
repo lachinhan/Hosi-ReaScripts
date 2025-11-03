@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="1580f67d3db065457fc00c2b10fc353b371027e5">
+<index version="1" name="Hosi Scripts" commit="59d64df471eb55e8793aa12e338a95124e4dbb13">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -219,7 +219,7 @@
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
 \widowctrl\hyphauto
 
-{\pard \ql \f0 \sa180 \li0 \fi0 An all-in-one toolkit for generating harmonically-aware musical ideas. NEW in v3.5: Creative tools (Melody, Bass, Drums, Rhythm, Arp/Strum) can now read chords from a dedicated track, allowing you to generate MIDI onto empty items.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 An all-in-one toolkit for generating harmonically-aware musical ideas. NEW in v3.6: Added a customizable Drum Map Editor in the Settings tab.\par}
 {\pard \ql \f0 \sa180 \li0 \fi0 Features:\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Chord generation with expanded scale/progression library.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Separate Bassline Generation based on existing chords.\par}
@@ -230,7 +230,7 @@
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Smart bassline generator with multiple patterns.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Integrated melody generator with contour and chord-targeting.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Rhythmic pattern applicator for chords.\par}
-{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Drum pattern generator.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Drum pattern generator with customizable Drum Map.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Automatic MIDI channel routing for Chords, Bass, and Melody.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Arpeggiator and Strummer.\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Humanizer for timing and velocity.\par}
@@ -251,6 +251,9 @@
       </version>
       <version name="3.5 (Melody, Bass, Drums, Rhythm, Arp/Strum working with Chord Track)" author="Hosi (developed from original concept by phaselab)" time="2025-09-17T10:19:19Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/cefaa8f4b5edb78e52657537445e8016fbb6ebf8/Develop/Reanspiration/Hosi_Reanspiration_3%20-%20Multi-language.lua</source>
+      </version>
+      <version name="3.6 (Drum Map Editor)" author="Hosi (developed from original concept by phaselab)" time="2025-10-27T08:38:38Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/59d64df471eb55e8793aa12e338a95124e4dbb13/Develop/Reanspiration/Hosi_Reanspiration_3%20-%20Multi-language.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Reanspiration_3.lua" type="script" desc="Reanspiration - Advanced MIDI Generation Toolkit">
@@ -303,6 +306,9 @@
       <version name="1.6 (Added Chord Track Feature)" author="Hosi" time="2025-09-17T10:19:19Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/cefaa8f4b5edb78e52657537445e8016fbb6ebf8/Develop/Reanspiration/reanspiration_languages.lua</source>
       </version>
+      <version name="2.3 (Drum Map UI Update)" author="Hosi" time="2025-10-27T08:38:38Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/59d64df471eb55e8793aa12e338a95124e4dbb13/Develop/Reanspiration/reanspiration_languages.lua</source>
+      </version>
     </reapack>
     <reapack name="reanspiration_library.lua" type="script" desc="Library file for Reanspiration script. Contains chord progressions, bass patterns, rhythm, and drum patterns.">
       <metadata>
@@ -310,7 +316,7 @@
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
 \widowctrl\hyphauto
 
-{\pard \ql \f0 \sa180 \li0 \fi0 This is a library file required by the main 'Hosi_Reanspiration_3.lua' script. It must be placed in the same directory as the main script. You can safely edit this file to add your own custom chord progressions, bass, rhythm, and drum patterns.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This is a library file required by the main 'Hosi_Reanspiration_3.lua' script. It must be placed in the same directory as the main script. You can safely edit this file to add your own custom chord progressions, bass, rhythm, and drum patterns. NEW in 2.4: Drum patterns now use a re-mappable 'M.drum_map' table instead of hard-coded MIDI notes.\par}
 }
 ]]></description>
       </metadata>
@@ -322,6 +328,9 @@
       </version>
       <version name="2.3 (MIDI Channel Update)" author="Hosi" time="2025-09-16T12:32:46Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/e9810699eeb4d6181f437223a1b9474e13339e9e/Develop/Reanspiration/reanspiration_library.lua</source>
+      </version>
+      <version name="2.4 (Drum Map Update)" author="Hosi" time="2025-10-27T08:38:38Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/59d64df471eb55e8793aa12e338a95124e4dbb13/Develop/Reanspiration/reanspiration_library.lua</source>
       </version>
     </reapack>
   </category>
