@@ -1,7 +1,7 @@
 --[[
 @description    MIDI Pattern Manager (Multi-Mode Paste)
 @author         Hosi & Alex
-@version        1.1
+@version        1.2
 @reaper_version 6.12+
 @extensions     ReaImGui
 @provides
@@ -17,7 +17,7 @@
   1. **Pitch Only:** Applies the pattern's melodic pitches to selected notes (keeps rhythm/length).
   2. **Velocity Only:** Applies the pattern's velocities to selected notes (keeps rhythm/length/pitch).
   3. **Rhythm Only:** Applies the pattern's start times and lengths to selected notes (keeps pitch/velocity).
-  4. **Full Stamp:** Pastes the full pattern (Pitch, Rhythm, Velocity) starting at the cursor or first selected note.
+  4. **Full Stamp:** Applies the full pattern (Pitch, Rhythm, Velocity) to selected notes, OR stamps new notes if no notes are selected.
 
   ## Instructions:
   1. Open the MIDI Editor and select the notes you want to save.
@@ -26,12 +26,15 @@
   4. Press "PASTE (Selected Pattern)".
 
 @changelog
-  + v1.1 (2025-11-06) - Added Search Bar
-					  - Added Favorites system
-					  - Fixed ImGui_EndChild assertion fail on small window resize
-  + v1.0 (2025-11-06) - Initial release with multi-mode paste functionality (Pitch, Velocity, Rhythm, Full Stamp).
-  - Added Categories and Duplicate functionality
-  - Added Category auto-fill on selection
+  + v1.2 (2025-11-07) - ADD: Tagging System. Can add tags (#Chord, #Arp) to patterns.
+                      - ADD: Search now finds matches in both Name and Tags.
+                      - FIX: Updated save/load format to be backward-compatible with tags.
+					  - FIX: Rewrote "Full Stamp" mode. It now modifies selected notes (looping) like other modes.
+                      - If no notes are selected, "Full Stamp" pastes new notes at the cursor (original behavior).
+					  - ADD: Window is now "Always On Top" (within REAPER's context).
+					  - FIX: Corrected paste looping logic (Modulo fix) for Pitch, Velocity, and Rhythm modes.
+  + v1.1 (2025-11-06) - Added Search Bar & Favorites system
+  + v1.0 (2025-11-06) - Initial release.
 --]]
 
 local reaper = reaper
@@ -50,7 +53,8 @@ local function save_patterns(p)
         for i, v in ipairs(p) do
             f:write("===PAT" .. i .. "===\n")
             f:write(v.name .. "\n")
-            f:write((v.is_favorite and "true" or "false") .. "\n") -- NEW v1.1
+            f:write((v.is_favorite and "true" or "false") .. "\n") -- v1.1+
+            f:write((v.tags or "") .. "\n") -- NEW v1.5: Save tags
             f:write(#v.data .. "\n")
             f:write(v.data)
         end
@@ -76,32 +80,45 @@ local function load_patterns()
             local name = d:sub(i, n - 1)
             i = n + 1
             
-            -- Read Fav/Len (NEW v1.1: Migration check)
-            local l = d:find("\n", i)
-            if not l then break end
-            local line2 = d:sub(i, l - 1)
-            i = l + 1
+            -- Read Line 2 (Could be Fav or Len)
+            local l2_end = d:find("\n", i)
+            if not l2_end then break end
+            local line2 = d:sub(i, l2_end - 1)
+            i = l2_end + 1
             
             local is_favorite = false
+            local tags = "" -- NEW v1.5
             local len = 0
             
-            if line2 == "true" then
-                is_favorite = true
-                -- Read Len
-                local l_len = d:find("\n", i)
-                if not l_len then break end
-                len = tonumber(d:sub(i, l_len - 1)) or 0
-                i = l_len + 1
-            elseif line2 == "false" then
-                is_favorite = false
-                -- Read Len
-                local l_len = d:find("\n", i)
-                if not l_len then break end
-                len = tonumber(d:sub(i, l_len - 1)) or 0
-                i = l_len + 1
+            if line2 == "true" or line2 == "false" then
+                -- v1.1 or v1.5 format
+                is_favorite = (line2 == "true")
+                
+                -- Read Line 3 (Could be Tags or Len)
+                local l3_end = d:find("\n", i)
+                if not l3_end then break end
+                local line3 = d:sub(i, l3_end - 1)
+                i = l3_end + 1
+                
+                local len_check = tonumber(line3)
+                if len_check then
+                    -- v1.1 format (Line 3 is Len)
+                    tags = "" -- No tags
+                    len = len_check
+                else
+                    -- v1.5 format (Line 3 is Tags)
+                    tags = line3
+                    -- Read Line 4 (Must be Len)
+                    local l4_end = d:find("\n", i)
+                    if not l4_end then break end
+                    len = tonumber(d:sub(i, l4_end - 1)) or 0
+                    i = l4_end + 1
+                end
+                
             else
-                -- Old format (v1.1 or v1.0), line2 is len
+                -- v1.0 format (Line 2 is Len)
                 is_favorite = false
+                tags = ""
                 len = tonumber(line2) or 0
             end
 
@@ -110,7 +127,7 @@ local function load_patterns()
             local data = d:sub(i, i + len - 1)
             i = i + len
             
-            table.insert(p, {name = name, data = data, is_favorite = is_favorite})
+            table.insert(p, {name = name, data = data, is_favorite = is_favorite, tags = tags})
         end
     end
     return p
@@ -301,13 +318,19 @@ local function paste_pitch_only(data, take)
     for k in pairs(pattern_groups) do table.insert(pattern_timings, k) end
     table.sort(pattern_timings)
     if #pattern_timings == 0 then return end
+    
+    local num_pat_timings = #pattern_timings
 
     reaper.Undo_BeginBlock()
 
     local pat_timing_idx = 1
     for _, sel_timing in ipairs(selected_timings) do
-        local pat_timing = pattern_timings[pat_timing_idx] or pattern_timings[#pattern_timings]
+        -- FIX v1.2: Use Modulo for looping timings
+        local wrapped_pat_timing_idx = ((pat_timing_idx - 1) % num_pat_timings) + 1
+        local pat_timing = pattern_timings[wrapped_pat_timing_idx]
+        
         local pat_notes_at_timing = pattern_groups[pat_timing] or {}
+        local num_pat_notes_at_timing = #pat_notes_at_timing
 
         local sel_notes = selected_groups[sel_timing]
         local base_note = sel_notes[1] or {}
@@ -316,19 +339,31 @@ local function paste_pitch_only(data, take)
 
         local pitch_idx = 1
         for _, note in ipairs(sel_notes) do
-            local pat_pitch = pat_notes_at_timing[pitch_idx] and pat_notes_at_timing[pitch_idx].pitch or base_note.pitch or 60
+            -- FIX v1.2: Use Modulo for looping pitches
+            local wrapped_pitch_idx = 1
+            local pat_pitch = base_note.pitch or 60
+            if num_pat_notes_at_timing > 0 then
+                wrapped_pitch_idx = ((pitch_idx - 1) % num_pat_notes_at_timing) + 1
+                pat_pitch = pat_notes_at_timing[wrapped_pitch_idx] and pat_notes_at_timing[wrapped_pitch_idx].pitch or pat_pitch
+            end
+            
             reaper.MIDI_SetNote(take, note.idx, true, false, -1, -1, -1, pat_pitch, -1, false)
             pitch_idx = pitch_idx + 1
         end
 
-        while pitch_idx <= #pat_notes_at_timing do
-            local pat_note = pat_notes_at_timing[pitch_idx]
-            reaper.MIDI_InsertNote(take, false, false, sel_timing, sel_timing + default_len, -1, pat_note.pitch, pat_note.vel, false)
+        -- This loop adds new notes if the pattern chord has more notes than the selected chord
+        while pitch_idx <= num_pat_notes_at_timing do
+            -- FIX v1.2: Use Modulo for looping pitches (for added notes)
+            local wrapped_pitch_idx = ((pitch_idx - 1) % num_pat_notes_at_timing) + 1
+            local pat_note = pat_notes_at_timing[wrapped_pitch_idx]
+            
+            if pat_note then
+                reaper.MIDI_InsertNote(take, false, false, sel_timing, sel_timing + default_len, -1, pat_note.pitch, pat_note.vel, false)
+            end
             pitch_idx = pitch_idx + 1
         end
 
         pat_timing_idx = pat_timing_idx + 1
-        if pat_timing_idx > #pattern_timings then pat_timing_idx = 1 end
     end
 
     reaper.MIDI_Sort(take)
@@ -352,25 +387,37 @@ local function paste_velocity_only(data, take)
     for k in pairs(pattern_groups) do table.insert(pattern_timings, k) end
     table.sort(pattern_timings)
     if #pattern_timings == 0 then return end
+    
+    local num_pat_timings = #pattern_timings
 
     reaper.Undo_BeginBlock()
 
     local pat_timing_idx = 1
     for _, sel_timing in ipairs(selected_timings) do
-        local pat_timing = pattern_timings[pat_timing_idx] or pattern_timings[#pattern_timings]
+        -- FIX v1.2: Use Modulo for looping timings
+        local wrapped_pat_timing_idx = ((pat_timing_idx - 1) % num_pat_timings) + 1
+        local pat_timing = pattern_timings[wrapped_pat_timing_idx]
+        
         local pat_notes_at_timing = pattern_groups[pat_timing] or {}
-
+        local num_pat_notes_at_timing = #pat_notes_at_timing
+        
         local sel_notes = selected_groups[sel_timing]
         local base_note = sel_notes[1] or {}
 
-        local pitch_idx = 1
+        local vel_idx = 1
         for _, note in ipairs(sel_notes) do
-            local pat_vel = pat_notes_at_timing[pitch_idx] and pat_notes_at_timing[pitch_idx].vel or base_note.vel or 100
+            -- FIX v1.2: Use Modulo for looping velocities
+            local wrapped_vel_idx = 1
+            local pat_vel = base_note.vel or 100
+            if num_pat_notes_at_timing > 0 then
+                wrapped_vel_idx = ((vel_idx - 1) % num_pat_notes_at_timing) + 1
+                pat_vel = pat_notes_at_timing[wrapped_vel_idx] and pat_notes_at_timing[wrapped_vel_idx].vel or pat_vel
+            end
+
             reaper.MIDI_SetNote(take, note.idx, true, false, -1, -1, -1, -1, pat_vel, false)
-            pitch_idx = pitch_idx + 1
+            vel_idx = vel_idx + 1
         end
         pat_timing_idx = pat_timing_idx + 1
-        if pat_timing_idx > #pattern_timings then pat_timing_idx = 1 end
     end
 
     reaper.Undo_EndBlock('Paste Velocity Only', -1)
@@ -381,23 +428,27 @@ end
 local function paste_rhythm_only(data, take)
     local selected_notes, first_sp = get_selected_notes_sorted(take)
     local pattern_notes = parse_pattern_data(data, take)
-    if not selected_notes or #selected_notes == 0 or not pattern_notes then return end
+    if not selected_notes or #selected_notes == 0 or not pattern_notes or #pattern_notes == 0 then return end
     
     local pat_base_offset = pattern_notes[1].offset or 0
+    local num_pat_notes = #pattern_notes
     
     reaper.Undo_BeginBlock()
     
     local pat_idx = 1
     for _, sel_note in ipairs(selected_notes) do
-        local pat_note = pattern_notes[pat_idx] or pattern_notes[#pattern_notes]
+        -- FIX v1.2: Use Modulo for looping rhythm notes
+        local wrapped_pat_idx = ((pat_idx - 1) % num_pat_notes) + 1
+        local pat_note = pattern_notes[wrapped_pat_idx]
         
-        local new_sp = first_sp + (pat_note.offset - pat_base_offset)
-        local new_ep = new_sp + pat_note.length
-        
-        reaper.MIDI_SetNote(take, sel_note.idx, true, false, new_sp, new_ep, -1, -1, -1, false)
+        if pat_note then
+            local new_sp = first_sp + (pat_note.offset - pat_base_offset)
+            local new_ep = new_sp + pat_note.length
+            
+            reaper.MIDI_SetNote(take, sel_note.idx, true, false, new_sp, new_ep, -1, -1, -1, false)
+        end
         
         pat_idx = pat_idx + 1
-        if pat_idx > #pattern_notes then pat_idx = 1 end
     end
     
     reaper.MIDI_Sort(take)
@@ -406,36 +457,59 @@ local function paste_rhythm_only(data, take)
 end
 
 -- MODE 4: PASTE FULL STAMP
--- Fixed 'bad argument #2 to 'MIDI_SetNote'' AND 'MIDI_SelectAllNotes'
-local function paste_full_stamp(data, take, start_ppq)
-    -- API FIX: Correct function name is MIDI_SelectAll
-    reaper.MIDI_SelectAll(take, false) -- Deselect all first
+-- *** FIX v1.4: Rewritten to handle both modification and stamping ***
+local function paste_full_stamp(data, take)
+    local selected_notes, first_sp = get_selected_notes_sorted(take)
     local pattern_notes = parse_pattern_data(data, take)
-    if not pattern_notes then return end
-
+    if not pattern_notes or #pattern_notes == 0 then return end
+    
     local pat_base_offset = pattern_notes[1].offset or 0
-    local _, old_count = reaper.MIDI_CountEvts(take) -- Get initial note count
+    local num_pat_notes = #pattern_notes
 
     reaper.Undo_BeginBlock()
-    for _, pat_note in ipairs(pattern_notes) do
-        local sp = start_ppq + (pat_note.offset - pat_base_offset)
-        local ep = sp + pat_note.length
-        -- Add note, and add 'true' at the end (noSort) to speed up
-        reaper.MIDI_InsertNote(take, false, false, sp, ep, -1, pat_note.pitch, pat_note.vel, true)
+
+    if selected_notes and #selected_notes > 0 then
+        -- Kịch bản 1: Sửa đổi các nốt đã chọn (Giống như người dùng mong đợi)
+        local pat_idx = 1
+        for _, sel_note in ipairs(selected_notes) do
+            -- Lấy nốt pattern (quay vòng)
+            local wrapped_pat_idx = ((pat_idx - 1) % num_pat_notes) + 1
+            local pat_note = pattern_notes[wrapped_pat_idx]
+            
+            if pat_note then
+                -- Tính toán vị trí và độ dài mới (giống Rhythm Only)
+                local new_sp = first_sp + (pat_note.offset - pat_base_offset)
+                local new_ep = new_sp + pat_note.length
+                -- Áp dụng CẢ BA (Pitch, Vel, Rhythm)
+                reaper.MIDI_SetNote(take, sel_note.idx, true, false, new_sp, new_ep, -1, pat_note.pitch, pat_note.vel, false)
+            end
+            
+            pat_idx = pat_idx + 1
+        end
+        reaper.MIDI_Sort(take)
+        reaper.Undo_EndBlock('Paste Full (Modify Selected)', -1)
+
+    else
+        -- Kịch bản 2: Dán mới tại con trỏ (hành vi cũ nếu không có gì được chọn)
+        reaper.MIDI_SelectAll(take, false) -- Bỏ chọn
+        local _, old_count = reaper.MIDI_CountEvts(take)
+
+        for _, pat_note in ipairs(pattern_notes) do
+            local sp = first_sp + (pat_note.offset - pat_base_offset)
+            local ep = sp + pat_note.length
+            reaper.MIDI_InsertNote(take, false, false, sp, ep, -1, pat_note.pitch, pat_note.vel, true)
+        end
+        
+        reaper.MIDI_Sort(take)
+        local _, new_count = reaper.MIDI_CountEvts(take)
+        
+        -- Chọn các nốt mới
+        for i = old_count, new_count - 1 do
+            reaper.MIDI_SetNote(take, i, true, false, -1, -1, -1, -1, -1, true) 
+        end
+        reaper.Undo_EndBlock('Paste Full (Stamp New)', -1)
     end
     
-    reaper.MIDI_Sort(take) -- Sort only once
-
-    -- API FIX (TYPO): Changed MIDI_CountEvB to MIDI_CountEvts
-    local _, new_count = reaper.MIDI_CountEvts(take) -- Get new note count
-
-    -- Now, select the newly added notes
-    for i = old_count, new_count - 1 do
-        -- Only set 'selected' state (arg 2), no sort (last arg)
-        reaper.MIDI_SetNote(take, i, true, false, -1, -1, -1, -1, -1, true) 
-    end
-
-    reaper.Undo_EndBlock('Paste Full Pattern', -1)
     reaper.UpdateArrange()
 end
 
@@ -449,14 +523,20 @@ local patterns = load_patterns()
 local selected = 1
 local rename_mode = false
 local name_input = ""
+local rename_tag_input = "" -- NEW v1.2: For editing tags in rename mode
 local paste_mode = 1 -- 1:Pitch, 2:Velocity, 3:Rhythm, 4:Stamp
 local category_input = "" -- NEW: For category input
+local tag_input = "" -- NEW v1.2: For tag input
 local search_query = "" -- NEW v1.1: For search bar
 
 local function draw()
     -- Increased default height for new category field
-    reaper.ImGui_SetNextWindowSize(ctx, 400, 500, reaper.ImGui_Cond_FirstUseEver())
-    local visible, open = reaper.ImGui_Begin(ctx, 'MIDI Pattern Manager', true)
+    reaper.ImGui_SetNextWindowSize(ctx, 400, 520, reaper.ImGui_Cond_FirstUseEver())
+    
+    -- NEW v1.2: Add "Always On Top" flag
+    local flags = reaper.ImGui_WindowFlags_AlwaysOnTop
+    local visible, open = reaper.ImGui_Begin(ctx, 'MIDI Pattern Manager', true, flags)
+    
     if not visible then return open end
 
     local editor = reaper.MIDIEditor_GetActive()
@@ -466,9 +546,13 @@ local function draw()
         reaper.ImGui_TextColored(ctx, 0xFFFFFFE0, "OPEN MIDI EDITOR TO USE!")
     else
         -- === STORE ===
-        -- NEW: Category Input
+        -- Category Input
         local cat_changed, new_cat = reaper.ImGui_InputText(ctx, 'Category (Optional)', category_input)
         if cat_changed then category_input = new_cat end
+        
+        -- NEW v1.2: Tag Input
+        local tag_changed, new_tag = reaper.ImGui_InputText(ctx, 'Tags (e.g., #C, #Arp)', tag_input)
+        if tag_changed then tag_input = new_tag end
 
         if reaper.ImGui_Button(ctx, 'STORE Selected Notes as Pattern') then
             local data, _, count = get_selected_full()
@@ -491,11 +575,12 @@ local function draw()
                     name = category_input .. "/" .. name
                 end
 
-                -- NEW v1.2: Add is_favorite property (default false)
-                table.insert(patterns, {name = name, data = data, is_favorite = false})
+                -- NEW v1.2: Add tags
+                table.insert(patterns, {name = name, data = data, is_favorite = false, tags = tag_input})
                 save_patterns(patterns)
                 selected = #patterns -- Automatically select the new pattern
                 category_input = "" -- Clear category input
+                tag_input = "" -- Clear tag input
             end
         end
 
@@ -520,8 +605,8 @@ local function draw()
             elseif paste_mode == 3 then
                 paste_rhythm_only(data, take)
             elseif paste_mode == 4 then
-                local _, first_sp = get_selected_notes_sorted(take) -- Get first note pos/cursor
-                paste_full_stamp(data, take, first_sp)
+                -- FIX v1.4: Changed function call
+                paste_full_stamp(data, take)
             end
         end
 
@@ -570,8 +655,10 @@ local function draw()
                         })
                     end
 
-                    -- NEW v1.1: Filter by search query
-                    if search_lower == "" or p.name:lower():match(search_lower) then
+                    -- NEW v1.2: Update search logic to include tags
+                    local search_match = p.name:lower():match(search_lower) or (p.tags and p.tags:lower():match(search_lower))
+                    
+                    if search_lower == "" or search_match then
                         local cat_name, pat_name = p.name:match("([^/]+)/(.+)")
                         if not cat_name then
                             cat_name = "Uncategorized" -- Default category
@@ -601,7 +688,7 @@ local function draw()
                 table.sort(category_keys, function(a, b)
                     if a == "★ Favorites" then return true end
                     if b == "★ Favorites" then return false end
-                    if a == "Uncategorized" then return false end
+                    if a == "Uncategorized" then return false end -- (FIXED typo from v1.1)
                     if b == "Uncategorized" then return true end
                     return a:lower() < b:lower()
                 end)
@@ -623,6 +710,7 @@ local function draw()
                         elseif cat_name ~= "★ Favorites" then -- Don't fill from favorites
                             category_input = cat_name
                         end
+                        tag_input = "" -- NEW v1.2: Clear tags when clicking folder
                     end
                     
                     if node_open then
@@ -631,11 +719,17 @@ local function draw()
                             if rename_mode and selected == item_index then
                                 -- Rename mode (now inside the loop)
                                 -- The input now edits the FULL name (e.g., "Category/Name")
-                                local changed, new_name = reaper.ImGui_InputText(ctx, '##rename'..item_index, name_input)
+                                local changed, new_name = reaper.ImGui_InputText(ctx, 'Name##rename'..item_index, name_input)
                                 if changed then name_input = new_name end
+                                
+                                -- NEW v1.5: Add tag editing in-place
+                                local tag_edit_changed, new_tag_edit = reaper.ImGui_InputText(ctx, 'Tags##tags_edit'..item_index, rename_tag_input)
+                                if tag_edit_changed then rename_tag_input = new_tag_edit end
+                                
                                 reaper.ImGui_SameLine(ctx)
                                 if reaper.ImGui_Button(ctx, 'Save##'..item_index) then
-                                    patterns[item_index].name = new_name
+                                    patterns[item_index].name = name_input
+                                    patterns[item_index].tags = rename_tag_input -- Save tags
                                     save_patterns(patterns)
                                     rename_mode = false
                                 end
@@ -654,9 +748,18 @@ local function draw()
                                     -- No need to break loop, ImGui will handle redraw on next frame
                                 end
                                 reaper.ImGui_SameLine(ctx)
+                                
+                                -- NEW v1.2: Show tags in selectable label
+                                local display_label = item.display_name
+                                local item_tags = patterns[item_index].tags or ""
+                                if item_tags:match("%S") then
+                                    display_label = display_label .. " [" .. item_tags .. "]"
+                                end
 
-                                if reaper.ImGui_Selectable(ctx, item.display_name .. " ##" .. item_index, selected == item_index) then
+                                if reaper.ImGui_Selectable(ctx, display_label .. " ##" .. item_index, selected == item_index) then
                                     selected = item_index
+                                    tag_input = patterns[item_index].tags or "" -- NEW v1.2: Populate tags
+                                    
                                     -- FIX v1.1: Update category input on item selection
                                     if cat_name == "Uncategorized" then
                                         category_input = ""
@@ -677,6 +780,7 @@ local function draw()
                     rename_mode = true
                     selected = item_to_rename
                     name_input = patterns[item_to_rename].name -- Use full name for rename
+                    rename_tag_input = patterns[item_to_rename].tags or "" -- NEW v1.2: Load tags for rename
                 end
             
             end -- NEW v1.1: End of BeginChild check
@@ -692,6 +796,7 @@ local function draw()
         if reaper.ImGui_Button(ctx, 'Rename Selected') and selected <= #patterns and patterns[selected] then
             rename_mode = true
             name_input = patterns[selected].name
+            rename_tag_input = patterns[selected].tags or "" -- NEW v1.2: Load tags for rename
         end
         reaper.ImGui_SameLine(ctx)
         
@@ -699,11 +804,16 @@ local function draw()
         if reaper.ImGui_Button(ctx, 'Duplicate Selected') and selected <= #patterns and patterns[selected] then
             local original = patterns[selected]
             local new_name = original.name .. " (Copy)"
-            -- NEW v1.1: Copy favorite state as false
-            local new_pattern = { name = new_name, data = original.data, is_favorite = false }
+            -- NEW v1.2: Copy tags as well
+            local new_pattern = { name = new_name, data = original.data, is_favorite = false, tags = original.tags or "" }
             table.insert(patterns, new_pattern)
             save_patterns(patterns)
             selected = #patterns -- Select the new copy
+            -- NEW v1.2: Populate fields with new copy's data
+            category_input, name_input = new_pattern.name:match("([^/]+)/(.+)")
+            if not category_input then category_input = "" end
+            tag_input = new_pattern.tags or ""
+            
             rename_mode = false
         end
         reaper.ImGui_SameLine(ctx)
