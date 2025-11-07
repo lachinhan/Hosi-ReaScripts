@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="fee3bcc5cbe2fb5a265f4fb53ab90225322ecf93">
+<index version="1" name="Hosi Scripts" commit="55f6d80da322399cbfc29d1b2f0fac0c8484c736">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -768,6 +768,11 @@
       </metadata>
       <version name="2.0" author="Hosi, X-Raym, ReaTrak" time="2025-09-28T08:39:48Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c348bad272ed3148832f282617311e2f13b64939/Midi/Import%20Chordino%20to%20MIDI.lua</source>
+      </version>
+    </reapack>
+    <reapack name="MIDI_Pattern_Manager.lua" type="script" desc="MIDI Pattern Manager (Multi-Mode Paste)">
+      <version name="1.1" author="Hosi &amp; Alex" time="2025-11-06T05:06:03Z">
+        <source main="main" file="Hosi_MIDI Pattern Manager (Multi-Mode Paste).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/55f6d80da322399cbfc29d1b2f0fac0c8484c736/Midi/MIDI_Pattern_Manager.lua</source>
       </version>
     </reapack>
   </category>
