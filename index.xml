@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="55f6d80da322399cbfc29d1b2f0fac0c8484c736">
+<index version="1" name="Hosi Scripts" commit="8a4cb16c678635c8ca48ce852d4dee426eaf341d">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -773,6 +773,9 @@
     <reapack name="MIDI_Pattern_Manager.lua" type="script" desc="MIDI Pattern Manager (Multi-Mode Paste)">
       <version name="1.1" author="Hosi &amp; Alex" time="2025-11-06T05:06:03Z">
         <source main="main" file="Hosi_MIDI Pattern Manager (Multi-Mode Paste).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/55f6d80da322399cbfc29d1b2f0fac0c8484c736/Midi/MIDI_Pattern_Manager.lua</source>
+      </version>
+      <version name="1.2" author="Hosi &amp; Alex" time="2025-11-07T05:11:24Z">
+        <source main="main" file="Hosi_MIDI Pattern Manager (Multi-Mode Paste).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/8a4cb16c678635c8ca48ce852d4dee426eaf341d/Midi/MIDI_Pattern_Manager.lua</source>
       </version>
     </reapack>
   </category>
