@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="8a4cb16c678635c8ca48ce852d4dee426eaf341d">
+<index version="1" name="Hosi Scripts" commit="f5bde06e596f43ead9f16fb2cf093cc733238945">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -856,6 +856,9 @@
     <reapack name="Hosi Panel.lua" type="script" desc="Hosi Panel (ReaImGui Version)">
       <version name="1.0.0" author="Hosi" time="2025-11-03T01:07:13Z">
         <source main="main" file="Hosi_Panel (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/fee3bcc5cbe2fb5a265f4fb53ab90225322ecf93/Utility/Hosi%20Panel.lua</source>
+      </version>
+      <version name="1.1" author="Hosi" time="2025-12-07T02:58:17Z">
+        <source main="main" file="Hosi_Panel (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/f5bde06e596f43ead9f16fb2cf093cc733238945/Utility/Hosi%20Panel.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Project Notes Viewer.lua" type="script" desc="Project Notes Editor (ReaImGui Version)">
