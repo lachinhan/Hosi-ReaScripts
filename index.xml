@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="a233d1de95eaa75115dff42ffcf2ecc833f8102f">
+<index version="1" name="Hosi Scripts" commit="dc36c47a169c50cd97fc53b6e9333d379971977b">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -180,6 +180,30 @@
     <reapack name="Hosi_Problem_Dashboard.lua" type="script" desc="Problem Dashboard for hmeterz">
       <version name="0.1" author="Hosi" time="2025-09-10T11:01:23Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/b1f7939e5e2f374c4e46df4180b4c2a759132a8f/Develop/HosiMeter/Hosi_Problem_Dashboard.lua</source>
+      </version>
+    </reapack>
+  </category>
+  <category name="Develop/Matchering">
+    <reapack name="matchering_reaper_gui_batch_unified.lua" type="script" desc="Matchering 2.0 GUI (Unified Batch Processor)">
+      <version name="1.1" author="Hosi" time="2025-12-09T10:09:09Z">
+        <source main="main" file="Hosi_Matchering 2.0 GUI (Unified Batch).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/dc36c47a169c50cd97fc53b6e9333d379971977b/Develop/Matchering/matchering_reaper_gui_batch_unified.lua</source>
+      </version>
+    </reapack>
+    <reapack name="matchering_worker.py" type="script" desc="Matchering 2.0 Worker (Python Subprocess)">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Matchering 2.0 Worker\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This Python script is designed to be called non-interactively by the Matchering 2.0 Lua GUI. It handles the external execution of the {\f1 matchering-cli} subprocess in a non-blocking way, using REAPER's ExtState for communication and RPR_defer for process status polling.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 {\b DO NOT RUN THIS SCRIPT MANUALLY.}\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi" time="2025-12-09T10:09:09Z">
+        <changelog><![CDATA[+ v1.0 (2025-11-12) - Initial release with non-blocking Popen and ExtState communication.]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/dc36c47a169c50cd97fc53b6e9333d379971977b/Develop/Matchering/matchering_worker.py</source>
       </version>
     </reapack>
   </category>
