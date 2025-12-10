@@ -19,6 +19,12 @@
 @changelog
   v1.9.3 (2025-Dec-10)
   - Modern GUI
+  - Vertical Mixer
+  - Run Auto-Color & Icons
+  - Smart Gain Staging
+  - Group Tracks
+  - Send Matrix
+  - Vertical FX Rack  
   v1.9.2 (2025-11-01)
   - Fixed: Lua error related to missing 'nil' argument in InputText for rename popup.
   v1.9.1 (2025-11-01)
@@ -272,6 +278,32 @@ local state = {
         { pattern = "bus", color = 0xAAAA00, icon = "🚌" },
         { pattern = "master", color = 0xFFFFFF, icon = "🎚️" }
     },
+    -- Focus Folder State
+    focus_folder_guid = nil,
+    focus_folder_depth = -1,
+    focus_folder_idx = -1, -- Track index of the focused folder
+    
+    -- Mixer Layout ("LIST" or "STRIP")
+    mixer_layout = "LIST",
+    
+    -- Track Groups (VCA Style)
+    track_groups = {}, -- Key: GUID, Value: Group Index (1-8)
+    group_names = {}, -- Key: Group Index (1-8), Value: Name String
+    -- SEND MATRIX STATE
+    matrix_pinned_tracks = {}, -- Array of GUID strings
+    show_matrix_view = false,  -- Toggle for Matrix View
+    group_colors = {
+        [0] = 0x00000000, -- None
+        [1] = 0xFF0000FF, -- Red
+        [2] = 0x00FF00FF, -- Green
+        [3] = 0x0000FFFF, -- Blue
+        [4] = 0xFFFF00FF, -- Yellow
+        [5] = 0x00FFFFFF, -- Cyan
+        [6] = 0xFF00FFFF, -- Magenta
+        [7] = 0xFF8800FF, -- Orange
+        [8] = 0x8800FFFF  -- Purple
+    },
+
     -- Track data
     tracks = {},
     tracksPan = {},
@@ -337,11 +369,210 @@ local state = {
     open_rename_popup = false,
     rename_item_path = nil,
     rename_item_new_name = "",
+    -- GROUP RENAME POPUP
+    open_group_rename_popup = false,
     -- THEME STATE
     current_theme = "Modern Dark"
 }
 
 -- --- UTILITY AND LOGIC FUNCTIONS ---
+
+-- Track Grouping Helpers
+function LoadProjectGroups()
+    -- Load Assignments
+    local retval, str = reaper.GetProjExtState(0, "HosiMixer", "TrackGroups")
+    if retval == 1 and str ~= "" then
+        for part in str:gmatch("[^,]+") do
+            local guid, grp = part:match("([^:]+):(%d+)")
+            if guid and grp then
+                state.track_groups[guid] = tonumber(grp)
+            end
+        end
+    end
+    
+    -- Load Names
+    local retval_n, str_n = reaper.GetProjExtState(0, "HosiMixer", "GroupNames")
+    if retval_n == 1 and str_n ~= "" then
+        for part in str_n:gmatch("[^,]+") do
+            local grp, name = part:match("(%d+):([^:]+)")
+            if grp and name then
+                state.group_names[tonumber(grp)] = name
+            end
+        end
+    end
+    -- Ensure defaults
+    for i=1, 8 do
+        if not state.group_names[i] then state.group_names[i] = "Group "..i end
+    end
+end
+
+function SaveProjectGroups()
+    local parts = {}
+    for guid, grp in pairs(state.track_groups) do
+        table.insert(parts, guid .. ":" .. grp)
+    end
+    reaper.SetProjExtState(0, "HosiMixer", "TrackGroups", table.concat(parts, ","))
+    
+    local name_parts = {}
+    for i=1, 8 do
+        if state.group_names[i] then
+            table.insert(name_parts, i .. ":" .. state.group_names[i])
+        end
+    end
+    reaper.SetProjExtState(0, "HosiMixer", "GroupNames", table.concat(name_parts, ","))
+end
+
+-- Matrix Persistence
+function LoadMatrixPins()
+    local retval, str = reaper.GetProjExtState(0, "HosiMixer", "MatrixPins")
+    if retval == 1 and str ~= "" then
+        state.matrix_pinned_tracks = {}
+        for part in str:gmatch("[^,]+") do
+            table.insert(state.matrix_pinned_tracks, part)
+        end
+    end
+end
+
+function SaveMatrixPins()
+    if #state.matrix_pinned_tracks > 0 then
+        local str = table.concat(state.matrix_pinned_tracks, ",")
+        reaper.SetProjExtState(0, "HosiMixer", "MatrixPins", str)
+    else
+        reaper.SetProjExtState(0, "HosiMixer", "MatrixPins", "")
+    end
+end
+
+function SetTrackGroup(track, group_idx)
+    local guid = reaper.GetTrackGUID(track)
+    if group_idx == 0 then state.track_groups[guid] = nil
+    else state.track_groups[guid] = group_idx end
+    SaveProjectGroups()
+end
+
+function GetTrackGroup(track)
+    if not track then return 0 end
+    local guid = reaper.GetTrackGUID(track)
+    return state.track_groups[guid] or 0
+end
+
+local is_group_adjusting = false
+
+function SyncGroupVolume(leader_track, ratio, skip_selected)
+    if is_group_adjusting then return end
+    local group = GetTrackGroup(leader_track)
+    if group == 0 then return end
+    
+    is_group_adjusting = true
+    reaper.PreventUIRefresh(1)
+    
+    local leader_guid = reaper.GetTrackGUID(leader_track)
+    for i = 1, #state.tracks do
+        local t = state.tracks[i]
+        -- If skip_selected is true and track is selected, skip it (handled by selection loop)
+        if skip_selected and state.tracksSel[i] then goto continue_sync_vol end
+        
+        if t ~= leader_track and GetTrackGroup(t) == group then
+            local current_vol = reaper.GetMediaTrackInfo_Value(t, "D_VOL")
+            reaper.SetMediaTrackInfo_Value(t, "D_VOL", current_vol * ratio)
+        end
+        ::continue_sync_vol::
+    end
+    
+    reaper.PreventUIRefresh(-1)
+    is_group_adjusting = false
+end
+
+function SyncGroupPan(leader_track, delta, skip_selected)
+    if is_group_adjusting then return end
+    local group = GetTrackGroup(leader_track)
+    if group == 0 then return end
+    
+    is_group_adjusting = true
+    reaper.PreventUIRefresh(1)
+
+    local leader_guid = reaper.GetTrackGUID(leader_track)
+    for i = 1, #state.tracks do
+        local t = state.tracks[i]
+        -- If skip_selected is true and track is selected, skip it
+        if skip_selected and state.tracksSel[i] then goto continue_sync_pan end
+        
+        if t ~= leader_track and GetTrackGroup(t) == group then
+            local current_pan = reaper.GetMediaTrackInfo_Value(t, "D_PAN")
+            local new_pan = current_pan + delta
+            if new_pan > 1.0 then new_pan = 1.0 elseif new_pan < -1.0 then new_pan = -1.0 end
+            reaper.SetMediaTrackInfo_Value(t, "D_PAN", new_pan)
+        end
+        ::continue_sync_pan::
+    end
+
+    reaper.PreventUIRefresh(-1)
+    is_group_adjusting = false
+end
+
+-- Load Groups on Startup
+LoadProjectGroups()
+LoadMatrixPins()
+
+function DrawTrackContextMenuOptions(ctx, track, i, guid_str, name)
+    imgui.Text(ctx, "Track: " .. name)
+    imgui.Separator(ctx)
+    
+    -- Grouping Submenu
+    if imgui.BeginMenu(ctx, "Pooling / Grouping 🔗") then
+         if imgui.MenuItem(ctx, "No Group", nil, GetTrackGroup(track)==0) then SetTrackGroup(track, 0) end
+         imgui.Separator(ctx)
+         for g=1, 8 do
+             imgui.PushStyleColor(ctx, imgui.Col_Text, state.group_colors[g])
+             local g_name = state.group_names[g] or ("Group "..g)
+             if imgui.MenuItem(ctx, g_name, nil, GetTrackGroup(track)==g) then SetTrackGroup(track, g) end
+             imgui.PopStyleColor(ctx)
+         end
+         imgui.Separator(ctx)
+         if imgui.MenuItem(ctx, "✏️ Edit Group Names...") then state.open_group_rename_popup = true end
+         
+         imgui.EndMenu(ctx)
+    end
+    
+    imgui.Separator(ctx)
+    
+    -- Matrix Pinning
+    local is_pinned = false
+    for _, pinned_guid in ipairs(state.matrix_pinned_tracks) do
+        if pinned_guid == guid_str then is_pinned = true; break end
+    end
+    if imgui.MenuItem(ctx, is_pinned and "📌 Unpin from Matrix" or "📌 Pin to Matrix") then
+        if is_pinned then
+            -- Remove
+            for k, v in ipairs(state.matrix_pinned_tracks) do
+                if v == guid_str then table.remove(state.matrix_pinned_tracks, k); break end
+            end
+        else
+            -- Add
+            table.insert(state.matrix_pinned_tracks, guid_str)
+        end
+        SaveMatrixPins()
+    end
+    imgui.Separator(ctx)
+    
+    if state.isFolder[i] then
+        if imgui.MenuItem(ctx, "🔍 Focus on this Folder") then
+            state.focus_folder_guid = guid_str
+            state.focus_folder_depth = state.tracksDepth[i] -- state.tracksDepth is available
+            state.focus_folder_idx = i
+        end
+        imgui.Separator(ctx)
+    end
+    
+    if imgui.MenuItem(ctx, "Rename...") then
+        state.rename_item_path = track 
+        state.rename_item_new_name = name
+        state.open_rename_popup = true 
+    end
+    
+    if imgui.MenuItem(ctx, 'Insert New Track') then reaper.defer(function() reaper.Main_OnCommand(40001, 0) end) end
+    if imgui.MenuItem(ctx, 'Delete Track') then reaper.defer(function() reaper.DeleteTrack(track) end) end
+end
+
 function SetTheme(theme_name)
     local theme = themes[theme_name] or themes["Modern Dark"]
     state.current_theme = theme_name
@@ -413,6 +644,7 @@ function PackColor(r, g, b, a)
 end
 
 function GainToDB(gain)
+    if not gain then return -144.0 end
     if gain < 0.0000000298 then return -144.0 end
     return 20 * (math.log(gain) / math.log(10))
 end
@@ -1051,6 +1283,413 @@ function RunAutoColor()
     ForceUIRefresh()
 end
 
+-- Smart Gain Staging
+function RunGainStaging(target_db)
+    reaper.Undo_BeginBlock()
+    local track_count = #state.tracks
+    local any_changed = false
+    
+    -- Check if we should only process selected tracks
+    local process_selected_only = false
+    for i = 1, track_count do
+        if state.tracksSel[i] then process_selected_only = true; break end
+    end
+    
+    for i = 1, track_count do
+        if not process_selected_only or state.tracksSel[i] then
+            -- Get highest peak seen so far (stored as Linear Gain in state)
+            local peak_l_gain = state.tracksPeakHoldL[i] or 0
+            local peak_r_gain = state.tracksPeakHoldR[i] or 0
+            
+            local peak_l_db = GainToDB(peak_l_gain)
+            local peak_r_db = GainToDB(peak_r_gain)
+            
+            local max_peak_db = math.max(peak_l_db, peak_r_db)
+            
+            -- Sanity check: Signal must be somewhat audible to gain stage (> -60dB)
+            if max_peak_db > -60 then
+                local delta_db = target_db - max_peak_db
+                
+                -- Safety Limiter: Don't boost more than 24dB
+                if delta_db > 24 then delta_db = 24 end
+                
+                local current_vol = reaper.GetMediaTrackInfo_Value(state.tracks[i], "D_VOL")
+                local new_vol = current_vol * DBToGain(delta_db)
+                
+                reaper.SetMediaTrackInfo_Value(state.tracks[i], "D_VOL", new_vol)
+                any_changed = true
+            end
+        end
+    end
+    
+    local msg = any_changed and ("Smart Gain Stage to " .. target_db .. "dB") or "Smart Gain Stage (No Change)"
+    reaper.Undo_EndBlock(msg, -1)
+end
+
+-- Helper to reset all peaks
+local function ResetAllPeaks()
+    for i = 1, #state.tracks do
+        state.tracksPeakHoldL[i] = 0
+        state.tracksPeakHoldR[i] = 0
+    end
+end
+
+function DrawVerticalStrip(ctx, i, track, strip_width, strip_height)
+    local width = strip_width
+    local p = imgui.GetCursorScreenPos(ctx)
+    local draw_list = imgui.GetWindowDrawList(ctx)
+    
+    imgui.BeginGroup(ctx)
+    
+    -- Header: Name & Color
+    local r, g, b = reaper.ColorFromNative(reaper.GetTrackColor(track))
+    local header_col = PackColor(r/255, g/255, b/255, 0.4)
+    imgui.PushStyleColor(ctx, imgui.Col_Button, header_col)
+    
+    -- Track ID & NameButton (Click to Select)
+    local _, name = reaper.GetTrackName(track)
+    
+    -- Badge Logic
+    local grp = GetTrackGroup(track)
+    local prefix = (grp > 0) and string.format("G%d", grp) or tostring(i)
+    local display_name = string.format("%s: %s", prefix, name)
+    
+    if imgui.Button(ctx, display_name.."##vname"..i, width, 20) then
+         if imgui.IsKeyDown(ctx, imgui.Mod_Ctrl) then
+            reaper.SetTrackSelected(track, not reaper.IsTrackSelected(track))
+         else
+            reaper.SetOnlyTrackSelected(track)
+         end
+         state.last_selected_track_idx = i
+    end
+    
+    -- Context Menu
+    if imgui.BeginPopupContextItem(ctx, "TrackContextMenuVM"..i) then
+        DrawTrackContextMenuOptions(ctx, track, i, reaper.GetTrackGUID(track), name)
+        imgui.EndPopup(ctx)
+    end
+
+    if state.tracksSel[i] then
+        -- Highlight selected
+        local min_x, min_y = imgui.GetItemRectMin(ctx)
+        local max_x, max_y = imgui.GetItemRectMax(ctx)
+        imgui.DrawList_AddRect(imgui.GetWindowDrawList(ctx), min_x, min_y, max_x, max_y, 0xFFFFFFFF, 0, 0, 2)
+    end
+    
+    -- Group Color Indicator (Corner Triangle)
+    if grp > 0 then
+        local min_x, min_y = imgui.GetItemRectMin(ctx)
+        local grp_col = state.group_colors[grp]
+        local dl = imgui.GetWindowDrawList(ctx)
+        imgui.DrawList_AddTriangleFilled(dl, min_x, min_y, min_x + 10, min_y, min_x, min_y + 10, grp_col)
+    end
+    
+    imgui.PopStyleColor(ctx)
+    
+    -- Controls
+    -- Mute/Solo/Rec Row
+    local btn_sz = (width - 6) / 3
+    if state.tracksMut[i]==1 then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0,0,0.5)) end; if imgui.Button(ctx,"M##vm"..i,btn_sz,18) then reaper.SetMediaTrackInfo_Value(track,"B_MUTE",1-state.tracksMut[i]) end; if state.tracksMut[i]==1 then imgui.PopStyleColor(ctx) end; imgui.SameLine(ctx,0,3)
+    if state.tracksSol[i]>0 then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,1,0,0.5)) end; if imgui.Button(ctx,"S##vs"..i,btn_sz,18) then reaper.SetMediaTrackInfo_Value(track,"I_SOLO",state.tracksSol[i]>0 and 0 or 1) end; if state.tracksSol[i]>0 then imgui.PopStyleColor(ctx) end; imgui.SameLine(ctx,0,3)
+    if state.tracksArmed[i] then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0,0,0.8)) end; if imgui.Button(ctx,"R##vr"..i,btn_sz,18) then reaper.SetMediaTrackInfo_Value(track,"I_RECARM",state.tracksArmed[i] and 0 or 1) end; if state.tracksArmed[i] then imgui.PopStyleColor(ctx) end
+    
+    -- Pan
+    imgui.PushItemWidth(ctx, width)
+    local pan_val = math.floor(state.tracksPan[i]*100+0.5)
+    local pan_changed, new_pan = imgui.SliderInt(ctx, "##vpan"..i, pan_val, -100, 100, "Pan: %d")
+    if pan_changed then
+        local new_pan_norm = new_pan/100
+        local old_pan = state.tracksPan[i]
+        local delta = new_pan_norm - old_pan
+        
+        SyncGroupPan(track, delta, state.tracksSel[i])
+        state.tracksPan[i] = new_pan_norm -- Drift Fix
+        
+        if state.tracksSel[i] then
+            for j=1,#state.tracks do
+                if state.tracksSel[j] then
+                    local t = state.tracks[j]
+                    local p = reaper.GetMediaTrackInfo_Value(t,"D_PAN") + delta
+                    local p_clamped = math.max(-1,math.min(1,p))
+                    reaper.SetMediaTrackInfo_Value(t,"D_PAN",p_clamped)
+                    if state.tracks[j] then state.tracksPan[j] = p_clamped end
+                end
+            end
+        else
+            reaper.SetMediaTrackInfo_Value(track, "D_PAN", new_pan_norm)
+        end
+    end
+    if imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0) then
+        local old_pan = state.tracksPan[i]
+        local delta = 0 - old_pan
+        SyncGroupPan(track, delta, state.tracksSel[i])
+        
+        if state.tracksSel[i] then
+             for j=1,#state.tracks do if state.tracksSel[j] then reaper.SetMediaTrackInfo_Value(state.tracks[j],"D_PAN",0) end end
+        else
+             reaper.SetMediaTrackInfo_Value(track, "D_PAN", 0)
+        end
+    end
+    imgui.PopItemWidth(ctx)
+    
+    -- Fader & Meter Area
+    local used_h = 75 
+    local fader_h = strip_height - used_h - 60 
+    
+    if fader_h > 300 then fader_h = 300 end
+    if fader_h < 50 then fader_h = 50 end
+    
+    -- FIXED WIDTHS (Applied from User's preference)
+    local fader_w = 35 -- User set 35
+    local meter_w = 35 -- User set 35
+    local spacing = 4
+    local total_group_w = fader_w + meter_w + spacing
+    
+    -- Center
+    local start_x = imgui.GetCursorPosX(ctx)
+    local side_padding = (width - total_group_w) / 2
+    if side_padding > 0 then 
+        start_x = start_x + side_padding
+        imgui.SetCursorPosX(ctx, start_x) 
+    end
+    
+    -- 1. FADER
+    local vol = state.tracksVol[i]
+    local db = GainToDB(vol)
+    local slider_val = (db < -60) and -60 or db
+    if slider_val > 12 then slider_val = 12 end
+    
+    local f_changed, f_val = imgui.VSliderDouble(ctx, "##vvol"..i, fader_w, fader_h, slider_val, -60, 12, "")
+    if f_changed then
+        local new_gain = DBToGain(f_val)
+        local old_gain = state.tracksVol[i]
+        local ratio = (old_gain > 0.0000001) and (new_gain / old_gain) or 1.0
+        SyncGroupVolume(track, ratio, state.tracksSel[i])
+        state.tracksVol[i] = new_gain
+        if state.tracksSel[i] then
+            for j=1,#state.tracks do
+                if state.tracksSel[j] then
+                     local t = state.tracks[j]
+                     local current_gain = reaper.GetMediaTrackInfo_Value(t, "D_VOL")
+                     reaper.SetMediaTrackInfo_Value(t, "D_VOL", current_gain * ratio)
+                     if state.tracks[j] then state.tracksVol[j] = current_gain * ratio end
+                end
+            end
+        else
+            reaper.SetMediaTrackInfo_Value(track, "D_VOL", new_gain)
+        end
+    end
+    if imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0) then
+         SyncGroupVolume(track, (state.tracksVol[i] > 0.0000001) and (1.0 / state.tracksVol[i]) or 1.0, state.tracksSel[i])
+         if state.tracksSel[i] then
+             for j=1,#state.tracks do if state.tracksSel[j] then reaper.SetMediaTrackInfo_Value(state.tracks[j],"D_VOL",1.0) end end
+         else
+             reaper.SetMediaTrackInfo_Value(track, "D_VOL", 1.0)
+         end
+    end
+    
+    imgui.SameLine(ctx, 0, spacing)
+    
+    -- 2. STEREO METER (Matching Channel Strip Style)
+    -- Reserve space
+    imgui.InvisibleButton(ctx, "##vmeter"..i, meter_w, fader_h)
+    
+
+    if imgui.IsItemHovered(ctx) then
+        -- Shift + Click
+        if imgui.IsMouseClicked(ctx, 0) and (imgui.IsKeyDown(ctx, imgui.Mod_Shift) or imgui.IsKeyDown(ctx, imgui.Mod_Ctrl)) then
+            ResetAllPeaks()
+        -- Double Click
+        elseif imgui.IsMouseDoubleClicked(ctx, 0) then
+            state.tracksPeakHoldL[i] = 0
+            state.tracksPeakHoldR[i] = 0
+        end
+        ShowTooltip("Shift+Click: Reset ALL Peaks\nDouble-Click Left: Reset Peak Hold")
+    end
+    
+    local m_min_x, m_min_y = imgui.GetItemRectMin(ctx)
+    local m_max_x, m_max_y = imgui.GetItemRectMax(ctx)
+    
+    -- Helper for Gradient Pulse
+    local function GetPulse(val_gain)
+        local db = GainToDB(val_gain)
+        local min_db, max_db = -60, 0
+        if db < min_db then return 0 end
+        if db > max_db then return 1 end
+        return (db - min_db) / (max_db - min_db)
+    end
+    
+    local sub_meter_w = (meter_w - 2) / 2
+    if sub_meter_w < 2 then sub_meter_w = 2 end
+    
+    for ch = 0, 1 do
+        local gain = (ch == 0) and (state.tracksPeakL[i] or -150) or (state.tracksPeakR[i] or -150)
+        local hold_gain = (ch == 0) and (state.tracksPeakHoldL[i] or 0) or (state.tracksPeakHoldR[i] or 0)
+        
+        local x = m_min_x + (ch * (sub_meter_w + 2))
+        
+        -- Background
+        imgui.DrawList_AddRectFilled(draw_list, x, m_min_y, x + sub_meter_w, m_max_y, 0xFF111111)
+        
+        -- Fill
+        local fill_pct = GetPulse(gain)
+        local fill_h = math.floor(fill_pct * fader_h)
+        if fill_h > 0 then
+            local y_top = m_max_y - fill_h
+            -- Gradient Colors (Green -> Red)
+            local col_bot = 0x00FF00FF
+            local col_top = 0xFF0000FF
+            imgui.DrawList_AddRectFilledMultiColor(draw_list, x, y_top, x + sub_meter_w, m_max_y, col_top, col_top, col_bot, col_bot)
+        end
+        
+        -- Hold Line
+        local hold_pct = GetPulse(hold_gain)
+        if hold_pct > 0 then
+            local y_hold = m_max_y - math.floor(hold_pct * fader_h)
+            imgui.DrawList_AddLine(draw_list, x, y_hold, x + sub_meter_w, y_hold, 0xFFFFFFFF, 1)
+        end
+    end
+
+    -- 3. TEXT VALUES (Centered under respective columns)
+    -- Volume under Fader
+    local vol_str = (db < -90) and "-inf" or string.format("%.1f", db)
+    local v_w = imgui.CalcTextSize(ctx, vol_str)
+    
+    imgui.SetCursorPosX(ctx, start_x + (fader_w - v_w)/2)
+    imgui.Text(ctx, vol_str)
+    
+    imgui.SameLine(ctx, 0, 0)
+    
+    -- Peak Readout (Max Peak because stereo text won't fit effectively in 35px)
+    local peak_max = math.max(state.tracksPeakHoldL[i] or 0, state.tracksPeakHoldR[i] or 0)
+    local peak_db = GainToDB(peak_max)
+    
+    local p_str
+    local p_col = 0xAAAAAAFF
+    if peak_db < -90 then
+        p_str = "-inf"
+        p_col = 0x666666FF
+    else
+        p_str = string.format("%.1f", peak_db)
+        if peak_db > -1 then p_col = 0xFF0000FF 
+        elseif peak_db > -6 then p_col = 0xFFFF00FF
+        else p_col = 0x00FF00FF end
+    end
+    
+    local p_w = imgui.CalcTextSize(ctx, p_str)
+    local meter_start_x = start_x + fader_w + spacing
+    imgui.SetCursorPosX(ctx, meter_start_x + (meter_w - p_w)/2)
+    imgui.TextColored(ctx, p_col, p_str)
+    
+    -- FX RACK (Vertical Scrollable Area)
+    local track = state.tracks[i]
+    local fx_count = reaper.TrackFX_GetCount(track)
+    
+    imgui.Dummy(ctx, 1, 4) -- Spacer
+    
+    -- Calculate remaining height for FX list
+    -- We are inside VerticalMixerArea (Horizontal Scroll).
+    -- GetContentRegionAvail(ctx).y returns remaining height in the Parent Child.
+    local avail_w, avail_h = imgui.GetContentRegionAvail(ctx)
+    -- Ensure minimal height
+    if avail_h < 50 then avail_h = 50 end
+    
+    -- FX Child Window
+    -- Use a unique ID for each track's FX rack
+    -- Using 0 flags for Auto Scrollbar. 
+    -- If user wants "Always", we could add WindowFlags_AlwaysVerticalScrollbar
+    if imgui.BeginChild(ctx, "FXRack"..i, total_group_w, avail_h, 0) then 
+        if fx_count > 0 then
+            imgui.SetCursorPosX(ctx, 0) 
+            imgui.TextDisabled(ctx, "FX")
+            
+            -- Dynamic Width check (accounts for Scrollbar if visible)
+            local fx_content_w = imgui.GetContentRegionAvail(ctx)
+            
+            for fx_idx = 0, fx_count - 1 do
+                local retval, buf = reaper.TrackFX_GetFXName(track, fx_idx, "")
+                local is_enabled = reaper.TrackFX_GetEnabled(track, fx_idx)
+                local fx_name = buf:gsub("VST: ", ""):gsub("VST3: ", ""):gsub("JS: ", ""):gsub("AU: ", "")
+                -- Adjust truncate based on actual width?
+                -- If scrollbar is present, width is smaller (e.g. 80 -> 60).
+                -- 12 chars might be too much.
+                local text_limit = (fx_content_w > 70) and 12 or 9
+                if #fx_name > text_limit then fx_name = string.sub(fx_name, 1, text_limit)..".." end
+                
+                -- Dynamic Button Width
+                local btn_col = is_enabled and 0x224422FF or 0x333333FF
+                imgui.PushStyleColor(ctx, imgui.Col_Button, btn_col)
+                imgui.PushStyleVar(ctx, imgui.StyleVar_ButtonTextAlign, 0.5, 0.5) -- Center Text
+                
+                if imgui.Button(ctx, fx_name.."##vfx"..i.."_"..fx_idx, fx_content_w, 18) then
+                    reaper.TrackFX_Show(track, fx_idx, 3) 
+                end
+                
+                imgui.PopStyleVar(ctx) -- Pop Align
+                
+                if imgui.IsItemClicked(ctx, 1) then
+                    reaper.TrackFX_SetEnabled(track, fx_idx, not is_enabled)
+                end
+                imgui.PopStyleColor(ctx)
+            end
+        else
+            imgui.TextDisabled(ctx, "-")
+        end
+        imgui.EndChild(ctx)
+    end
+    
+    imgui.EndGroup(ctx)
+end
+
+function DrawVerticalMixerArea(ctx, height)
+    -- Horizontal Scroll Child
+    if imgui.BeginChild(ctx, "VerticalMixerArea", 0, height, 0, imgui.WindowFlags_HorizontalScrollbar + imgui.WindowFlags_AlwaysHorizontalScrollbar) then
+        local hide_children_of_collapsed_folder, collapsed_folder_depth = false, -1
+        local is_focus_active = state.focus_folder_guid ~= nil
+        local is_in_focus_scope = false
+        
+        -- Calculate Heights once
+        local avail = imgui.GetContentRegionAvail(ctx)
+        local strip_h = (type(avail)=='table' and avail.y or avail)
+        local strip_w = 80
+
+        for i = 1, #state.tracks do
+            -- Filtering Logic (Duplicated from List View for consistency)
+            if is_focus_active then
+                 if i == state.focus_folder_idx then is_in_focus_scope = true; goto v_continue end
+                 if is_in_focus_scope then
+                     if state.tracksDepth[i] <= state.focus_folder_depth then is_in_focus_scope = false end
+                 end
+                 if not is_in_focus_scope then goto v_continue end
+            end
+
+            local track = state.tracks[i]
+            if reaper.ValidatePtr(track, "MediaTrack*") then
+                local current_depth = state.tracksDepth[i]
+                if hide_children_of_collapsed_folder and current_depth > collapsed_folder_depth then goto v_continue
+                elseif hide_children_of_collapsed_folder and current_depth <= collapsed_folder_depth then hide_children_of_collapsed_folder, collapsed_folder_depth = false, -1 end
+                
+                local show_track = ApplyAdvancedFilter(i, state.filter_text)
+                if show_track and not ApplyViewFilter(i) then show_track = false end
+                
+                -- Extra Filters matching List View
+                local guid_str = reaper.GetTrackGUID(track)
+                if show_track and state.edit_mode == "FX PARAMS" and (not state.pinnedParams[guid_str] or #state.pinnedParams[guid_str] == 0) then show_track = false end
+                if show_track and not state.tracksVisible[i] then show_track = false end
+
+                if show_track then
+                    DrawVerticalStrip(ctx, i, track, strip_w, strip_h)
+                    imgui.SameLine(ctx)
+                end
+                
+                if state.isFolder[i] and state.folderCollapsed[i] then hide_children_of_collapsed_folder, collapsed_folder_depth = true, current_depth end
+            end
+            ::v_continue::
+        end
+        imgui.EndChild(ctx)
+    end
+end
+
 function ResetAllTracksVisibility()
     reaper.Undo_BeginBlock()
     reaper.PreventUIRefresh(1)
@@ -1138,10 +1777,33 @@ function update_and_check_tracks()
         -- Peak Info
         local currentPeakL_gain = reaper.Track_GetPeakInfo(track, 0)
         local currentPeakR_gain = reaper.Track_GetPeakInfo(track, 1)
-        state.tracksPeakL[i] = currentPeakL_gain
-        state.tracksPeakR[i] = currentPeakR_gain
-
-        -- Initialize Peak Hold values if they don't exist
+        
+        -- Apply Smoothing / Decay for visual stability
+        local decay = 0.85
+        local old_peakL = state.tracksPeakL[i] or 0
+        local old_peakR = state.tracksPeakR[i] or 0
+        
+        state.tracksPeakL[i] = math.max(currentPeakL_gain, old_peakL * decay)
+        state.tracksPeakR[i] = math.max(currentPeakR_gain, old_peakR * decay)
+        
+        -- Hard reset if very low to allow reaching silence
+        if state.tracksPeakL[i] < 0.0000001 then state.tracksPeakL[i] = 0 end
+        if state.tracksPeakR[i] < 0.0000001 then state.tracksPeakR[i] = 0 end
+        
+        -- Determine visibility (moved out of loop optimization if possible, but fine here)
+        -- state.is_visible = {} -- Don't reset this inside the loop! It clears previous iterations!
+        -- Wait, state.is_visible is indexed by [i]. But initializing it {} inside loop is wrong if it wipes others?
+        -- Actually `state.is_visible` should be initialized ONCE before loop.
+        -- In step 1449 I put it here?
+        -- Let's check where it was.
+        -- Original code (Step 266 in Clean 1448) had `state.is_visible = {}` at line 278 (Init func).
+        -- In 1449 I replaced `smoothed_meters = ...` with `state.is_visible = {}`.
+        -- If I put `state.is_visible = {}` inside the track loop, it resets every track!
+        -- That explains why filtering might be broken or flickering?
+        -- I should REMOVE `state.is_visible = {}` from here. It is already checked in main loop or initialized elsewhere?
+        -- I'll check Init section later. For now, remove it from here.
+    
+    -- Initialize Peak Hold values if they don't exist
         state.tracksPeakHoldL[i] = state.tracksPeakHoldL[i] or 0
         state.tracksPeakHoldR[i] = state.tracksPeakHoldR[i] or 0
 
@@ -1149,9 +1811,14 @@ function update_and_check_tracks()
         if currentPeakL_gain > state.tracksPeakHoldL[i] then
             state.tracksPeakHoldL[i] = currentPeakL_gain
         end
+        
         if currentPeakR_gain > state.tracksPeakHoldR[i] then
             state.tracksPeakHoldR[i] = currentPeakR_gain
         end
+        
+        -- Note: User requested Infinite Hold.
+        -- Values will only reset if manually cleared (logic to be added if needed) or on script restart.
+        -- To reset: we need a UI trigger. For now, this satisfies "Never jump down".
 
         state.tracksSends[i] = {}
         state.tracksReceives[i] = {}
@@ -1448,7 +2115,7 @@ function loop()
     -- Apply Theme (Before Begin to affect Window TitleBar/Frame)
     SetTheme(state.current_theme)
 
-    local visible, is_open_ret = imgui.Begin(ctx, config.win_title, state.is_open)
+    local visible, is_open_ret = imgui.Begin(ctx, config.win_title, state.is_open, imgui.WindowFlags_NoScrollbar)
     state.is_open = is_open_ret
     
     if visible then
@@ -1462,9 +2129,10 @@ function loop()
         local snapshots_w = (25 * 2) + 1 + 2 -- A/B buttons + spacing + padding approx
         -- Reduced widths to fit new buttons
         local toggle_btn_w, view_combo_w, sync_check_w, group_spacing = 100, 120, 80, 10
+        local layout_icon_w = 35
         
         -- Added snapshots_w and increased spacing multiplier to 6
-        local buttons_total_w = presets_width + snapshots_w + toggle_btn_w + view_combo_w + sync_check_w + custom_menu_w + (group_spacing * 6)
+        local buttons_total_w = presets_width + snapshots_w + toggle_btn_w + layout_icon_w + view_combo_w + sync_check_w + custom_menu_w + (group_spacing * 7)
         local search_width = available_w - buttons_total_w - 15
         if search_width < 50 then search_width = 50 end
         
@@ -1497,6 +2165,26 @@ function loop()
         end
         ShowTooltip("Left-click to cycle through modes.\nRight-click for direct selection.")
         
+        imgui.SameLine(ctx, 0, group_spacing)
+        
+        -- MIXER LAYOUT TOGGLE
+        local icon_layout = state.mixer_layout == "LIST" and "📜" or "🎚️"
+        if imgui.Button(ctx, icon_layout .. "##layout_toggle", 30, 25) then
+            state.mixer_layout = state.mixer_layout == "LIST" and "STRIP" or "LIST"
+        end
+        if imgui.IsItemHovered(ctx) then ShowTooltip("Toggle View: List / Vertical Mixer") end
+        
+        imgui.SameLine(ctx, 0, group_spacing)
+        -- MATRIX TOGGLE
+        local icon_matrix = state.show_matrix_view and "⚪" or "🕸️" 
+        local btn_col = state.show_matrix_view and PackColor(0.2, 0.6, 1, 1) or imgui.GetStyleColor(ctx, imgui.Col_Button)
+        imgui.PushStyleColor(ctx, imgui.Col_Button, btn_col)
+        if imgui.Button(ctx, icon_matrix .. "##matrix_toggle", 30, 25) then
+             state.show_matrix_view = not state.show_matrix_view
+        end
+        imgui.PopStyleColor(ctx)
+        if imgui.IsItemHovered(ctx) then ShowTooltip("Toggle Send Matrix View") end
+
         imgui.SameLine(ctx, 0, group_spacing)
         imgui.PushItemWidth(ctx, view_combo_w)
         local combo_changed, new_view_mode = imgui.Combo(ctx, "##ViewMode", state.view_mode - 1, state.view_mode_names_str)
@@ -1547,6 +2235,8 @@ function loop()
         
 
 
+        imgui.SameLine(ctx, 0, group_spacing)
+        
         imgui.SameLine(ctx, 0, group_spacing)
         
         -- MIX SNAPSHOTS (A/B)
@@ -1609,6 +2299,15 @@ function loop()
                 RunAutoColor()
             end
             
+            if imgui.BeginMenu(ctx, "⚖️ Smart Gain Staging") then
+                imgui.TextDisabled(ctx, "(Requires Playback First)")
+                imgui.Separator(ctx)
+                if imgui.MenuItem(ctx, "Target -12dB (Safe)") then RunGainStaging(-12) end
+                if imgui.MenuItem(ctx, "Target -18dB (Analog)") then RunGainStaging(-18) end
+                if imgui.MenuItem(ctx, "Target -6dB (Hot)") then RunGainStaging(-6) end
+                imgui.EndMenu(ctx)
+            end
+            
             imgui.Separator(ctx)
             if imgui.BeginMenu(ctx, "Theme") then
                  for name, _ in pairs(themes) do
@@ -1619,12 +2318,22 @@ function loop()
                  end
                  imgui.EndMenu(ctx)
             end
+            
+            imgui.Separator(ctx)
+            if imgui.MenuItem(ctx, "☕ Donate (PayPal)") then
+                reaper.CF_ShellExecute("https://paypal.me/nkstudio")
+            end
             imgui.EndPopup(ctx)
         end
 
         imgui.Separator(ctx)
 
-        -- Main Area
+        imgui.Separator(ctx)
+        
+        local status_bar_h = 30
+        local main_area_h = -status_bar_h
+        
+        -- Main Area Content
         if state.edit_mode == "SENDS" then
             -- SENDS MODE LAYOUT
             if imgui.BeginTable(ctx, 'SendsLayout', 2, imgui.TableFlags_BordersInnerV + imgui.TableFlags_Resizable) then
@@ -1632,7 +2341,7 @@ function loop()
                 imgui.TableSetupColumn(ctx, "Send Controls", imgui.TableColumnFlags_WidthStretch)
 
                 imgui.TableNextColumn(ctx)
-                if imgui.BeginChild(ctx, "TrackListChildSends", 0, -2) then
+                if imgui.BeginChild(ctx, "TrackListChildSends", 0, main_area_h) then
                     for i = 1, #state.tracks do
                         if reaper.ValidatePtr(state.tracks[i], "MediaTrack*") then
                             local show_in_list = true
@@ -1771,8 +2480,8 @@ function loop()
                             imgui.SameLine(ctx, 0, 10); imgui.PushItemWidth(ctx, -125)
                             local db, db_int_val = GainToDB(send_info.vol), math.floor(GainToDB(send_info.vol) + 0.5)
                             local vol_changed, new_db_int = imgui.SliderInt(ctx, "##vol_send"..j..track_idx, db_int_val, -100, 12, "")
-                            ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nDouble-click or right-click slider to reset to 0dB.", db))
-                            if imgui.IsItemClicked(ctx, 1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0)) then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_VOL", 1)
+                            ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nRight-click slider to reset to 0dB.", db))
+                            if imgui.IsItemClicked(ctx, 1) then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_VOL", 1)
                             elseif vol_changed then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_VOL", DBToGain(new_db_int)); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Send Volume", -1) end
                             imgui.PopItemWidth(ctx); imgui.SameLine(ctx, 0, 5)
                             local db_text = string.format("Vol: %.1f dB", db)
@@ -1794,8 +2503,8 @@ function loop()
                                 state.value_input_text = tostring(pan_val)
                                 state.open_value_input_popup = true
                             end
-                            ShowTooltip("Pan Value\nDouble-click value to type.\nDouble-click or right-click slider to reset to center.")
-                            if imgui.IsItemClicked(ctx, 1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0)) then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_PAN", 0)
+                            ShowTooltip("Pan Value\nDouble-click value to type.\nRight-click slider to reset to center.")
+                            if imgui.IsItemClicked(ctx, 1) then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_PAN", 0)
                             elseif pan_changed then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_PAN", new_pan_int / 100); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Send Pan", -1) end
                             imgui.PopItemWidth(ctx); imgui.Separator(ctx)
                             ::continue_send_loop::
@@ -1890,8 +2599,8 @@ function loop()
                             imgui.SameLine(ctx, 0, 10); imgui.PushItemWidth(ctx, -125)
                             local db, db_int_val = GainToDB(receive_info.vol), math.floor(GainToDB(receive_info.vol) + 0.5)
                             local vol_changed, new_db_int = imgui.SliderInt(ctx, "##vol_receive"..j..track_idx, db_int_val, -100, 12, "")
-                            ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nDouble-click or right-click slider to reset to 0dB.", db))
-                            if imgui.IsItemClicked(ctx, 1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0)) then reaper.SetTrackSendInfo_Value(receive_info.src_track, 0, receive_info.send_idx, "D_VOL", 1)
+                            ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nRight-click slider to reset to 0dB.", db))
+                            if imgui.IsItemClicked(ctx, 1) then reaper.SetTrackSendInfo_Value(receive_info.src_track, 0, receive_info.send_idx, "D_VOL", 1)
                             elseif vol_changed then reaper.SetTrackSendInfo_Value(receive_info.src_track, 0, receive_info.send_idx, "D_VOL", DBToGain(new_db_int)); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Receive Volume", -1) end
                             imgui.PopItemWidth(ctx); imgui.SameLine(ctx, 0, 5)
                             local db_text = string.format("Vol: %.1f dB", db)
@@ -1913,8 +2622,8 @@ function loop()
                                 state.value_input_text = tostring(pan_val)
                                 state.open_value_input_popup = true
                             end
-                            ShowTooltip("Pan Value\nDouble-click value to type.\nDouble-click or right-click slider to reset to center.")
-                            if imgui.IsItemClicked(ctx, 1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0)) then reaper.SetTrackSendInfo_Value(receive_info.src_track, 0, receive_info.send_idx, "D_PAN", 0)
+                            ShowTooltip("Pan Value\nDouble-click value to type.\nRight-click slider to reset to center.")
+                            if imgui.IsItemClicked(ctx, 1) then reaper.SetTrackSendInfo_Value(receive_info.src_track, 0, receive_info.send_idx, "D_PAN", 0)
                             elseif pan_changed then reaper.SetTrackSendInfo_Value(receive_info.src_track, 0, receive_info.send_idx, "D_PAN", new_pan_int / 100); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Receive Pan", -1) end
                             imgui.PopItemWidth(ctx); imgui.Separator(ctx)
                             ::continue_receive_loop::
@@ -1970,7 +2679,7 @@ function loop()
                     local pan_val = math.floor(state.tracksPan[track_idx]*100+0.5)
                     local pan_changed, new_pan = imgui.SliderInt(ctx, "##Pan_cs", pan_val, -100, 100, "")
                     if pan_changed then reaper.SetMediaTrackInfo_Value(track, "D_PAN", new_pan/100); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Pan", -1) end
-                    if imgui.IsItemClicked(ctx,1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_PAN",0) end
+                    if imgui.IsItemClicked(ctx,1) then reaper.SetMediaTrackInfo_Value(track,"D_PAN",0) end
                     imgui.PopItemWidth(ctx); imgui.SameLine(ctx, 0, 5)
                     local pan_text = string.format("%d", pan_val)
                     imgui.Text(ctx, pan_text)
@@ -1979,13 +2688,13 @@ function loop()
                         state.value_input_text = tostring(pan_val)
                         state.open_value_input_popup = true
                     end
-                    ShowTooltip("Pan (Left/Right Balance)\nDouble-click value to type.\nDouble-click or right-click slider to reset.")
+                    ShowTooltip("Pan (Left/Right Balance)\nDouble-click value to type.\nRight-click slider to reset.")
 
                     imgui.Text(ctx, "Width"); imgui.SameLine(ctx, 40); imgui.PushItemWidth(ctx, -70)
                     local width_val = math.floor(state.tracksWidth[track_idx]*100+0.5)
                     local width_changed, new_width = imgui.SliderInt(ctx, "##Width_cs", width_val, -100, 100, "")
                     if width_changed then reaper.SetMediaTrackInfo_Value(track, "D_WIDTH", new_width/100); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Width", -1) end
-                    if imgui.IsItemClicked(ctx,1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_WIDTH",1) end
+                    if imgui.IsItemClicked(ctx,1) then reaper.SetMediaTrackInfo_Value(track,"D_WIDTH",1) end
                     imgui.PopItemWidth(ctx); imgui.SameLine(ctx, 0, 5)
                     local width_text = string.format("%d%%", width_val)
                     imgui.Text(ctx, width_text)
@@ -2046,8 +2755,8 @@ function loop()
                             imgui.PushItemWidth(ctx, -70)
                             local db, db_int_val = GainToDB(send_info.vol), math.floor(GainToDB(send_info.vol) + 0.5)
                             local vol_changed, new_db_int = imgui.SliderInt(ctx, "##vol_send_cs"..j, db_int_val, -100, 12, "")
-                            ShowTooltip(string.format("Send Volume: %.2f dB\nDouble-click value to type.\nDouble-click or right-click slider to reset.", db))
-                            if imgui.IsItemClicked(ctx, 1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0)) then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_VOL", 1)
+                            ShowTooltip(string.format("Send Volume: %.2f dB\nDouble-click value to type.\nRight-click slider to reset.", db))
+                            if imgui.IsItemClicked(ctx, 1) then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_VOL", 1)
                             elseif vol_changed then reaper.SetTrackSendInfo_Value(track, 0, send_api_idx, "D_VOL", DBToGain(new_db_int)); reaper.Undo_BeginBlock(); reaper.Undo_EndBlock("Adjust Send Volume", -1) end
                             imgui.PopItemWidth(ctx); imgui.SameLine(ctx)
                             local db_text = string.format("%.1f dB", db)
@@ -2108,8 +2817,8 @@ function loop()
                     s_val = math.floor(s_val + 0.5)
 
                     local fader_changed, new_s = imgui.VSliderInt(ctx, "##Vol_cs", 40, element_height, s_val, -100, 100, "")
-                    ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nDouble-click or right-click slider to reset to 0dB.", db))
-                    if imgui.IsItemClicked(ctx,1) or(imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_VOL",1); fader_changed = false end
+                    ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nRight-click slider to reset to 0dB.", db))
+                    if imgui.IsItemClicked(ctx,1) then reaper.SetMediaTrackInfo_Value(track,"D_VOL",1); fader_changed = false end
                     
                     if fader_changed then 
                         local new_db
@@ -2145,11 +2854,64 @@ function loop()
 
         else
             -- PAN/VOL/WIDTH/FX PARAMS MODE LAYOUT
-            if imgui.BeginTable(ctx, 'MainMixerArea', 2, imgui.TableFlags_BordersInnerV + imgui.TableFlags_Resizable) then
+            
+            -- Focus Folder Exit Button
+            if state.focus_folder_guid then
+                 local folder_name = "Folder"
+                 -- Try to get folder name from idx if valid, else generic
+                 if state.tracks[state.focus_folder_idx] and reaper.ValidatePtr(state.tracks[state.focus_folder_idx], "MediaTrack*") then
+                     _, folder_name = reaper.GetTrackName(state.tracks[state.focus_folder_idx])
+                 end
+                 
+                 imgui.PushStyleColor(ctx, imgui.Col_Button, 0x333333FF)
+                 if imgui.Button(ctx, "🔙 EXIT FOCUS: " .. folder_name, -1, 30) then
+                     state.focus_folder_guid = nil
+                     state.focus_folder_idx = -1
+                     state.focus_folder_depth = -1
+                 end
+                 imgui.PopStyleColor(ctx)
+            end
+
+            if state.show_matrix_view then
+                DrawSendMatrix(ctx)
+                goto skip_list_view
+            end
+
+            if state.mixer_layout == "STRIP" then
+                DrawVerticalMixerArea(ctx, main_area_h)
+                goto skip_list_view
+            end
+
+            if imgui.BeginChild(ctx, "TrackListScope", 0, main_area_h) then
+                if imgui.BeginTable(ctx, 'MainMixerArea', 2, imgui.TableFlags_BordersInnerV + imgui.TableFlags_Resizable) then
                 imgui.TableSetupColumn(ctx, "Tracks", imgui.TableColumnFlags_WidthFixed, 260)
                 imgui.TableSetupColumn(ctx, "Controls", imgui.TableColumnFlags_WidthStretch)
                 local hide_children_of_collapsed_folder, collapsed_folder_depth = false, -1
+                
+                -- Focus Folder Scope Latch
+                local is_focus_active = state.focus_folder_guid ~= nil
+                local is_in_focus_scope = false
+
                 for i = 1, #state.tracks do
+                    -- FOCUS FOLDER FILTER
+                    if is_focus_active then
+                         -- If we hit the focused folder, activate scope (but don't show the folder itself, we want to see inside)
+                         if i == state.focus_folder_idx then
+                             is_in_focus_scope = true
+                             goto continue_loop -- Hide header
+                         end
+                         
+                         if is_in_focus_scope then
+                             -- Check if we exited the folder
+                             if state.tracksDepth[i] <= state.focus_folder_depth then
+                                 is_in_focus_scope = false
+                             end
+                         end
+                         
+                         -- If not in scope, hide
+                         if not is_in_focus_scope then goto continue_loop end
+                    end
+
                     local track = state.tracks[i]
                     if reaper.ValidatePtr(track, "MediaTrack*") then
                         local current_depth = state.tracksDepth[i]
@@ -2219,10 +2981,39 @@ function loop()
                                 local r, g, b = reaper.ColorFromNative(reaper.GetTrackColor(track))
                                 imgui.PushStyleColor(ctx, imgui.Col_Header, PackColor(r/255, g/255, b/255, 0.3)); imgui.PushStyleColor(ctx, imgui.Col_HeaderHovered, PackColor(r/255, g/255, b/255, 0.5)); imgui.PushStyleColor(ctx, imgui.Col_HeaderActive, PackColor(r/255, g/255, b/255, 0.7))
                                 
-                                if imgui.Selectable(ctx, display_name, state.tracksSel[i]) then
-                                    reaper.SetTrackSelected(track, not state.tracksSel[i])
+                                if imgui.Selectable(ctx, display_name.."##track"..i, state.tracksSel[i], imgui.SelectableFlags_SpanAllColumns) then
+                                    state.last_selected_track_idx = i
+                                    
+                                    -- Restore selection logic
+                                    if imgui.IsKeyDown(ctx, imgui.Mod_Ctrl) then
+                                        -- Multi-select / Toggle
+                                        reaper.SetTrackSelected(track, not reaper.IsTrackSelected(track))
+                                    else
+                                        -- Exclusive Select
+                                        reaper.SetOnlyTrackSelected(track)
+                                    end
+                                    
                                     if has_sws_set_last_touched then reaper.SetLastTouchedTrack(track) end
                                 end
+                                
+                                -- Robust Double-Click to Toggle Folder Collapse (Check Hover + DoubleClick)
+                                if state.isFolder[i] and imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0) then
+                                    local new_compact = state.folderCollapsed[i] and 0 or 2 -- 0=normal, 2=collapsed (small)
+                                    reaper.SetMediaTrackInfo_Value(track, "I_FOLDERCOMPACT", new_compact)
+                                    -- Manually flip state for immediate visual feedback before next API update
+                                    state.folderCollapsed[i] = not state.folderCollapsed[i]
+                                    ForceUIRefresh()
+                                end
+                                
+                                -- Right Click Context Menu for Focus
+                                if imgui.BeginPopupContextItem(ctx, "TrackContextMenu"..i) then
+                                    DrawTrackContextMenuOptions(ctx, track, i, guid_str, name)
+                                    imgui.EndPopup(ctx)
+                                end
+                                
+                                if state.isFolder[i] and imgui.IsItemHovered(ctx) then ShowTooltip("Double-click to Collapse/Expand.\nRight-click for Opts.") end
+                                
+                                imgui.PopStyleColor(ctx, 3)
                                 
                                 -- Drop Target for creating sends
                                 if imgui.BeginDragDropTarget(ctx) then
@@ -2240,16 +3031,6 @@ function loop()
                                         end
                                     end
                                     imgui.EndDragDropTarget(ctx)
-                                end
-
-                                ShowTooltip("Click to select/deselect track.\nDouble-click folder to collapse/expand.")
-                                if imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0) and state.isFolder[i] then state.folderCollapsed[i] = not state.folderCollapsed[i] end
-                                imgui.PopStyleColor(ctx, 3)
-                                if imgui.BeginPopupContextItem(ctx, "TrackContextPopup") then
-                                    if imgui.MenuItem(ctx, 'Insert New Track') then reaper.defer(function() reaper.Main_OnCommand(40001, 0) end) end; imgui.Separator(ctx)
-                                    if imgui.MenuItem(ctx, 'Rename Track') then local _, old_name = reaper.GetTrackName(track); local ok, new_name = reaper.GetUserInputs("Rename Track", 1, "New Name:", old_name); if ok and new_name ~= "" then reaper.GetSetMediaTrackInfo_String(track, "P_NAME", new_name, true) end end
-                                    if imgui.MenuItem(ctx, 'Delete Track') then reaper.defer(function() reaper.DeleteTrack(track) end) end
-                                    imgui.EndPopup(ctx)
                                 end
                                 
                                 imgui.TableNextColumn(ctx) -- Buttons
@@ -2276,21 +3057,7 @@ function loop()
                             local slider_w_offset = -5
                             if state.edit_mode == "PAN" then
                                 local pan_val = math.floor(state.tracksPan[i]*100+0.5)
-                                imgui.PushItemWidth(ctx, slider_w_offset); local changed,new_pan=imgui.SliderInt(ctx,"##Pan"..i,pan_val,-100,100,""); imgui.PopItemWidth(ctx); imgui.SameLine(ctx,0,5);
-                                local pan_text = string.format("%d",pan_val)
-                                -- Calculate position for text overlay to save space
-                                -- Wait, the slider width is -5, so there's no room for SameLine text.
-                                -- The previous text was outside. User wants to narrow the gap.
-                                -- If we make slider wider (-5), the text will wrap or clip.
-                                -- We should overlay the text ON the slider, or keep it but reduce the gap.
-                                -- The text was after slider with PushItemWidth(-50).
-                                -- Let's try drawing text *over* the slider for a super compact look, OR just use the space better.
-                                -- Standard SliderInt shows value inside usually. We used "" label.
-                                -- Let's use format string in SliderInt!
-                                -- Revert PushItemWidth to -1 (full width) and put text inside.
-                                -- BUT, user wants input control. SliderInt supports format.
-                                
-                                -- Re-writing this block properly:
+                                -- New Pan Slider Logic
                                 imgui.PushItemWidth(ctx, -1)
                                 local changed,new_pan=imgui.SliderInt(ctx,"##Pan"..i,pan_val,-100,100,"%d")
                                 imgui.PopItemWidth(ctx)
@@ -2300,9 +3067,42 @@ function loop()
                                     state.value_input_text = tostring(pan_val)
                                     state.open_value_input_popup = true
                                 end
-                                ShowTooltip("Pan Value\nDouble-click value to type.\nDouble-click or right-click slider to reset to center.")
-                                if changed then reaper.Undo_BeginBlock();local d=new_pan/100-state.tracksPan[i];if state.tracksSel[i] then for j=1,#state.tracks do if state.tracksSel[j] then local t=state.tracks[j];local p=reaper.GetMediaTrackInfo_Value(t,"D_PAN")+d;reaper.SetMediaTrackInfo_Value(t,"D_PAN",math.max(-1,math.min(1,p))) end end else reaper.SetMediaTrackInfo_Value(track,"D_PAN",new_pan/100) end; reaper.Undo_EndBlock("Adjust Pan",-1) end
-                                if imgui.IsItemClicked(ctx,1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_PAN",0) end
+                                ShowTooltip("Pan Value\nDouble-click value to type.\nRight-click slider to reset to center.")
+                                if changed then 
+                                    reaper.Undo_BeginBlock()
+                                    local new_pan_norm = new_pan/100
+                                    local d = new_pan_norm - state.tracksPan[i]
+                                    
+                                    -- Group Sync
+                                    SyncGroupPan(track, d, state.tracksSel[i])
+                                    
+                                    -- IMMEDIATE STATE UPDATE TO PREVENT DRIFT
+                                    state.tracksPan[i] = new_pan_norm
+
+                                    if state.tracksSel[i] then 
+                                        for j=1,#state.tracks do 
+                                            if state.tracksSel[j] then 
+                                                local t=state.tracks[j]
+                                                local p=reaper.GetMediaTrackInfo_Value(t,"D_PAN")+d
+                                                local p_clamped = math.max(-1,math.min(1,p))
+                                                reaper.SetMediaTrackInfo_Value(t,"D_PAN",p_clamped) 
+                                                if state.tracks[j] then state.tracksPan[j] = p_clamped end -- Update state for others too? Ideally yes, but main drift comes from leader.
+                                            end 
+                                        end 
+                                    else 
+                                        reaper.SetMediaTrackInfo_Value(track,"D_PAN",new_pan_norm) 
+                                    end
+                                    reaper.Undo_EndBlock("Adjust Pan",-1) 
+                                end
+                                if imgui.IsItemClicked(ctx,1) then 
+                                    local d = 0 - state.tracksPan[i]
+                                    SyncGroupPan(track, d, state.tracksSel[i])
+                                    if state.tracksSel[i] then
+                                        for j=1,#state.tracks do if state.tracksSel[j] then reaper.SetMediaTrackInfo_Value(state.tracks[j],"D_PAN",0) end end
+                                    else
+                                        reaper.SetMediaTrackInfo_Value(track,"D_PAN",0) 
+                                    end
+                                end
 
                             elseif state.edit_mode == "VOL" then
                                 local db = GainToDB(state.tracksVol[i])
@@ -2311,49 +3111,125 @@ function loop()
                                 else s_val = (db / 60) * 100 end
                                 s_val = math.floor(s_val + 0.5)
 
-                                imgui.PushItemWidth(ctx, -1)
+                                -- 1. Reduce Slider Width to make room for Peak
+                                local avail_w = imgui.GetContentRegionAvail(ctx)
+                                local peak_reserved_w = 40 -- Enough for "-XX.X"
+                                local slider_w = avail_w - peak_reserved_w - 8 -- spacing
+                                if slider_w < 10 then slider_w = 10 end -- minimal visibility
+                                
+                                imgui.PushItemWidth(ctx, slider_w)
                                 local db_str = string.format("%.1f dB", db)
                                 local ch,new_s=imgui.SliderInt(ctx,"##Vol"..i,s_val,-100,100,"")
                                 
-                                -- Draw text over slider manually since s_val is 0-100 but we want dB
+                                -- Volume Input & Tooltip
+                                local slider_hovered = imgui.IsItemHovered(ctx)
+                                if slider_hovered then
+                                     ShowTooltip(string.format("Volume: %.2f dB\nDouble-click to type value.\nRight-click to reset to 0dB.", db))
+                                     
+                                     -- Right-Click Reset
+                                     if imgui.IsItemClicked(ctx, 1) then
+                                         reaper.Undo_BeginBlock()
+                                         SyncGroupVolume(track, (state.tracksVol[i] > 0.0000001) and (1.0 / state.tracksVol[i]) or 1.0, state.tracksSel[i])
+                                         if state.tracksSel[i] then
+                                             for j=1,#state.tracks do if state.tracksSel[j] then reaper.SetMediaTrackInfo_Value(state.tracks[j],"D_VOL",1.0) end end
+                                         else
+                                             reaper.SetMediaTrackInfo_Value(track, "D_VOL", 1.0)
+                                         end
+                                         reaper.Undo_EndBlock("Reset Volume", -1)
+                                     end
+
+                                     if imgui.IsMouseDoubleClicked(ctx, 0) then
+                                        state.value_input_info = { track_idx = i, param_type = 'VOL', current_value_str = db_str }
+                                        state.value_input_text = string.format("%.2f", db)
+                                        state.open_value_input_popup = true
+                                        
+                                        -- Prevent standard reset or drag from applying during double-click
+                                        ch = false 
+                                     end
+                                end
+                                
+                                -- Draw text over slider manually
                                 local center_x, center_y = imgui.GetItemRectMin(ctx)
                                 local size_x, size_y = imgui.GetItemRectSize(ctx)
                                 local text_sz_x, text_sz_y = imgui.CalcTextSize(ctx, db_str)
                                 imgui.DrawList_AddText(imgui.GetWindowDrawList(ctx), center_x + (size_x/2 - text_sz_x/2), center_y + (size_y/2 - text_sz_y/2), 0xFFFFFFFF, db_str)
                                 
                                 imgui.PopItemWidth(ctx)
-
-                                if imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0) then
-                                    state.value_input_info = { track_idx = i, param_type = 'VOL', current_value_str = db_str }
-                                    state.value_input_text = string.format("%.2f", db)
-                                    state.open_value_input_popup = true
-                                end
-                                ShowTooltip(string.format("Volume: %.2f dB\nDouble-click value to type.\nDouble-click or right-click slider to reset to 0dB.", db))
                                 
+                                -- 2. Draw Peak Value
+                                imgui.SameLine(ctx, 0, 10)
+                                
+                                -- Capture Peak Position
+                                local p_pos_x, p_pos_y = imgui.GetCursorScreenPos(ctx)
+                                
+                                local peakL = state.tracksPeakHoldL[i] or 0
+                                local peakR = state.tracksPeakHoldR[i] or 0
+                                local max_peak = math.max(peakL, peakR)
+                                local peak_db = GainToDB(max_peak)
+                                
+                                local peak_col = 0x00FF00FF 
+                                if peak_db > -1.0 then peak_col = 0xFF0000FF 
+                                elseif peak_db > -6.0 then peak_col = 0xFFFF00FF end 
+                                
+                                local peak_str
+                                if peak_db < -90 then 
+                                    peak_str = "-inf"
+                                    peak_col = 0x666666FF 
+                                else 
+                                    peak_str = string.format("%.1f", peak_db)
+                                end
+                                
+                                imgui.PushStyleColor(ctx, imgui.Col_Text, peak_col)
+                                imgui.Text(ctx, peak_str)
+                                imgui.PopStyleColor(ctx)
+                                
+                                -- RESET PEAK INTERACTION (INVISIBLE BUTTON OVERLAY)
+                                local p_rect_w, p_rect_h = imgui.GetItemRectSize(ctx)
+                                -- Ensure overlay covers the text fully
+                                imgui.SetCursorScreenPos(ctx, p_pos_x, p_pos_y)
+                                imgui.InvisibleButton(ctx, "##peak_reset_ovrl"..i, p_rect_w, p_rect_h)
+                                
+                                if imgui.IsItemHovered(ctx) then
+                                    if imgui.IsMouseClicked(ctx, 0) and (imgui.IsKeyDown(ctx, imgui.Mod_Shift) or imgui.IsKeyDown(ctx, imgui.Mod_Ctrl)) then
+                                        ResetAllPeaks()
+                                    elseif imgui.IsMouseDoubleClicked(ctx, 0) then
+                                        state.tracksPeakHoldL[i] = 0
+                                        state.tracksPeakHoldR[i] = 0
+                                    end
+                                    ShowTooltip("Shift+Click: Reset ALL Peaks\nDouble-Click Left: Reset Peak Hold")
+                                end
+                                
+                                -- Apply Volume Change (if not suppressed by Double Click)
                                 if ch then 
                                     reaper.Undo_BeginBlock()
                                     local new_db
                                     if new_s >= 0 then new_db = (new_s / 100) * 12
                                     else new_db = (new_s / 100) * 60 end
 
+                                    local old_gain = state.tracksVol[i]
+                                    local new_gain = DBToGain(new_db)
+                                    local ratio = (old_gain > 0.000001) and (new_gain / old_gain) or 1
+                                    
+                                    -- Group Sync
+                                    SyncGroupVolume(track, ratio, state.tracksSel[i])
+                                    
+                                    -- IMMEDIATE STATE UPDATE TO PREVENT DRIFT
+                                    state.tracksVol[i] = new_gain
+
                                     if state.tracksSel[i] then
-                                        local old_gain = state.tracksVol[i]
-                                        local new_gain = DBToGain(new_db)
-                                        local ratio = (old_gain > 0.000001) and (new_gain / old_gain) or 1
-                                        
                                         for j=1, #state.tracks do 
                                             if state.tracksSel[j] then 
-                                                local t=state.tracks[j];
+                                                local t = state.tracks[j]
                                                 local current_gain = reaper.GetMediaTrackInfo_Value(t, "D_VOL")
                                                 reaper.SetMediaTrackInfo_Value(t, "D_VOL", current_gain * ratio)
+                                                if state.tracks[j] then state.tracksVol[j] = current_gain * ratio end
                                             end 
                                         end 
                                     else 
-                                        reaper.SetMediaTrackInfo_Value(track,"D_VOL",DBToGain(new_db)) 
-                                    end;
+                                        reaper.SetMediaTrackInfo_Value(track,"D_VOL",new_gain) 
+                                    end
                                     reaper.Undo_EndBlock("Adjust Vol", -1) 
                                 end
-                                if imgui.IsItemClicked(ctx,1) or(imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_VOL",1) end
                             elseif state.edit_mode == "FX RACK" then
                                 -- FX RACK DRAWING
                                 local fx_list = state.tracksFXList[i]
@@ -2412,9 +3288,9 @@ function loop()
                                     state.value_input_text = tostring(width_val)
                                     state.open_value_input_popup = true
                                 end
-                                ShowTooltip("Stereo Width\nDouble-click value to type.\nDouble-click or right-click slider to reset to 100%.")
+                                ShowTooltip("Stereo Width\nDouble-click value to type.\nRight-click slider to reset to 100%.")
                                 if changed then reaper.Undo_BeginBlock();local new_width = new_width_int/100.0;local d=new_width-state.tracksWidth[i];if state.tracksSel[i] then for j=1,#state.tracks do if state.tracksSel[j] then local t=state.tracks[j];local w=reaper.GetMediaTrackInfo_Value(t,"D_WIDTH")+d;reaper.SetMediaTrackInfo_Value(t,"D_WIDTH",math.max(-1,math.min(1,w))) end end else reaper.SetMediaTrackInfo_Value(track,"D_WIDTH",new_width) end; reaper.Undo_EndBlock("Adjust Width",-1) end
-                                if imgui.IsItemClicked(ctx,1) or (imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_WIDTH",1) end
+                                if imgui.IsItemClicked(ctx,1) then reaper.SetMediaTrackInfo_Value(track,"D_WIDTH",1) end
                             elseif state.edit_mode == "FX PARAMS" then
                                 if state.pinnedParams[guid_str] then
                                     for p_idx, param_info in ipairs(state.pinnedParams[guid_str]) do
@@ -2448,7 +3324,12 @@ function loop()
                 end
                 imgui.EndTable(ctx)
             end
+            imgui.EndChild(ctx)
+            end
+            ::skip_list_view::
         end
+        
+        DrawStatusBar(ctx, status_bar_h)
 
         -- Popup for pinning FX parameters
         if state.open_pin_popup then
@@ -2795,6 +3676,49 @@ function loop()
 
             imgui.EndPopup(ctx)
         end
+        
+        -- EDIT GROUP NAMES POPUP
+        if state.open_group_rename_popup then 
+            imgui.OpenPopup(ctx, "EditGroupNamesPopup")
+            state.open_group_rename_popup = false 
+        end
+        
+        imgui.SetNextWindowSize(ctx, 260, 330, imgui.Cond_Appearing)
+        if imgui.BeginPopupModal(ctx, "EditGroupNamesPopup", true, imgui.WindowFlags_NoResize) then
+            imgui.Text(ctx, "Rename Groups")
+            imgui.Separator(ctx)
+            
+            for i=1, 8 do
+                imgui.PushID(ctx, i)
+                imgui.AlignTextToFramePadding(ctx)
+                imgui.PushStyleColor(ctx, imgui.Col_Text, state.group_colors[i])
+                imgui.Text(ctx, "Group "..i)
+                imgui.PopStyleColor(ctx)
+                imgui.SameLine(ctx, 70)
+                imgui.PushItemWidth(ctx, -1)
+                
+                local name_val = state.group_names[i] or ""
+                local changed, new_name = imgui.InputText(ctx, "##grpname", name_val, 32)
+                if changed then state.group_names[i] = new_name end
+                
+                imgui.PopItemWidth(ctx)
+                imgui.PopID(ctx)
+            end
+            
+            imgui.Separator(ctx)
+            if imgui.Button(ctx, "Save & Close", 120, 0) then
+                SaveProjectGroups()
+                imgui.CloseCurrentPopup(ctx)
+            end
+            imgui.SameLine(ctx)
+            if imgui.Button(ctx, "Cancel", 120, 0) then
+                -- Reload to discard changes? 
+                LoadProjectGroups() -- Simple revert
+                imgui.CloseCurrentPopup(ctx)
+            end
+            
+            imgui.EndPopup(ctx)
+        end
 
         imgui.End(ctx)
     end
@@ -2802,6 +3726,353 @@ function loop()
     PopTheme() -- Pop styles for the window (must match SetTheme)
 
     if state.is_open then reaper.defer(loop) end
+end
+
+-- SEND MATRIX DRAWING
+function DrawSendMatrix(ctx)
+    -- Calculate available space
+    local content_avail = imgui.GetContentRegionAvail(ctx)
+    local width = type(content_avail) == 'table' and content_avail.x or content_avail
+    local height = type(content_avail) == 'table' and content_avail.y or content_avail
+    
+    -- Filter Pinned Tracks
+    local col_tracks = {}
+    for _, guid in ipairs(state.matrix_pinned_tracks) do
+        local track = reaper.BR_GetMediaTrackByGUID(0, guid)
+        if track then table.insert(col_tracks, track) end
+    end
+    
+    if #col_tracks == 0 then
+        imgui.PushStyleColor(ctx, imgui.Col_Text, PackColor(1, 1, 0, 1))
+        imgui.Text(ctx, "Send Matrix: No tracks pinned as Destinations.")
+        imgui.PopStyleColor(ctx)
+        imgui.Text(ctx, "Usage: Right-click a Reverb/Aux track > 'Pooling / Grouping' > '📌 Pin to Matrix'")
+        return
+    end
+    
+    local cell_w = 60
+    local row_header_w = 150
+    
+    -- Use 0 for border (false) if integer is required, or simpler signature.
+    -- Most ReaImGui examples use: BeginChild(ctx, id, w, h, border_flags?)
+    -- Let's try skipping the border arg if it's optional, or pass 0.
+    -- Error said "number expected, got boolean". So arg 5 is a number. 
+    -- Arg 5 is likely 'border' as int (0 or 1), or it is 'flags' directly if border is omitted?
+    -- If flags is 6th... 
+    -- Let's assume arg 5 is border(int) then 6 is flags.
+    -- Or signature is BeginChild(ctx, id, w, h, flags). (Count: 5 args total).
+    -- User passed 6 args.
+    -- Let's match the other usage: imgui.BeginChild(ctx, "TrackListChildSends", 0, -2) -> 4 args.
+    -- So flags is likely 5th arg.
+    -- Correct Signature: BeginChild(ctx, id, width, height, child_flags, window_flags)
+    -- We pass 0 for child_flags (No Border, No Resize)
+    -- We pass WindowFlags_HorizontalScrollbar as window_flags
+    imgui.BeginChild(ctx, "MatrixRegion", width, height, 0, imgui.WindowFlags_HorizontalScrollbar)
+    
+    -- Header Row
+    imgui.SetCursorPosX(ctx, row_header_w) 
+    for _, dest_track in ipairs(col_tracks) do
+        local _, name = reaper.GetTrackName(dest_track)
+        imgui.PushItemWidth(ctx, cell_w)
+        if imgui.Button(ctx, name, cell_w - 4, 0) then
+            -- Click header?
+        end
+        imgui.SameLine(ctx)
+        imgui.PopItemWidth(ctx)
+    end
+    imgui.NewLine(ctx)
+    
+    -- Rows
+    for i, track in ipairs(state.tracks) do
+        -- Safety check for is_visible
+        local is_vis = true
+        if state.is_visible and state.is_visible[i] ~= nil then
+            is_vis = state.is_visible[i]
+        end
+        
+        if is_vis then
+             local _, name = reaper.GetTrackName(track)
+             
+             -- Row Header
+             imgui.PushItemWidth(ctx, row_header_w)
+             if imgui.Selectable(ctx, name .. "##Row"..i, state.tracksSel[i], 0, row_header_w - 10, 0) then
+                 local is_ctrl = imgui.IsKeyDown(ctx, 4096) or imgui.IsKeyDown(ctx, 1)
+                 SetTrackSelected(track, not state.tracksSel[i], is_ctrl)
+             end
+             imgui.PopItemWidth(ctx)
+             imgui.SameLine(ctx, row_header_w)
+             
+             -- Cells
+             for c_idx, dest_track in ipairs(col_tracks) do
+                 if track == dest_track then
+                     imgui.PushStyleColor(ctx, imgui.Col_Border, PackColor(0.2,0.2,0.2,0.5))
+                     imgui.Dummy(ctx, cell_w, 20)
+                     imgui.PopStyleColor(ctx)
+                 else
+                     local send_idx = nil
+                     local send_vol = 0
+                     local cnt = reaper.GetTrackNumSends(track, 0)
+                     for s=0, cnt-1 do
+                         local dest = reaper.GetTrackSendInfo_Value(track, 0, s, "P_DESTTRACK")
+                         if dest == dest_track then 
+                            send_idx = s 
+                            send_vol = reaper.GetTrackSendInfo_Value(track, 0, s, "D_VOL")
+                            break 
+                         end
+                     end
+                     
+                     if send_idx then
+                         local active_col = PackColor(0.2, 0.8, 1, 1)
+                         imgui.PushStyleColor(ctx, imgui.Col_Button, active_col)
+                         local db_val = GainToDB(send_vol)
+                         local display = string.format("%.0f", db_val)
+                         
+                        imgui.Button(ctx, display.."##Send"..i.."_"..c_idx, cell_w - 4, 18)
+                         
+                         if imgui.IsItemActive(ctx) and imgui.IsMouseDragging(ctx, 0) then
+                             local delta_x, delta_y = imgui.GetMouseDragDelta(ctx, 0)
+                             local sensitivity = 0.5
+                             local new_db = db_val + (-delta_y * sensitivity)
+                             if new_db > 12 then new_db = 12 end
+                             reaper.SetTrackSendInfo_Value(track, 0, send_idx, "D_VOL", DBToGain(new_db))
+                             imgui.ResetMouseDragDelta(ctx, 0)
+                         end
+                         
+                         if imgui.IsItemClicked(ctx, 1) then
+                             reaper.RemoveTrackSend(track, 0, send_idx)
+                         end
+                         ShowTooltip("Drag: Adjust Volume\nRight-Click: Delete Send")
+                         imgui.PopStyleColor(ctx)
+                     else
+                         imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(0.15,0.15,0.15,1))
+                         if imgui.Button(ctx, "+##Create"..i.."_"..c_idx, cell_w - 4, 18) then
+                             reaper.CreateTrackSend(track, dest_track)
+                         end
+                         ShowTooltip("Click to Create Send to " .. select(2, reaper.GetTrackName(dest_track)))
+                         imgui.PopStyleColor(ctx)
+                     end
+                 end
+                 imgui.SameLine(ctx)
+             end
+             imgui.NewLine(ctx)
+        end
+    end
+    imgui.EndChild(ctx)
+end
+
+-- MASTER LOUDNESS FUNCTIONS
+function GetMasterLoudnessMeter()
+    local master = reaper.GetMasterTrack(0)
+    local cnt = reaper.TrackFX_GetCount(master)
+    for i=0, cnt-1 do
+        local _, name = reaper.TrackFX_GetFXName(master, i, "")
+        if name:match("Loudness Meter") and name:match("LUFS") then
+            return i
+        end
+    end
+    return nil
+end
+
+function EnsureMasterLoudnessMeter()
+    local master = reaper.GetMasterTrack(0)
+    local idx = GetMasterLoudnessMeter()
+    if not idx then
+        idx = reaper.TrackFX_AddByName(master, "analysis/loudness_meter", false, -1)
+    end
+    return idx
+end
+
+function GetMasterLoudnessData()
+    local master = reaper.GetMasterTrack(0)
+    local idx = GetMasterLoudnessMeter()
+    
+    if not idx then return { status = "MISSING" } end
+    
+    local is_enabled = reaper.TrackFX_GetEnabled(master, idx)
+    local is_offline = reaper.TrackFX_GetOffline(master, idx)
+    
+    if not is_enabled or is_offline then
+        return { status = "OFFLINE", fx_idx = idx }
+    end
+    
+    local lufs_m, lufs_s, lufs_i = -144, -144, -144
+    local rms_m, rms_i, peak_db, lra = -144, -144, -144, 0
+    local num_params = reaper.TrackFX_GetNumParams(master, idx)
+    
+    for p=0, num_params-1 do
+        local _, p_name = reaper.TrackFX_GetParamName(master, idx, p, "")
+        local val = reaper.TrackFX_GetParam(master, idx, p)
+        
+        -- Match "output" parameters specifically
+        if p_name:match("LUFS%-M.*output") then lufs_m = val end
+        if p_name:match("LUFS%-S.*output") then lufs_s = val end
+        if p_name:match("LUFS%-I.*output") then lufs_i = val end
+        if p_name:match("RMS%-M.*output") then rms_m = val end
+        if p_name:match("RMS%-I.*output") then rms_i = val end
+        if p_name:match("Peak.*output") then peak_db = val end
+        if p_name:match("Loudness Range output") or p_name:match("LRA.*output") then lra = val end
+    end
+    
+    -- Fallback strategy: If names didn't match (maybe locale?), try fixed indices for standard plugin
+    if not debug_found and num_params > 8 then
+       -- Standard "analysis/loudness_meter" structure guess?
+       -- Actually, let's just stick to name matching but match looser.
+    end
+    
+
+    
+    return { status = "ACTIVE", m = lufs_m, s = lufs_s, i = lufs_i, rms_m = rms_m, rms_i = rms_i, peak = peak_db, fx_idx = idx, lra = lra }
+end
+
+function DrawMasterLoudness(ctx)
+    local data = GetMasterLoudnessData()
+    
+    imgui.BeginGroup(ctx)
+    imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 4, 2)
+    imgui.Text(ctx, "MASTER LUFS")
+    imgui.SameLine(ctx)
+    
+    if data.status == "MISSING" then
+        imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(0.2, 0.2, 0.2, 1))
+        if imgui.Button(ctx, "ADD METER") then EnsureMasterLoudnessMeter() end
+        imgui.PopStyleColor(ctx)
+    elseif data.status == "OFFLINE" then
+        imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(0.8, 0, 0, 1))
+        if imgui.Button(ctx, "⏻ POWER ON") then
+             reaper.TrackFX_SetOffline(reaper.GetMasterTrack(0), data.fx_idx, false)
+             reaper.TrackFX_SetEnabled(reaper.GetMasterTrack(0), data.fx_idx, true)
+        end
+        imgui.PopStyleColor(ctx)
+    elseif data.status == "ACTIVE" then
+        imgui.Text(ctx, "M:")
+        imgui.SameLine(ctx); imgui.TextColored(ctx, PackColor(0.4, 1, 0.4, 1), string.format("%.1f", data.m))
+        imgui.SameLine(ctx, 0, 10); imgui.Text(ctx, "S:")
+        imgui.SameLine(ctx); imgui.TextColored(ctx, PackColor(0.2, 0.8, 1, 1), string.format("%.1f", data.s))
+        imgui.SameLine(ctx, 0, 10); imgui.Text(ctx, "I:")
+        imgui.SameLine(ctx); imgui.TextColored(ctx, PackColor(1, 0.8, 0.2, 1), string.format("%.1f", data.i))
+    end
+    
+    imgui.PopStyleVar(ctx)
+    imgui.EndGroup(ctx)
+    if imgui.IsItemHovered(ctx) then ShowTooltip("Master Loudness (M: Momentary, S: Short-term, I: Integrated)") end
+end
+
+function DrawStatusBar(ctx, bar_height)
+    local master_track = reaper.GetMasterTrack(0)
+    local w, h = imgui.GetWindowSize(ctx)
+    local p_x, p_y = imgui.GetCursorScreenPos(ctx)
+    
+    -- Force position to bottom of window
+    imgui.SetCursorPosY(ctx, h - bar_height)
+    local start_y = imgui.GetCursorPosY(ctx)
+    local dl = imgui.GetWindowDrawList(ctx)
+    local scr_x, scr_y = imgui.GetCursorScreenPos(ctx)
+    
+    -- Draw Background
+    imgui.DrawList_AddRectFilled(dl, scr_x, scr_y, scr_x + w, scr_y + bar_height, 0x111111FF)
+    imgui.DrawList_AddLine(dl, scr_x, scr_y, scr_x + w, scr_y, 0x444444FF) -- Top border
+    
+    local lufs_data = GetMasterLoudnessData()
+    
+    -- Vertical align centers (Lifted up slightly)
+    local text_y_off = 4 
+    imgui.SetCursorPos(ctx, 10, start_y + text_y_off)
+    
+    imgui.BeginGroup(ctx)
+    -- Reduced spacing to fit LRA
+    imgui.PushStyleVar(ctx, imgui.StyleVar_ItemSpacing, 10, 0)
+    
+    local function DrawStat(label, val, val_col)
+        imgui.TextColored(ctx, 0xAAAAAAFF, label)
+        imgui.SameLine(ctx)
+        
+        local start_val_x = imgui.GetCursorPosX(ctx)
+        local val_str = "---"
+        if val then
+            if val <= -90 then
+                val_str = "-inf"
+                if not val_col then val_col = 0x666666FF end -- Dim gray default for silence
+            else
+                val_str = string.format("%.1f", val)
+            end
+        end
+        
+        imgui.TextColored(ctx, val_col or 0xFFFFFFFF, val_str)
+        imgui.SameLine(ctx)
+        
+        -- Fixed width for value to prevent jitter (approx 50px)
+        local end_val_x = imgui.GetCursorPosX(ctx)
+        local width_so_far = end_val_x - start_val_x
+        if width_so_far < 50 then
+            imgui.Dummy(ctx, 50 - width_so_far, 1)
+            imgui.SameLine(ctx)
+        end
+    end
+    
+    if lufs_data.status == "ACTIVE" then
+        -- 1. True Peak (from Plugin)
+        local peak_val = lufs_data.peak or -144
+        local peak_col = 0x00FF00FF
+        if peak_val > -1.0 then peak_col = 0xFF0000FF elseif peak_val > -6.0 then peak_col = 0xFFFF00FF end
+        
+        -- Special handling for Peak String to include "dB"
+        imgui.TextColored(ctx, 0xAAAAAAFF, "TRUE PEAK:")
+        imgui.SameLine(ctx)
+        
+        local start_p_x = imgui.GetCursorPosX(ctx)
+        if peak_val <= -90 then
+            imgui.TextColored(ctx, 0x666666FF, "-inf dB")
+        else
+            imgui.TextColored(ctx, peak_col, string.format("%.1f dB", peak_val))
+        end
+        imgui.SameLine(ctx)
+        
+        -- Fixed width for Peak value (approx 60px to include " dB")
+        local end_p_x = imgui.GetCursorPosX(ctx)
+        local width_p_so_far = end_p_x - start_p_x
+        if width_p_so_far < 60 then
+            imgui.Dummy(ctx, 60 - width_p_so_far, 1)
+            imgui.SameLine(ctx)
+        end
+        
+        -- Separator
+        imgui.TextDisabled(ctx, "|")
+        imgui.SameLine(ctx)
+        
+        -- 2. RMS (Momentary)
+        DrawStat("RMS-M:", lufs_data.rms_m, 0xDDDDDDFF)
+        
+        imgui.TextDisabled(ctx, "|")
+        imgui.SameLine(ctx)
+        
+        -- 3. LUFS
+        DrawStat("LUFS-M:", lufs_data.m, 0x00FF00FF)
+        DrawStat("LUFS-S:", lufs_data.s, 0x00FFFFFF)
+        DrawStat("LUFS-I:", lufs_data.i, 0xFFCC00FF)
+        
+        -- LRA Display
+        if lufs_data.lra then
+             imgui.TextDisabled(ctx, "|")
+             imgui.SameLine(ctx)
+             DrawStat("LRA:", lufs_data.lra, 0xAAAAAAFF)
+        end
+        
+        
+    elseif lufs_data.status == "MISSING" then
+        if imgui.Button(ctx, "Install Loudness Meter on Master") then EnsureMasterLoudnessMeter() end
+    elseif lufs_data.status == "OFFLINE" then
+        -- Ensure button is visible by slight padding adjustment or centering
+ 
+        if imgui.Button(ctx, "Meter Offline - Click to Enable") then 
+             reaper.TrackFX_SetOffline(master_track, lufs_data.fx_idx, false)
+             reaper.TrackFX_SetEnabled(master_track, lufs_data.fx_idx, true)
+        end
+    else
+        imgui.Text(ctx, "Status: " .. tostring(lufs_data.status))
+    end
+    
+    imgui.PopStyleVar(ctx)
+    imgui.EndGroup(ctx)
 end
 
 -- --- SCRIPT START AND EXIT ---
