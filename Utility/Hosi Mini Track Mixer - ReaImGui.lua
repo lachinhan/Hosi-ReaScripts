@@ -2195,23 +2195,23 @@ function loop()
                                 end
 
                                 imgui.TableNextColumn(ctx) -- Visibility
-                                if not state.tracksVisible[i] then imgui.PushStyleColor(ctx, imgui.Col_Text, PackColor(0.6, 0.6, 0.6, 1.0)) end
-                                
                                 -- Center Eye Icon
-                                imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 0, 0) -- Remove padding to center icon manually or just tighter fit
-                                -- Calculate offsets if needed, but 0 padding often helps small buttons
-                                -- Actually, for a 20 px wide button, if font is normal, it might be offset.
-                                -- Let's try explicit centering or just 0 padding.
+                                imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 0, 0)
+                                
+                                -- Visual Feedback: Bright if visible, Dim if hidden
+                                local eye_col = state.tracksVisible[i] and 0xFFFFFFFF or 0xFFFFFF40
+                                imgui.PushStyleColor(ctx, imgui.Col_Text, eye_col)
+                                
                                 if imgui.Button(ctx, "👁##vis"..i, 22, 18) then 
                                     local new_vis_state = state.tracksVisible[i] and 0 or 1
                                     reaper.SetMediaTrackInfo_Value(track, "B_SHOWINTCP", new_vis_state)
                                     reaper.SetMediaTrackInfo_Value(track, "B_SHOWINMIXER", new_vis_state)
                                     ForceUIRefresh()
                                 end
-                                imgui.PopStyleVar(ctx) -- Pop FramePadding
-
+                                
+                                imgui.PopStyleColor(ctx)
+                                imgui.PopStyleVar(ctx)
                                 ShowTooltip("Show/Hide this track in TCP and Mixer.")
-                                if not state.tracksVisible[i] then imgui.PopStyleColor(ctx) end
                                 
                                 imgui.TableNextColumn(ctx) -- Track Name
                                 local display_name = string.format("%02d: %s", i, name)
