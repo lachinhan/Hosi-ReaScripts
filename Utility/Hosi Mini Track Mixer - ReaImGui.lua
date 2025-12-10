@@ -214,14 +214,64 @@ local has_sws_set_last_touched = type(reaper.SetLastTouchedTrack) == 'function'
 local new_view_modes = { "ALL", "FOLDERS", "FOLDERS & CHILDREN", "SELECTED", "SELECTED & CHILDREN", "ARMED", "HAS FX", "HAS ITEMS", "MUTED" }
 local state = {
     is_open = true,
-    edit_mode = "PAN", -- PAN, VOL, WIDTH, SENDS, RECEIVES, FX PARAMS, CHAN STRIP
-    edit_modes = { "PAN", "VOL", "WIDTH", "SENDS", "RECEIVES", "FX PARAMS", "CHAN STRIP" },
+    edit_mode = "PAN", -- PAN, VOL, WIDTH, FX RACK, SENDS, RECEIVES, FX PARAMS, CHAN STRIP
+    edit_modes = { "PAN", "VOL", "WIDTH", "FX RACK", "SENDS", "RECEIVES", "FX PARAMS", "CHAN STRIP" },
     view_mode = 1,
     view_mode_names = new_view_modes,
     view_mode_names_str = table.concat(new_view_modes, "\0") .. "\0",
     filter_text = "",
     sync_view = false,
     sends_list_filter = "ALL", -- ALL, HAS_SENDS
+    -- Meter Options
+    meter_options = {
+        mode = "PEAK", -- PEAK, RMS (Visual Smoothing)
+        scale = "DIGITAL", -- DIGITAL (0dB Max), EBU (-18dB Ref)
+        show_ticks = true
+    },
+    -- Mix Snapshots
+    mix_snapshots = {
+        A = nil,
+        B = nil,
+        current_active = nil -- 'A' or 'B' or nil
+    },
+    -- Auto-Color Rules
+    auto_color_rules = {
+        -- Drums (Red/Orange)
+        { pattern = "kick", color = 0xFF0000, icon = "🥁" },
+        { pattern = "snare", color = 0xFF4400, icon = "🥁" },
+        { pattern = "hat", color = 0xFF8800, icon = "🎩" },
+        { pattern = "cymbal", color = 0xFFAA00, icon = "📀" },
+        { pattern = "drum", color = 0xAA0000, icon = "🥁" },
+        { pattern = "tom", color = 0xDD5500, icon = "🥁" },
+        
+        -- Bass (Dark Blue/Purple)
+        { pattern = "bass", color = 0x0000FF, icon = "🎸" },
+        { pattern = "sub", color = 0x000088, icon = "🔉" },
+        
+        -- Guitars (Green)
+        { pattern = "gtr", color = 0x00FF00, icon = "🎸" },
+        { pattern = "guitar", color = 0x00FF00, icon = "🎸" },
+        { pattern = "acous", color = 0x88FF00, icon = "🎸" },
+        
+        -- Keys/Synth (Teal/Cyan)
+        { pattern = "key", color = 0x00FFFF, icon = "🎹" },
+        { pattern = "piano", color = 0x00FFFF, icon = "🎹" },
+        { pattern = "synth", color = 0x00AAAA, icon = "🎹" },
+        { pattern = "pad", color = 0x008888, icon = "🌌" },
+        
+        -- Vocals (Pink/Magenta)
+        { pattern = "vox", color = 0xFF00FF, icon = "🎤" },
+        { pattern = "vocal", color = 0xFF00FF, icon = "🎤" },
+        { pattern = "bgv", color = 0xFF55FF, icon = "🎤" },
+        { pattern = "choir", color = 0xAA00AA, icon = "🗣️" },
+        
+        -- FX/Buss (Yellow/Gold)
+        { pattern = "fx", color = 0xFFFF00, icon = "✨" },
+        { pattern = "verb", color = 0xFFAA00, icon = "🌫️" },
+        { pattern = "delay", color = 0xFFAA00, icon = "🔁" },
+        { pattern = "bus", color = 0xAAAA00, icon = "🚌" },
+        { pattern = "master", color = 0xFFFFFF, icon = "🎚️" }
+    },
     -- Track data
     tracks = {},
     tracksPan = {},
@@ -244,7 +294,10 @@ local state = {
     tracksPeakL = {},
     tracksPeakR = {},
     tracksPeakHoldL = {},
+    tracksPeakR = {},
+    tracksPeakHoldL = {},
     tracksPeakHoldR = {},
+    tracksFXList = {}, -- New table for FX Rack data
     last_selected_track_idx = nil,
     sends_view_track_idx = nil,
     receives_view_track_idx = nil,
@@ -354,7 +407,9 @@ function PackColor(r, g, b, a)
     local g_int = math.floor(g * 255 + 0.5)
     local b_int = math.floor(b * 255 + 0.5)
     local a_int = math.floor(a * 255 + 0.5)
-    return a_int * 0x1000000 + b_int * 0x10000 + g_int * 0x100 + r_int
+    -- Fixed: Combine as R G B A (ReaImGui ColorConvertDouble4ToU32 equivalent)
+    -- Shift: R<<24, G<<16, B<<8, A
+    return (r_int << 24) | (g_int << 16) | (b_int << 8) | a_int
 end
 
 function GainToDB(gain)
@@ -387,13 +442,158 @@ function DrawVUMeter(ctx, height, peakL_gain, peakR_gain, peakHoldL_gain, peakHo
     local total_w = meter_w * 2 + meter_spacing
     local text_height = 20
 
-    imgui.InvisibleButton(ctx, "##vu_placeholder_area", total_w, height + text_height)
-    if imgui.IsItemClicked(ctx, 0) then
+    -- Invisible Button for Interaction (Reset / Context Menu)
+    -- Changed ID to be unique per track to avoid conflicts
+    imgui.InvisibleButton(ctx, "##vu_area_"..track_idx, total_w, height + text_height)
+    
+    -- Context Menu
+    if imgui.BeginPopupContextItem(ctx, "MeterSettings"..track_idx) then
+        imgui.TextDisabled(ctx, "Meter Settings")
+        imgui.Separator(ctx)
+        
+        if imgui.BeginMenu(ctx, "Scale") then
+            if imgui.MenuItem(ctx, "Digital (0dB Max)", "", state.meter_options.scale == "DIGITAL") then state.meter_options.scale = "DIGITAL" end
+            -- Adjusted EBU label for clarity
+            if imgui.MenuItem(ctx, "EBU Style (Ref -18dB)", "", state.meter_options.scale == "EBU") then state.meter_options.scale = "EBU" end
+            imgui.EndMenu(ctx)
+        end
+        
+        if imgui.MenuItem(ctx, "Show Ticks", "", state.meter_options.show_ticks) then state.meter_options.show_ticks = not state.meter_options.show_ticks end
+        imgui.Separator(ctx)
+        if imgui.MenuItem(ctx, "Reset All Peaks") then
+            for i=1, #state.tracks do state.tracksPeakHoldL[i] = 0; state.tracksPeakHoldR[i] = 0 end
+        end
+        imgui.EndPopup(ctx)
+    elseif imgui.IsItemClicked(ctx, 0) then
         state.tracksPeakHoldL[track_idx] = 0
         state.tracksPeakHoldR[track_idx] = 0
-        ShowTooltip("Peak Reset")
-    else
-        ShowTooltip("Click meter to reset peak hold")
+    end
+    
+    if imgui.IsItemHovered(ctx) then
+         ShowTooltip("L-Click: Reset Peak\nR-Click: Meter Settings")
+    end
+
+    -- Helper to map Gain to 0-1 based on scale
+    local function GetPulse(val_gain)
+        local db = GainToDB(val_gain)
+        local min_db = -60
+        local max_db = 0
+        
+        if db < min_db then return 0 end
+        if db > max_db then return 1 end
+        return (db - min_db) / (max_db - min_db)
+    end
+
+    for ch = 0, 1 do
+        local gain = (ch == 0) and peakL_gain or peakR_gain
+        local hold_gain = (ch == 0) and peakHoldL_gain or peakHoldR_gain
+        local x = screen_px + (ch * (meter_w + meter_spacing))
+        
+        -- Background Meter Track
+        imgui.DrawList_AddRectFilled(draw_list, x, screen_py, x + meter_w, screen_py + height, 0x111111FF) 
+
+        -- Calculate Height
+        local fill_pct = GetPulse(gain)
+        local fill_h = math.floor(fill_pct * height)
+        local y_top = screen_py + (height - fill_h)
+        
+        -- Draw Gradient Bar
+        if fill_h > 0 then
+            local col_bot, col_mid, col_top
+            
+            if state.meter_options.scale == "EBU" then
+                 -- EBU Colors: Gradient attempt
+                 col_bot = 0x00AA00FF
+                 col_top = 0xFFCC00FF 
+                 if fill_pct > 0.8 then col_top = 0xFF0000FF end 
+            else
+                 -- Digital: Green -> Red
+                 col_bot = 0x00FF00FF
+                 col_top = 0xFF0000FF
+            end
+            
+            -- Use MultiColor for Gradient
+            imgui.DrawList_AddRectFilledMultiColor(draw_list, x, y_top, x + meter_w, screen_py + height, 
+                    col_top, col_top, col_bot, col_bot) 
+        end
+
+        -- Hold Line
+        local hold_pct = GetPulse(hold_gain)
+        if hold_pct > 0 then
+            local y_hold = screen_py + (height - math.floor(hold_pct * height))
+            imgui.DrawList_AddLine(draw_list, x, y_hold, x + meter_w, y_hold, 0xFFFFFFFF, 1)
+        end
+    end
+
+    -- Draw Ticks
+    if state.meter_options.show_ticks then
+        local dbs = {-6, -12, -18, -24, -40}
+        local min_db, max_db = -60, 0
+        local x_start = screen_px
+        local x_end = screen_px + total_w
+        
+        for _, db in ipairs(dbs) do
+            if db >= min_db then
+               local pct = (db - min_db) / (max_db - min_db)
+               local y = screen_py + (height - math.floor(pct * height))
+               imgui.DrawList_AddLine(draw_list, x_start, y, x_end, y, 0x66666655, 1)
+            end
+        end
+    end
+
+    -- Draw Peak Hold Text
+    local peak_hold_db_l = GainToDB(peakHoldL_gain)
+    local peak_hold_db_r = GainToDB(peakHoldR_gain)
+    
+    local text_l = (peak_hold_db_l < -99) and "-inf" or string.format("%.1f", peak_hold_db_l)
+    local text_r = (peak_hold_db_r < -99) and "-inf" or string.format("%.1f", peak_hold_db_r)
+    
+    local text_w_l = imgui.CalcTextSize(ctx, text_l)
+    local text_w_r = imgui.CalcTextSize(ctx, text_r)
+    
+    local text_y_pos = screen_py + height + 3
+
+    imgui.DrawList_AddText(draw_list, screen_px + (meter_w - text_w_l) / 2, text_y_pos, PackColor(0.8,0.8,0.8,1), text_l)
+    imgui.DrawList_AddText(draw_list, screen_px + meter_w + meter_spacing + (meter_w - text_w_r) / 2, text_y_pos, PackColor(0.8,0.8,0.8,1), text_r)
+end
+
+-- OLD FUNCTION (Kept to ensure clean replacement flow, but disabled by rename)
+function DrawVUMeter_OLD(ctx, height, peakL_gain, peakR_gain, peakHoldL_gain, peakHoldR_gain, track_idx)
+    local draw_list = imgui.GetWindowDrawList(ctx)
+    local screen_px, screen_py = imgui.GetCursorScreenPos(ctx)
+
+    local meter_w, meter_spacing = 25, 4
+    local total_w = meter_w * 2 + meter_spacing
+    local text_height = 20
+
+    -- Invisible Button for Interaction (Reset / Context Menu)
+    imgui.InvisibleButton(ctx, "##vu_area_"..track_idx, total_w, height + text_height)
+    
+    -- Context Menu
+    if imgui.BeginPopupContextItem(ctx, "MeterSettings"..track_idx) then
+        imgui.TextDisabled(ctx, "Meter Settings")
+        imgui.Separator(ctx)
+        
+        if imgui.BeginMenu(ctx, "Scale") then
+            if imgui.MenuItem(ctx, "Digital (0dB Max)", "", state.meter_options.scale == "DIGITAL") then state.meter_options.scale = "DIGITAL" end
+            -- Adjusted EBU label for clarity
+            if imgui.MenuItem(ctx, "EBU Style (Ref -18dB)", "", state.meter_options.scale == "EBU") then state.meter_options.scale = "EBU" end
+            imgui.EndMenu(ctx)
+        end
+        
+        if imgui.MenuItem(ctx, "Show Ticks", "", state.meter_options.show_ticks) then state.meter_options.show_ticks = not state.meter_options.show_ticks end
+        imgui.Separator(ctx)
+        if imgui.MenuItem(ctx, "Reset All Peaks") then
+            for i=1, #state.tracks do state.tracksPeakHoldL[i] = 0; state.tracksPeakHoldR[i] = 0 end
+        end
+        imgui.EndPopup(ctx)
+    elseif imgui.IsItemClicked(ctx, 0) then
+        state.tracksPeakHoldL[track_idx] = 0
+        state.tracksPeakHoldR[track_idx] = 0
+    end
+    
+    if imgui.IsItemHovered(ctx) then
+         ShowTooltip("L-Click: Reset Peak\nR-Click: Meter Settings")
     end
 
     local col_bg = 0x00000044 -- Transparent/Darker background for meter
@@ -761,6 +961,96 @@ function SyncTrackVisibility()
     ForceUIRefresh()
 end
 
+-- --- MIX SNAPSHOT LOGIC ---
+function StoreSnapshot(slot)
+    local snapshot = {}
+    for i = 1, #state.tracks do
+        local track = state.tracks[i]
+        if reaper.ValidatePtr(track, "MediaTrack*") then
+             local guid = reaper.GetTrackGUID(track)
+             snapshot[guid] = {
+                 vol = reaper.GetMediaTrackInfo_Value(track, "D_VOL"),
+                 pan = reaper.GetMediaTrackInfo_Value(track, "D_PAN"),
+                 width = reaper.GetMediaTrackInfo_Value(track, "D_WIDTH"),
+                 mute = reaper.GetMediaTrackInfo_Value(track, "B_MUTE"),
+                 solo = reaper.GetMediaTrackInfo_Value(track, "I_SOLO"),
+                 phase = reaper.GetMediaTrackInfo_Value(track, "B_PHASE")
+             }
+        end
+    end
+    state.mix_snapshots[slot] = snapshot
+    state.mix_snapshots.current_active = slot
+end
+
+function RecallSnapshot(slot)
+    local snapshot = state.mix_snapshots[slot]
+    if not snapshot then return end
+    
+    reaper.Undo_BeginBlock()
+    reaper.PreventUIRefresh(1)
+    
+    for i = 1, #state.tracks do
+        local track = state.tracks[i]
+        if reaper.ValidatePtr(track, "MediaTrack*") then
+            local guid = reaper.GetTrackGUID(track)
+            local data = snapshot[guid]
+            
+            if data then
+                reaper.SetMediaTrackInfo_Value(track, "D_VOL", data.vol)
+                reaper.SetMediaTrackInfo_Value(track, "D_PAN", data.pan)
+                reaper.SetMediaTrackInfo_Value(track, "D_WIDTH", data.width)
+                reaper.SetMediaTrackInfo_Value(track, "B_MUTE", data.mute)
+                reaper.SetMediaTrackInfo_Value(track, "I_SOLO", data.solo)
+                reaper.SetMediaTrackInfo_Value(track, "B_PHASE", data.phase)
+            end
+        end
+    end
+    
+    reaper.PreventUIRefresh(-1)
+    reaper.Undo_EndBlock("Recall Mix Snapshot " .. slot, -1)
+    state.mix_snapshots.current_active = slot
+    ForceUIRefresh()
+end
+
+-- --- AUTO-COLOR LOGIC ---
+function RunAutoColor()
+    reaper.Undo_BeginBlock()
+    local change_count = 0
+    
+    for i = 1, #state.tracks do
+        local track = state.tracks[i]
+        if reaper.ValidatePtr(track, "MediaTrack*") then
+             local _, current_name = reaper.GetTrackName(track)
+             local name_lower = current_name:lower()
+             
+             -- Find matching rule
+             for _, rule in ipairs(state.auto_color_rules) do
+                 if name_lower:find(rule.pattern, 1, true) then
+                     -- Apply Color
+                     local r = (rule.color >> 16) & 0xFF
+                     local g = (rule.color >> 8) & 0xFF
+                     local b = rule.color & 0xFF
+                     local native_color = reaper.ColorToNative(r, g, b)
+                     reaper.SetTrackColor(track, native_color)
+                     
+                     -- Apply Icon (Rename)
+                     -- Check if icon already starts the name to avoid duplication
+                     if not current_name:find(rule.icon, 1, true) then
+                         local new_name = rule.icon .. " " .. current_name
+                         reaper.GetSetMediaTrackInfo_String(track, "P_NAME", new_name, true)
+                     end
+                     
+                     change_count = change_count + 1
+                     break -- Stop after first match (priority based on order in table)
+                 end
+             end
+        end
+    end
+    
+    reaper.Undo_EndBlock("Auto Color & Icon " .. change_count .. " Tracks", -1)
+    ForceUIRefresh()
+end
+
 function ResetAllTracksVisibility()
     reaper.Undo_BeginBlock()
     reaper.PreventUIRefresh(1)
@@ -829,6 +1119,22 @@ function update_and_check_tracks()
         state.tracksHasItems[i] = reaper.CountTrackMediaItems(track) > 0
         state.tracksFXCount[i] = reaper.TrackFX_GetCount(track)
         
+        state.tracksHasItems[i] = reaper.CountTrackMediaItems(track) > 0
+        state.tracksFXCount[i] = reaper.TrackFX_GetCount(track)
+        
+        -- Gather FX List for Rack
+        state.tracksFXList[i] = {}
+        for fx = 0, state.tracksFXCount[i] - 1 do
+            local _, fx_name = reaper.TrackFX_GetFXName(track, fx, "")
+            -- Simplify name: Remove 'VST: ', 'VST3: ', 'JS: ', etc. and keep it short
+            -- Logic to clean up name could be complex, for now store raw or simple cleanup
+            fx_name = fx_name:gsub("^%w+: ", ""):gsub(" %(.+%)", "")
+            
+            local is_enabled = reaper.TrackFX_GetEnabled(track, fx)
+            local is_offline = reaper.TrackFX_GetOffline(track, fx)
+            table.insert(state.tracksFXList[i], { name = fx_name, enabled = is_enabled, offline = is_offline })
+        end
+
         -- Peak Info
         local currentPeakL_gain = reaper.Track_GetPeakInfo(track, 0)
         local currentPeakR_gain = reaper.Track_GetPeakInfo(track, 1)
@@ -933,7 +1239,8 @@ end
 function CycleEditMode()
     if state.edit_mode == "PAN" then state.edit_mode = "VOL"
     elseif state.edit_mode == "VOL" then state.edit_mode = "WIDTH"
-    elseif state.edit_mode == "WIDTH" then state.edit_mode = "SENDS"
+    elseif state.edit_mode == "WIDTH" then state.edit_mode = "FX RACK"
+    elseif state.edit_mode == "FX RACK" then state.edit_mode = "SENDS"
     elseif state.edit_mode == "SENDS" then state.edit_mode = "RECEIVES"
     elseif state.edit_mode == "RECEIVES" then state.edit_mode = "FX PARAMS"
     elseif state.edit_mode == "FX PARAMS" then state.edit_mode = "CHAN STRIP"
@@ -1152,25 +1459,29 @@ function loop()
         local preset_btn_w, preset_spacing = 25, 2
         local custom_menu_w = 24
         local presets_width = (preset_btn_w * 5) + (preset_spacing * 4)
-        local toggle_btn_w, view_combo_w, sync_check_w, group_spacing = 130, 150, 80, 10
+        local snapshots_w = (25 * 2) + 1 + 2 -- A/B buttons + spacing + padding approx
+        -- Reduced widths to fit new buttons
+        local toggle_btn_w, view_combo_w, sync_check_w, group_spacing = 100, 120, 80, 10
         
-        local buttons_total_w = presets_width + toggle_btn_w + view_combo_w + sync_check_w + custom_menu_w + (group_spacing * 5)
+        -- Added snapshots_w and increased spacing multiplier to 6
+        local buttons_total_w = presets_width + snapshots_w + toggle_btn_w + view_combo_w + sync_check_w + custom_menu_w + (group_spacing * 6)
         local search_width = available_w - buttons_total_w - 15
         if search_width < 50 then search_width = 50 end
         
         imgui.PushItemWidth(ctx, search_width)
         local filter_changed, new_filter_text = imgui.InputText(ctx, "##Search", state.filter_text, 256)
         if filter_changed then state.filter_text = new_filter_text end
-        ShowTooltip("Search tracks by name and advanced:\n- 'fx:reacomp' | 'fx:none'\n- 'sends:>2' | 'sends:none'\n- 'solo:yes' | 'parent:\"Drum Bus\"'\n- 'vol:<-6' | 'pan:=0' | 'width:>50'\n- Use AND, OR, NOT for complex queries.")
         if state.filter_text == "" then
             local min_x, min_y = imgui.GetItemRectMin(ctx); local max_x, max_y = imgui.GetItemRectMax(ctx)
             local draw_list = imgui.GetWindowDrawList(ctx)
             imgui.DrawList_AddText(draw_list, min_x + 5, min_y + ((max_y - min_y) - 16) / 2, PackColor(0.5, 0.5, 0.5, 1.0), "Search...")
         end
+        ShowTooltip("Search tracks by name and advanced query...")
         imgui.PopItemWidth(ctx)
         
         imgui.SameLine(ctx, 0, group_spacing)
-        if imgui.Button(ctx, "EDITING: " .. state.edit_mode, toggle_btn_w, 25) then
+        -- Shortened label to save space
+        if imgui.Button(ctx, state.edit_mode, toggle_btn_w, 25) then
             CycleEditMode() -- Left-click action
         end
         
@@ -1233,9 +1544,52 @@ function loop()
         imgui.EndGroup(ctx)
 
         imgui.SameLine(ctx, 0, group_spacing)
-        if imgui.Button(ctx, "⚙️##customMenu", custom_menu_w, 25) then
+        
+
+
+        imgui.SameLine(ctx, 0, group_spacing)
+        
+        -- MIX SNAPSHOTS (A/B)
+        imgui.BeginGroup(ctx)
+            imgui.PushStyleVar(ctx, imgui.StyleVar_ItemSpacing, 1, 0)
+            imgui.PushStyleVar(ctx, imgui.StyleVar_FrameRounding, 4) -- Rounded pills
+            
+            -- Slot A
+            local is_A_active = state.mix_snapshots.current_active == "A"
+            if is_A_active then imgui.PushStyleColor(ctx, imgui.Col_Button, 0x4A90E2FF) end -- Blue for active
+            if imgui.Button(ctx, "A##snapA", 25, 25) then RecallSnapshot("A") end
+            if is_A_active then imgui.PopStyleColor(ctx) end
+            if imgui.IsItemClicked(ctx, 1) then StoreSnapshot("A"); ShowTooltip("Stored Snapshot A") end
+            ShowTooltip("Snapshot A\nL-Click: Recall\nR-Click: Store")
+            
+            imgui.SameLine(ctx)
+            
+            -- Slot B
+            local is_B_active = state.mix_snapshots.current_active == "B"
+            if is_B_active then imgui.PushStyleColor(ctx, imgui.Col_Button, 0x4A90E2FF) end -- Blue for active
+            if imgui.Button(ctx, "B##snapB", 25, 25) then RecallSnapshot("B") end
+            if is_B_active then imgui.PopStyleColor(ctx) end
+            if imgui.IsItemClicked(ctx, 1) then StoreSnapshot("B"); ShowTooltip("Stored Snapshot B") end
+            ShowTooltip("Snapshot B\nL-Click: Recall\nR-Click: Store")
+
+            imgui.PopStyleVar(ctx, 2)
+        imgui.EndGroup(ctx)
+        
+        imgui.SameLine(ctx, 0, group_spacing)
+        
+        -- Default to standard button but Transparent as requested to hide alignment offsets
+        imgui.PushStyleColor(ctx, imgui.Col_Button, 0) -- Transparent background
+        -- Still try to center reasonable well
+        imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 0, 0)
+        imgui.PushStyleVar(ctx, imgui.StyleVar_ButtonTextAlign, 0.5, 0.5) 
+
+        if imgui.Button(ctx, " ⚙️##customMenu", 21, 21) then
             imgui.OpenPopup(ctx, "CustomMenuPopup")
         end
+        
+        imgui.PopStyleVar(ctx, 2)
+        imgui.PopStyleColor(ctx)
+        
         ShowTooltip("Open the custom menu.")
 
         if imgui.BeginPopup(ctx, "CustomMenuPopup") then
@@ -1248,6 +1602,11 @@ function loop()
             if imgui.MenuItem(ctx, "Configure Menu...") then
                 state.open_custom_menu_config = true
                 state.menu_config_target_table = state.customMenu -- Default to root
+            end
+            
+            imgui.Separator(ctx)
+            if imgui.MenuItem(ctx, "🎨 Run Auto-Color & Icons") then
+                RunAutoColor()
             end
             
             imgui.Separator(ctx)
@@ -1837,7 +2196,20 @@ function loop()
 
                                 imgui.TableNextColumn(ctx) -- Visibility
                                 if not state.tracksVisible[i] then imgui.PushStyleColor(ctx, imgui.Col_Text, PackColor(0.6, 0.6, 0.6, 1.0)) end
-                                if imgui.Button(ctx, "👁##vis"..i, 20, 0) then local new_vis_state = state.tracksVisible[i] and 0 or 1; reaper.SetMediaTrackInfo_Value(track, "B_SHOWINTCP", new_vis_state); reaper.SetMediaTrackInfo_Value(track, "B_SHOWINMIXER", new_vis_state); ForceUIRefresh() end
+                                
+                                -- Center Eye Icon
+                                imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 0, 0) -- Remove padding to center icon manually or just tighter fit
+                                -- Calculate offsets if needed, but 0 padding often helps small buttons
+                                -- Actually, for a 20 px wide button, if font is normal, it might be offset.
+                                -- Let's try explicit centering or just 0 padding.
+                                if imgui.Button(ctx, "👁##vis"..i, 22, 18) then 
+                                    local new_vis_state = state.tracksVisible[i] and 0 or 1
+                                    reaper.SetMediaTrackInfo_Value(track, "B_SHOWINTCP", new_vis_state)
+                                    reaper.SetMediaTrackInfo_Value(track, "B_SHOWINMIXER", new_vis_state)
+                                    ForceUIRefresh()
+                                end
+                                imgui.PopStyleVar(ctx) -- Pop FramePadding
+
                                 ShowTooltip("Show/Hide this track in TCP and Mixer.")
                                 if not state.tracksVisible[i] then imgui.PopStyleColor(ctx) end
                                 
@@ -1982,6 +2354,53 @@ function loop()
                                     reaper.Undo_EndBlock("Adjust Vol", -1) 
                                 end
                                 if imgui.IsItemClicked(ctx,1) or(imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx,0)) then reaper.SetMediaTrackInfo_Value(track,"D_VOL",1) end
+                            elseif state.edit_mode == "FX RACK" then
+                                -- FX RACK DRAWING
+                                local fx_list = state.tracksFXList[i]
+                                if fx_list and #fx_list > 0 then
+                                    -- Calculate button size to fit available width or scroll?
+                                    -- For now, fixed width "chiclets" wrapping or scrolling horizontally?
+                                    -- Let's try simple left-to-right flow with SameLine, maybe wrapping if too many.
+                                    -- Or maybe a scrollable child? No, space is tight directly in table.
+                                    -- Just Draw them buttons!
+                                    
+                                    for fx_idx, fx_data in ipairs(fx_list) do
+                                        local api_fx_idx = fx_idx - 1
+                                        if fx_idx > 1 then imgui.SameLine(ctx, 0, 2) end
+                                        
+                                        local col_btn
+                                        if fx_data.offline then col_btn = PackColor(0.5, 0, 0, 1) -- Reddish for offline
+                                        elseif fx_data.enabled then col_btn = PackColor(0.2, 0.8, 0.4, 0.8) -- Green for Active
+                                        else col_btn = PackColor(0.3, 0.3, 0.3, 0.8) end -- Gray for Bypassed
+                                        
+                                        imgui.PushStyleColor(ctx, imgui.Col_Button, col_btn)
+                                        imgui.PushStyleColor(ctx, imgui.Col_ButtonHovered, PackColor(0.4, 0.9, 0.5, 1.0))
+                                        imgui.PushStyleColor(ctx, imgui.Col_ButtonActive, PackColor(1, 1, 1, 1.0))
+                                        
+                                        -- Shorten name for tiny button? Or just empty small square with Tooltip?
+                                        -- "Chiclet" style usually implies no text or very short text.
+                                        -- Let's try small width (e.g. 15px) vertical bar or box.
+                                        -- User said "square represent FX1, FX2".
+                                        if imgui.Button(ctx, "##fx"..i.."_"..fx_idx, 12, 18) then
+                                            -- Toggle Enable/Bypass
+                                            reaper.Undo_BeginBlock()
+                                            reaper.TrackFX_SetEnabled(track, api_fx_idx, not fx_data.enabled)
+                                            reaper.Undo_EndBlock("Toggle FX Bypass", -1)
+                                        end
+                                        imgui.PopStyleColor(ctx, 3)
+                                        
+                                        -- Right Click to Float
+                                        if imgui.IsItemClicked(ctx, 1) then
+                                            reaper.TrackFX_Show(track, api_fx_idx, 3) -- 3 = float window
+                                        end
+                                        
+                                        -- Tooltip with Name and Status
+                                        local status_txt = fx_data.enabled and "Active" or (fx_data.offline and "Offline" or "Bypassed")
+                                        ShowTooltip(string.format("%d: %s\n(%s)\nL-Click: Toggle | R-Click: Float", fx_idx, fx_data.name, status_txt))
+                                    end
+                                else
+                                    imgui.TextDisabled(ctx, "-")
+                                end
                             elseif state.edit_mode == "WIDTH" then
                                 local width_val = math.floor(state.tracksWidth[i]*100+0.5)
                                 imgui.PushItemWidth(ctx, -1)
