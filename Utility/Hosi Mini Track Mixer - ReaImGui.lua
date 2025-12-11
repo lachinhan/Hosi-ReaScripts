@@ -1,7 +1,7 @@
 --[[
 @description    Hosi Mini Track Mixer (ReaImGui Version)
 @author         Hosi
-@version        1.9.3
+@version        1.9.4
 @reaper_version 6.0
 @provides
   [main] . > Hosi_Mini Track Mixer (ReaImGui).lua
@@ -17,6 +17,9 @@
   - SWS/S&M Extension (optional, for better track selection focus)
 
 @changelog
+  v1.9.4 (2025-Dec-11)
+  - Fix errors
+  - Visual EQ in Channel Trip
   v1.9.3 (2025-Dec-10)
   - Modern GUI
   - Vertical Mixer
@@ -80,7 +83,7 @@
 
 -- --- USER CONFIGURATION ---
 local config = {
-    win_title = "Hosi Mini Track Mixer v1.9.3",
+    win_title = "Hosi Mini Track Mixer v1.9.4",
     refresh_interval = 0.05,
     indent_size = 15.0
 }
@@ -405,6 +408,340 @@ function LoadProjectGroups()
         if not state.group_names[i] then state.group_names[i] = "Group "..i end
     end
 end
+
+
+
+-- --- VISUAL EQ HELPERS ---
+-- --- VISUAL EQ HELPERS ---
+function ParseUnitVal(str)
+    if not str then return 0 end
+    -- Handle "k" (1000)
+    local mult = 1
+    if str:find("k") or str:find("K") then mult = 1000 end
+    
+    local num_part = str:match("[%d%.%-]+")
+    if not num_part then return 0 end
+    local val = tonumber(num_part) or 0
+    return val * mult
+end
+
+-- Basic magnitude response for RBJ filters
+-- Returns magnitude in dB
+function GetFilterMagnitude(freq, type, f0, gain_db, q)
+    if freq <= 0 or f0 <= 0 then return 0 end
+    
+    local w0 = 2 * math.pi * f0 / 48000 
+    local w = 2 * math.pi * freq / 48000
+    local phi = math.sin(w/2)^2
+    
+    local A = 10^(gain_db/40)
+    local alpha = math.sin(w0)/(2*q)
+    local cos_w0 = math.cos(w0)
+    
+    local b0, b1, b2, a0, a1, a2
+    
+    if type == "LOW_SHELF" then
+        -- Slope S=1 implied by Q=0.707? No, Q derived from BW. 
+        -- If Q is passed, use it directly for alpha
+        -- ReaEQ "Bandwidth" maps to Q. Standard Q for shelf slope S=1 is 1/sqrt(2).
+        
+        a0 = (A+1) + (A-1)*cos_w0 + 2*math.sqrt(A)*alpha
+        a1 = -2*((A-1) + (A+1)*cos_w0)
+        a2 = (A+1) + (A-1)*cos_w0 - 2*math.sqrt(A)*alpha
+        b0 = A*((A+1) - (A-1)*cos_w0 + 2*math.sqrt(A)*alpha)
+        b1 = 2*A*((A-1) - (A+1)*cos_w0)
+        b2 = A*((A+1) - (A-1)*cos_w0 - 2*math.sqrt(A)*alpha)
+    elseif type == "HIGH_SHELF" then
+        a0 = (A+1) - (A-1)*cos_w0 + 2*math.sqrt(A)*alpha
+        a1 = 2*((A-1) - (A+1)*cos_w0)
+        a2 = (A+1) - (A-1)*cos_w0 - 2*math.sqrt(A)*alpha
+        b0 = A*((A+1) + (A-1)*cos_w0 + 2*math.sqrt(A)*alpha)
+        b1 = -2*A*((A-1) + (A+1)*cos_w0)
+        b2 = A*((A+1) + (A-1)*cos_w0 - 2*math.sqrt(A)*alpha)
+    elseif type == "LOW_PASS" then
+        -- 12dB/oct (Q control)
+        a0 = 1 + alpha
+        a1 = -2*cos_w0
+        a2 = 1 - alpha
+        b0 = (1 - cos_w0)/2
+        b1 = 1 - cos_w0
+        b2 = (1 - cos_w0)/2
+    elseif type == "HIGH_PASS" then
+        -- 12dB/oct
+        a0 = 1 + alpha
+        a1 = -2*cos_w0
+        a2 = 1 - alpha
+        b0 = (1 + cos_w0)/2
+        b1 = -(1 + cos_w0)
+        b2 = (1 + cos_w0)/2
+    else -- PEAKING (Default)
+        a0 = 1 + alpha/A
+        a1 = -2*cos_w0
+        a2 = 1 - alpha/A
+        b0 = 1 + alpha*A
+        b1 = -2*cos_w0
+        b2 = 1 - alpha*A
+    end
+    
+    local cos_w = math.cos(w)
+    local num = b0*b0 + b1*b1 + b2*b2 + 2*(b0*b1 + b1*b2)*cos_w + 2*(b0*b2)*math.cos(2*w)
+    local den = a0*a0 + a1*a1 + a2*a2 + 2*(a0*a1 + a1*a2)*cos_w + 2*(a0*a2)*math.cos(2*w)
+    
+    if den == 0 then return 0 end
+    return 10 * math.log(num/den, 10)
+end
+
+function BW2Q(bw)
+    -- RBJ conversion: Q = sqrt(2^bw) / (2^bw - 1)
+    -- However, clamp for safety (bw=0 -> div by zero)
+    if bw < 0.01 then bw = 0.01 end
+    local p = 2^bw
+    return math.sqrt(p) / (p - 1)
+end
+
+function DrawEQMiniPlot(ctx, track)
+    if not track then return end
+    
+    -- 1. Find ReaEQ
+    local eq_idx = nil
+    local fx_count = reaper.TrackFX_GetCount(track)
+    for i = 0, fx_count - 1 do
+        local _, name = reaper.TrackFX_GetFXName(track, i, "")
+        if name:match("ReaEQ") then 
+            eq_idx = i
+            break
+        end
+    end
+
+    local avail_w = imgui.GetContentRegionAvail(ctx)
+    local w = avail_w
+    local h = 90 -- Increased height for labels
+    local p_x, p_y = imgui.GetCursorScreenPos(ctx)
+    local draw_list = imgui.GetWindowDrawList(ctx)
+    
+    -- Background
+    imgui.DrawList_AddRectFilled(draw_list, p_x, p_y, p_x + w, p_y + h, 0x181818FF)
+    
+    -- No EQ?
+    if not eq_idx then
+        imgui.PushStyleColor(ctx, imgui.Col_Text, 0x666666FF)
+        imgui.SetCursorPos(ctx, 10, imgui.GetCursorPosY(ctx) + h/2 - 10)
+        imgui.Text(ctx, "No ReaEQ detected")
+        imgui.PopStyleColor(ctx)
+        imgui.Dummy(ctx, w, h - 20) 
+        imgui.DrawList_AddRect(draw_list, p_x, p_y, p_x + w, p_y + h, 0x333333FF)
+        return
+    end
+
+    -- Grid (Log) and Labels
+    local min_f, max_f = 20, 20000
+    local min_log, max_log = math.log(min_f), math.log(max_f)
+    local scale_x = w / (max_log - min_log)
+    
+    local grid_points = {
+        {50, "50"}, {100, "100"}, {200, "200"}, 
+        {500, "500"}, {1000, "1k"}, {2000, "2k"}, 
+        {5000, "5k"}, {10000, "10k"}, {20000, "20k"}
+    }
+    
+    local plot_h = h - 12 -- Reserve bottom for text
+    
+    for _, item in ipairs(grid_points) do
+        local f, txt = item[1], item[2]
+        local gx = p_x + (math.log(f) - min_log) * scale_x
+        
+        -- Grid Line
+        imgui.DrawList_AddLine(draw_list, gx, p_y, gx, p_y + plot_h, 0x333333FF)
+        
+        -- Label
+        local txt_w = imgui.CalcTextSize(ctx, txt)
+        imgui.DrawList_AddText(draw_list, gx - txt_w/2, p_y + plot_h + 1, 0xAAAAAA88, txt)
+    end
+    
+    -- 0dB Line
+    local center_y = p_y + plot_h/2
+    imgui.DrawList_AddLine(draw_list, p_x, center_y, p_x + w, center_y, 0x444444FF)
+
+    -- Persistence for Band Types
+    if not state.eq_types then state.eq_types = {} end
+    local guid = reaper.GetTrackGUID(track)
+    if not state.eq_types[guid] then 
+        -- Attempt to load from ExtState
+        local retval, str = reaper.GetSetMediaTrackInfo_String(track, "P_EXT:Hosi_EQTypes", "", false)
+        if retval and str ~= "" then
+            state.eq_types[guid] = {}
+            for pair in str:gmatch("[^,]+") do
+                local b, t = pair:match("(%d+):(%w+)")
+                if b and t then state.eq_types[guid][tonumber(b)] = t end
+            end
+        else
+             state.eq_types[guid] = {} 
+        end
+    end
+    
+    -- Gather Bands
+    local bands = {}
+    local num_params = reaper.TrackFX_GetNumParams(track, eq_idx)
+    
+    -- Iterate groups of 3
+    local band_count = 0 
+    for i = 0, num_params - 3, 3 do band_count = band_count + 1 end
+    
+    local current_band = 0
+    for i = 0, num_params - 3, 3 do
+        current_band = current_band + 1
+        local _, freq_str = reaper.TrackFX_GetFormattedParamValue(track, eq_idx, i, "")
+        local _, gain_str = reaper.TrackFX_GetFormattedParamValue(track, eq_idx, i+1, "")
+        local _, q_str    = reaper.TrackFX_GetFormattedParamValue(track, eq_idx, i+2, "")
+        
+        local f = ParseUnitVal(freq_str)
+        local g = ParseUnitVal(gain_str)
+        local bw = tonumber(q_str) or 1.0
+        local q = BW2Q(bw)
+        
+        -- Default Heuristic
+        local b_type = "PEAKING"
+        if current_band == 1 then b_type = "LOW_SHELF"
+        elseif current_band == band_count then b_type = "HIGH_SHELF"
+        end
+        
+        -- Override from State
+        if state.eq_types[guid][current_band] then
+            b_type = state.eq_types[guid][current_band]
+        end
+        
+        if f >= 20 and f <= 20000 then
+            table.insert(bands, {id=current_band, f=f, g=g, q=q, type=b_type})
+        end
+    end
+    
+    -- Calculate & Draw Curve
+    local points = {}
+    local resolution = 3 -- Pixel step
+    -- Increased Range to +/- 18dB
+    local range_db = 36 
+    
+    for ix = 0, w, resolution do
+        -- Map X -> Freq
+        local log_freq = min_log + (ix / w) * (max_log - min_log)
+        local freq = math.exp(log_freq)
+        
+        -- Sum Gains
+        local total_db = 0
+        for _, b in ipairs(bands) do
+            total_db = total_db + GetFilterMagnitude(freq, b.type, b.f, b.g, b.q)
+        end
+        
+        -- Clamp for display
+        if total_db > 18 then total_db = 18 elseif total_db < -18 then total_db = -18 end
+        
+        -- Map Y
+        local y_norm = total_db / range_db -- -0.5 to 0.5
+        local y = center_y - (y_norm * plot_h) 
+        
+        table.insert(points, {x = p_x + ix, y = y})
+    end
+    
+    -- Draw Polyline
+    if #points > 1 then
+        for i = 1, #points - 1 do
+            local p1 = points[i]
+            local p2 = points[i+1]
+            -- Draw Fill (Quads down to center)
+            -- Gradient Opacity
+            local fill_col_top = 0x4A90E266
+            local fill_col_bot = 0x4A90E211
+            
+            -- Sort Y to fill towards center
+            local y_base = center_y
+            
+            -- Simple Quad per segment
+            if math.abs(p1.y - center_y) > 1 or math.abs(p2.y - center_y) > 1 then 
+                 imgui.DrawList_AddQuadFilled(draw_list, 
+                    p1.x, p1.y, 
+                    p2.x, p2.y, 
+                    p2.x, center_y, 
+                    p1.x, center_y, 
+                    fill_col_top)
+            end
+            
+            imgui.DrawList_AddLine(draw_list, p1.x, p1.y, p2.x, p2.y, 0x4A90E2FF, 2.0)
+        end
+    end
+    
+    -- Draw Handles \u0026 Interaction
+    local hover_any = false
+    
+    for _, b in ipairs(bands) do
+        local bx = p_x + (math.log(b.f) - min_log) * scale_x
+        
+        -- Calculate the Y of the total curve at this frequency
+        local total_db = 0
+        for _, other in ipairs(bands) do total_db = total_db + GetFilterMagnitude(b.f, other.type, other.f, other.g, other.q) end
+        
+         if total_db > 18 then total_db = 18 elseif total_db < -18 then total_db = -18 end
+         local by = center_y - ((total_db / 36) * plot_h)
+         
+         -- Draw Handle
+         imgui.DrawList_AddCircleFilled(draw_list, bx, by, 3, 0xFFFFFFCC)
+         imgui.DrawList_AddCircle(draw_list, bx, by, 4, 0x000000AA)
+         
+         -- Draw Type Indicator (Tiny Text)
+         local type_char = "P"
+         if b.type == "LOW_SHELF" then type_char = "LS"
+         elseif b.type == "HIGH_SHELF" then type_char = "HS"
+         elseif b.type == "LOW_PASS" then type_char = "LP"
+         elseif b.type == "HIGH_PASS" then type_char = "HP"
+         end
+         imgui.DrawList_AddText(draw_list, bx + 5, by - 10, 0xFFFFFF88, type_char)
+         
+         -- Interaction Zone (invisible circle around handle)
+         imgui.SetCursorScreenPos(ctx, bx - 6, by - 6)
+         imgui.InvisibleButton(ctx, "##Band"..b.id, 12, 12)
+         
+         if imgui.IsItemHovered(ctx) then
+            hover_any = true
+            local tip = string.format("Band %d (%s)\nFreq: %.1f Hz\nGain: %.1f dB", b.id, b.type, b.f, b.g)
+            ShowTooltip(tip)
+            
+            -- Context Menu to change Type
+            if imgui.IsMouseReleased(ctx, 1) then
+                imgui.OpenPopup(ctx, "BandTypeCtx"..b.id)
+            end
+         end
+         
+         if imgui.BeginPopup(ctx, "BandTypeCtx"..b.id) then
+            imgui.Text(ctx, "Set Band " .. b.id .. " Type:")
+            imgui.Separator(ctx)
+            if imgui.Selectable(ctx, "Low Shelf", b.type == "LOW_SHELF") then state.eq_types[guid][b.id] = "LOW_SHELF" end
+            if imgui.Selectable(ctx, "High Shelf", b.type == "HIGH_SHELF") then state.eq_types[guid][b.id] = "HIGH_SHELF" end
+            if imgui.Selectable(ctx, "Peaking (Bell)", b.type == "PEAKING") then state.eq_types[guid][b.id] = "PEAKING" end
+            if imgui.Selectable(ctx, "Low Pass (Cut High)", b.type == "LOW_PASS") then state.eq_types[guid][b.id] = "LOW_PASS" end
+            if imgui.Selectable(ctx, "High Pass (Cut Low)", b.type == "HIGH_PASS") then state.eq_types[guid][b.id] = "HIGH_PASS" end
+            
+            -- Save Persistence
+            local parts = {}
+            for k,v in pairs(state.eq_types[guid]) do table.insert(parts, k..":"..v) end
+            reaper.GetSetMediaTrackInfo_String(track, "P_EXT:Hosi_EQTypes", table.concat(parts, ","), true)
+            
+            imgui.EndPopup(ctx)
+         end
+    end
+    
+    imgui.DrawList_AddRect(draw_list, p_x, p_y, p_x + w, p_y + h, 0x444444FF)
+    
+    -- Main Area Interaction (Click to open, only if not hovering handle)
+    if not hover_any then
+        imgui.SetCursorScreenPos(ctx, p_x, p_y)
+        if imgui.InvisibleButton(ctx, "##EQCurveOverlay", w, h) then
+            reaper.TrackFX_Show(track, eq_idx, 3) 
+        end
+        if imgui.IsItemHovered(ctx) then ShowTooltip("Visual EQ\nClick to open ReaEQ") end
+    end
+    
+    imgui.SetCursorScreenPos(ctx, p_x, p_y + h + 5)
+end
+
 
 function SaveProjectGroups()
     local parts = {}
@@ -1998,107 +2335,149 @@ function execute_menu_move(source_path, target_path, drop_type)
 end
 
 function execute_menu_delete(path_to_delete)
-    local parent_table, idx = get_parent_table_and_index(path_to_delete)
-    if parent_table and idx then
-        table.remove(parent_table, idx)
-        save_custom_menu()
+    if type(path_to_delete) == "table" then
+        local parent_table = path_to_delete.table
+        local idx = path_to_delete.index
+        if parent_table and idx then
+            table.remove(parent_table, idx)
+            save_custom_menu()
+        end
+    else
+        -- Fallback for string paths (if any)
+        local parent_table, idx = get_parent_table_and_index(path_to_delete)
+        if parent_table and idx then
+            table.remove(parent_table, idx)
+            save_custom_menu()
+        end
     end
 end
 
 function execute_menu_rename(path_to_rename, new_name)
-    local parent_table, idx = get_parent_table_and_index(path_to_rename)
-    if parent_table and idx and parent_table[idx] and new_name ~= "" then
-        parent_table[idx].name = new_name
-        save_custom_menu()
+    if type(path_to_rename) == "table" then
+        local parent_table = path_to_rename.table
+        local idx = path_to_rename.index
+        if parent_table and idx and parent_table[idx] and new_name ~= "" then
+            parent_table[idx].name = new_name
+            save_custom_menu()
+        end
+    else
+        local parent_table, idx = get_parent_table_and_index(path_to_rename)
+        if parent_table and idx and parent_table[idx] and new_name ~= "" then
+            parent_table[idx].name = new_name
+            save_custom_menu()
+        end
     end
 end
 
 -- Recursively draws the menu configuration tree with Drag & Drop
 function DrawMenuConfiguration(menu_table, path_prefix)
     for i, item in ipairs(menu_table) do
-        local current_path = path_prefix .. i
-        local id_str = tostring(item) -- Unique ID for this item
+        local current_path = path_prefix == "" and tostring(i) or (path_prefix .. "." .. i)
+        local id_str = current_path
+        
+        imgui.TableNextRow(ctx, 0, 28) -- Increase row height for readability
+        imgui.TableNextColumn(ctx)
 
-        -- Drop Target for placing items *BEFORE* the current one
-        imgui.InvisibleButton(ctx, "drop_target_before##" .. current_path, -1, 4)
-        if imgui.BeginDragDropTarget(ctx) then
-            local success, payload_str = imgui.AcceptDragDropPayload(ctx, "CUSTOM_MENU_ITEM")
-            if success and payload_str ~= current_path then
-                state.dnd_source_path = payload_str
-                state.dnd_target_path = current_path
-                state.dnd_drop_type = 'before'
-            end
-            imgui.EndDragDropTarget(ctx)
-        end
-
-        -- Main Item Display and Drag/Drop Source/Target
-        local node_open = false
-        local item_label
-        if item.type == "menu" then item_label = "📁 " .. item.name .. " (Sub-menu)"
-        elseif item.type == "item" then item_label = "📄 " .. item.name .. " (Action)"
+        -- 1. DRAW NAME COLUMN
+        local item_label = item.name
+        if item.type == "item" then item_label = "📄 " .. item.name .. " (Action)"
+        elseif item.type == "menu" then item_label = "📁 " .. item.name .. " (Sub-menu)"
         elseif item.type == "separator" then item_label = "--- Separator ---" end
 
+        local node_open = false
         if item.type == "menu" then
             node_open = imgui.TreeNode(ctx, item_label .. "##" .. id_str)
         else
-            imgui.Selectable(ctx, item_label .. "##" .. id_str, false)
+            -- Use Selectable for leaf items
+            -- IMPORTANT: span_all_columns was causing the issue of covering buttons. Removed it.
+            imgui.Selectable(ctx, item_label .. "##" .. id_str, false, imgui.SelectableFlags_None)
         end
 
-        -- DRAG SOURCE (applies to the last item drawn)
+        -- DRAG SOURCE
         if imgui.BeginDragDropSource(ctx) then
             imgui.SetDragDropPayload(ctx, "CUSTOM_MENU_ITEM", current_path)
             imgui.Text(ctx, "Moving: " .. item.name)
             imgui.EndDragDropSource(ctx)
         end
 
-        -- DROP TARGET (for dropping *INTO* a sub-menu)
+        -- DROP TARGET (Into sub-menu)
         if item.type == 'menu' then
             if imgui.BeginDragDropTarget(ctx) then
                 local success, payload_str = imgui.AcceptDragDropPayload(ctx, "CUSTOM_MENU_ITEM")
                 if success and payload_str ~= current_path then
-                    state.dnd_source_path = payload_str
-                    state.dnd_target_path = current_path
-                    state.dnd_drop_type = 'into'
+                    execute_menu_move(payload_str, current_path, 'into')
                 end
                 imgui.EndDragDropTarget(ctx)
             end
         end
-
-        -- Context/Selection logic
+        
+        -- Selection Logic
         if imgui.IsItemClicked(ctx, 0) and item.type == "menu" then
-            state.menu_config_target_table = item.items
+             state.menu_config_target_table = item.items
         end
 
-        -- Action buttons (Rename, Delete)
-        imgui.SameLine(ctx)
+        -- 2. DRAW ACTIONS COLUMN
+        imgui.TableNextColumn(ctx)
+        
+        -- Calculate alignments for buttons in this fixed column
+        -- We want them right-aligned.
+        local cell_w = imgui.GetContentRegionAvail(ctx)
+        local del_btn_str = "Delete##Del" .. id_str
+        local ren_btn_str = "Rename##Ren" .. id_str
+        local del_w = imgui.CalcTextSize(ctx, "Delete") + 10 -- Approx SmallButton padding
+        local ren_w = imgui.CalcTextSize(ctx, "Rename") + 10
+        local spacing = 4
+        
+        -- Start position for Delete (Rightmost)
+        local cursor_start_x = imgui.GetCursorPosX(ctx)
+        local del_pos_x = cursor_start_x + cell_w - del_w - 5 -- 5px padding from right
+        local ren_pos_x = del_pos_x - ren_w - spacing
+        
         if item.type ~= "separator" then
-            if imgui.SmallButton(ctx, "Rename##" .. id_str) then
-                state.rename_item_path = current_path
+            imgui.SetCursorPosX(ctx, ren_pos_x)
+            if imgui.SmallButton(ctx, ren_btn_str) then
+                state.rename_item_path = {table = menu_table, index = i}
                 state.rename_item_new_name = item.name
                 state.open_rename_popup = true
             end
-            imgui.SameLine(ctx)
+            -- SameLine handled by manual positioning or just calling SameLine?
+            -- If we use SetCursorPosX, we are on same line.
         end
         
-        if imgui.SmallButton(ctx, "Delete##" .. id_str) then
-            state.item_to_delete_path = current_path
+        imgui.SameLine(ctx) -- Ensure we are on same line for next button if previous was drawn
+        imgui.SetCursorPosX(ctx, del_pos_x)
+        if imgui.SmallButton(ctx, del_btn_str) then
+            state.item_to_delete_path = {table = menu_table, index = i}
         end
 
+        -- Handle Recursion (must be outside table columns usually, or inside?)
+        -- In Tables, we must handle recursion carefully. 
+        -- If TreeNode is open, we just call recursively. The recursion will call TableNextRow again.
         if node_open then
             DrawMenuConfiguration(item.items, current_path .. ".")
             imgui.TreePop(ctx)
         end
     end
     
-    -- Drop Target for placing item at the END of the current list
+    -- Drop Target End List (Requires special handling in Table? Just add a dummy row?)
+    -- Or just put it after the loop?
+    -- With Tables, inserting a drop target between rows is tricky. 
+    -- Simplification: Just an invisible button row?
+    imgui.TableNextRow(ctx)
+    imgui.TableNextColumn(ctx)
     imgui.InvisibleButton(ctx, "drop_target_end##" .. path_prefix, -1, 4)
     if imgui.BeginDragDropTarget(ctx) then
         local success, payload_str = imgui.AcceptDragDropPayload(ctx, "CUSTOM_MENU_ITEM")
         if success then
-            local target_path = path_prefix .. (#menu_table + 1)
-            state.dnd_source_path = payload_str
-            state.dnd_target_path = target_path
-            state.dnd_drop_type = 'before'
+             -- Logic for dropping at end of list
+             local target_path = path_prefix == "" and tostring(#menu_table + 1) or (path_prefix .. "." .. (#menu_table + 1))
+             -- This logic needs confirm. execute_menu_move handles 'before' logic mostly.
+             -- If we want to move to END of this table: 
+             -- We need to craft a proper target path that resolves to the end.
+             -- Let's stick to existing logic:
+             state.dnd_source_path = payload_str
+             state.dnd_target_path = target_path
+             state.dnd_drop_type = 'before'
         end
         imgui.EndDragDropTarget(ctx)
     end
@@ -2305,6 +2684,11 @@ function loop()
                 if imgui.MenuItem(ctx, "Target -12dB (Safe)") then RunGainStaging(-12) end
                 if imgui.MenuItem(ctx, "Target -18dB (Analog)") then RunGainStaging(-18) end
                 if imgui.MenuItem(ctx, "Target -6dB (Hot)") then RunGainStaging(-6) end
+                imgui.Separator(ctx)
+                if imgui.MenuItem(ctx, "Target Custom...") then 
+                    state.open_custom_gain_popup = true 
+                    state.custom_gain_input = "-14" -- Default suggestion
+                end
                 imgui.EndMenu(ctx)
             end
             
@@ -2704,6 +3088,17 @@ function loop()
                         state.open_value_input_popup = true
                     end
                     ShowTooltip("Stereo Width\nDouble-click value to type.\nDouble-click or right-click slider to reset.")
+                    
+                    if imgui.IsItemHovered(ctx) and imgui.IsMouseDoubleClicked(ctx, 0) then
+                        state.value_input_info = { track_idx = track_idx, param_type = 'WIDTH', current_value_str = width_text }
+                        state.value_input_text = tostring(width_val)
+                        state.open_value_input_popup = true
+                    end
+                    ShowTooltip("Stereo Width\nDouble-click value to type.\nDouble-click or right-click slider to reset.")
+                    
+                    imgui.Separator(ctx)
+                    
+                    DrawEQMiniPlot(ctx, track)
                     
                     imgui.Separator(ctx)
                     
@@ -3428,16 +3823,55 @@ function loop()
             state.open_custom_menu_config = false -- Reset trigger
         end
 
-        imgui.SetNextWindowSize(ctx, 500, 450, imgui.Cond_FirstUseEver)
-        if imgui.BeginPopupModal(ctx, "Configure Custom Menu") then
+        -- Popup for Custom Gain Target
+        if state.open_custom_gain_popup then
+            imgui.OpenPopup(ctx, "CustomGainTargetPopup")
+            state.open_custom_gain_popup = false
+        end
+
+        imgui.SetNextWindowSize(ctx, 300, 140, imgui.Cond_FirstUseEver)
+        if imgui.BeginPopupModal(ctx, "CustomGainTargetPopup", true, imgui.WindowFlags_NoResize) then
+            imgui.Text(ctx, "Enter Target RMS Level (dB):")
+            imgui.SetNextItemWidth(ctx, 150)
+            local changed, new_val = imgui.InputText(ctx, "##gain_input", state.custom_gain_input or "-14", imgui.InputTextFlags_CharsDecimal + imgui.InputTextFlags_CharsNoBlank)
+            if changed then state.custom_gain_input = new_val end
+            
+            imgui.Separator(ctx)
+            if imgui.Button(ctx, "Apply", 120, 0) then
+                local target = tonumber(state.custom_gain_input)
+                if target then
+                    RunGainStaging(target)
+                    imgui.CloseCurrentPopup(ctx)
+                else
+                    -- Invalid input visual feedback could go here
+                end
+            end
+            imgui.SameLine(ctx)
+            if imgui.Button(ctx, "Cancel", 120, 0) then
+                imgui.CloseCurrentPopup(ctx)
+            end
+            imgui.EndPopup(ctx)
+        end
+
+        imgui.SetNextWindowSize(ctx, 600, 450, imgui.Cond_FirstUseEver)
+        -- Use NoScrollbar to prevent parent window from scrolling, forcing child to scroll
+        if imgui.BeginPopupModal(ctx, "Configure Custom Menu", true, imgui.WindowFlags_NoScrollbar) then
             imgui.Text(ctx, "Manage Custom Menu (Drag & drop to reorder)"); imgui.Separator(ctx)
 
             if imgui.Button(ctx, "Add to Root") then state.menu_config_target_table = state.customMenu end
             imgui.SameLine(ctx)
             imgui.TextDisabled(ctx, "(Click a sub-menu in the tree to select it as the target)")
 
-            if imgui.BeginChild(ctx, "MenuTree", 0, -150) then
-                DrawMenuConfiguration(state.customMenu, "")
+            -- Reserve space for footer (approx 160px) to prevent overlap
+            if imgui.BeginChild(ctx, "MenuTree", 0, -160) then
+                if imgui.BeginTable(ctx, "MenuConfigTable", 2, imgui.TableFlags_BordersInnerV + imgui.TableFlags_RowBg + imgui.TableFlags_Resizable) then
+                    imgui.TableSetupColumn(ctx, "Name", imgui.TableColumnFlags_WidthStretch)
+                    imgui.TableSetupColumn(ctx, "Actions", imgui.TableColumnFlags_WidthFixed, 110)
+                    -- imgui.TableHeadersRow(ctx) -- Optional, maybe look cleaner without
+
+                    DrawMenuConfiguration(state.customMenu, "")
+                    imgui.EndTable(ctx)
+                end
             end
             imgui.EndChild(ctx)
             
@@ -3683,7 +4117,7 @@ function loop()
             state.open_group_rename_popup = false 
         end
         
-        imgui.SetNextWindowSize(ctx, 260, 330, imgui.Cond_Appearing)
+        imgui.SetNextWindowSize(ctx, 260, 330, imgui.Cond_FirstUseEver)
         if imgui.BeginPopupModal(ctx, "EditGroupNamesPopup", true, imgui.WindowFlags_NoResize) then
             imgui.Text(ctx, "Rename Groups")
             imgui.Separator(ctx)
