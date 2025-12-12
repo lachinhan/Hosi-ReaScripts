@@ -18,12 +18,20 @@ local window_open = true
 local cfg_threshold_db = -30.0
 local cfg_min_silence = 2.0
 local cfg_min_loop_len = 4.0
-local cfg_random_colors = true
+local cfg_color_mode = 2 -- 0=None, 1=Random, 2=Track Color, 3=Item Color
 local cfg_snap_grid = false
-local cfg_trim_item = false -- New option
-local cfg_split_items = false -- New option
-local cfg_auto_fades = false -- New option
+local cfg_trim_item = false 
+local cfg_split_items = false 
+local cfg_auto_fades = false 
 local cfg_strip_silence = false -- New option
+local cfg_render_bounds = 3 -- 3 = Project Regions (Default), 2 = Time Selection
+local cfg_naming_scheme = 2 -- 1=Simple, 2=Track Name, 3=Item Name
+local cfg_detection_mode = 1 -- 1=RMS (Default), 2=Transient (Peak)
+local cfg_append_bpm = false -- New option
+local cfg_append_key = false -- New option
+local cfg_user_key_root = 0 -- 0=C, 1=C#, etc.
+local cfg_user_key_minor = false -- New option for Minor key (m)
+local KEY_NAMES = {"C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"}
 
 -- PRESETS DEFINITION
 local PRESETS = {
@@ -195,6 +203,70 @@ function GetItemSpectralData(item, threshold_db, min_silence_sec, min_loop_len)
     return detected_loops
 end
 
+function GetItemPeakData(item, threshold_db, min_silence_sec, min_loop_len)
+    local take = reaper.GetActiveTake(item)
+    if not take or reaper.TakeIsMIDI(take) then return nil end
+
+    local item_start = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    local source = reaper.GetMediaItemTake_Source(take)
+    local samplerate = reaper.GetMediaSourceSampleRate(source)
+    local num_channels = reaper.GetMediaSourceNumChannels(source)
+    
+    local accessor = reaper.CreateTakeAudioAccessor(take)
+    local window_size = 0.002 -- 2ms PRECISION (Tighter for transients)
+    local samples_per_window = math.floor(samplerate * window_size)
+    local buffer = reaper.new_array(samples_per_window * num_channels)
+    
+    local threshold_val = DB2Val(threshold_db)
+    
+    local is_in_loop = false
+    local silence_duration = 0
+    local loop_start_time = 0
+    local detected_loops = {}
+
+    local pos = 0
+    while pos < item_len do
+        local retval = reaper.GetAudioAccessorSamples(accessor, samplerate, num_channels, pos, samples_per_window, buffer)
+        if retval <= 0 then break end
+        
+        local max_peak = 0
+        local tbl = buffer.table()
+        
+        for i = 1, #tbl do
+            local abs_val = math.abs(tbl[i])
+            if abs_val > max_peak then max_peak = abs_val end
+        end
+
+        if max_peak > threshold_val then
+            silence_duration = 0
+            if not is_in_loop then
+                is_in_loop = true
+                -- TRANSIENT PROTECTION: Backtrack 10ms to catch attack
+                loop_start_time = math.max(0, pos - 0.010) 
+            end
+        else
+            silence_duration = silence_duration + window_size
+            if is_in_loop and silence_duration >= min_silence_sec then
+                local loop_end_time = pos - silence_duration
+                local loop_duration = loop_end_time - loop_start_time
+                if loop_duration >= min_loop_len then
+                     table.insert(detected_loops, {start = item_start + loop_start_time, ending = item_start + loop_end_time})
+                end
+                is_in_loop = false
+            end
+        end
+        pos = pos + window_size
+    end
+    
+    if is_in_loop then
+         table.insert(detected_loops, {start = item_start + loop_start_time, ending = item_start + item_len})
+    end
+
+    reaper.DestroyAudioAccessor(accessor)
+    return detected_loops
+end
+
 function GetMidiData(item, min_silence_sec, min_loop_len)
     local take = reaper.GetActiveTake(item)
     if not take or not reaper.TakeIsMIDI(take) then return nil end
@@ -285,8 +357,58 @@ function ProcessSingleItem(item)
     if take and reaper.TakeIsMIDI(take) then
         loops = GetMidiData(item, cfg_min_silence, cfg_min_loop_len)
     else
-        loops = GetItemSpectralData(item, cfg_threshold_db, cfg_min_silence, cfg_min_loop_len)
+        if cfg_detection_mode == 2 then
+             loops = GetItemPeakData(item, cfg_threshold_db, cfg_min_silence, cfg_min_loop_len)
+        else
+             loops = GetItemSpectralData(item, cfg_threshold_db, cfg_min_silence, cfg_min_loop_len)
+        end
     end
+    
+    -- DETERMINE NAMING BASE
+    local base_name_r = "Section"
+    local base_name_m = "Loop"
+    
+    if cfg_naming_scheme == 2 then -- Track Name
+        local track = reaper.GetMediaItem_Track(item)
+        local _, name = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
+        if name ~= "" then 
+            base_name_r = name
+            base_name_m = name
+        end
+    elseif cfg_naming_scheme == 3 then -- Item Name
+        local take = reaper.GetActiveTake(item)
+        if take then
+            local name = reaper.GetTakeName(take)
+            if name ~= "" then
+                base_name_r = name
+                base_name_m = name
+            end
+        end
+    end
+
+    -- APPEND SMART INFO (BPM / KEY)
+    local smart_suffix = ""
+    if cfg_append_bpm then
+        smart_suffix = smart_suffix .. "_" .. GetFormattedBPM() .. "bpm"
+    end
+    if cfg_append_key then
+        smart_suffix = smart_suffix .. "_" .. GetProjectKeyString()
+    end
+    
+    -- Update Base Name
+    if smart_suffix ~= "" then
+        base_name_r = base_name_r .. smart_suffix
+        base_name_m = base_name_m .. smart_suffix
+    end
+
+
+    -- Helper to escape pattern
+    local function escape_pattern(text)
+        return text:gsub("([^%w])", "%%%1")
+    end
+    
+    local pat_r = "^" .. escape_pattern(base_name_r) .. " %d+$"
+    local pat_m = "^" .. escape_pattern(base_name_m) .. " %d+$"
     
     -- CLEAR EXISTING MARKERS/REGIONS IN RANGE
     local item_start = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
@@ -297,9 +419,9 @@ function ProcessSingleItem(item)
     for i = num_markers - 1, 0, -1 do
         local retval, isrgn, pos, rgnend, name, markrgnindexnumber = reaper.EnumProjectMarkers(i)
         if pos >= item_start and pos <= item_end then
-            -- ONLY delete if it looks like an auto-generated loop/section
-            -- Pattern: "Loop <number>" or "Section <number>"
-            if name:match("^Loop %d+$") or name:match("^Section %d+$") then
+            -- Delete if matches current scheme OR default scheme (cleanup old runs)
+            if name:match(pat_r) or name:match(pat_m) or 
+               name:match("^Section %d+$") or name:match("^Loop %d+$") then
                  reaper.DeleteProjectMarker(0, markrgnindexnumber, isrgn)
             end
         end
@@ -308,6 +430,7 @@ function ProcessSingleItem(item)
     if loops and #loops > 0 then
         local min_start = math.huge
         local max_end = 0
+        local count = 1
 
         for i, loop in ipairs(loops) do
              local start_pos = loop.start
@@ -323,15 +446,31 @@ function ProcessSingleItem(item)
              if end_pos > max_end then max_end = end_pos end
 
              -- 1. Create Marker
-             local m_idx = reaper.AddProjectMarker(0, false, start_pos, 0, "Loop " .. i, -1)
+             local m_name = base_name_m .. " " .. count
+             local m_idx = reaper.AddProjectMarker(0, false, start_pos, 0, m_name, -1)
              -- 2. Create Region
-             local r_idx = reaper.AddProjectMarker(0, true, start_pos, end_pos, "Section " .. i, -1)
+             local r_name = base_name_r .. " " .. count
+             local r_idx = reaper.AddProjectMarker(0, true, start_pos, end_pos, r_name, -1)
              
-             if cfg_random_colors then
-                 local color = reaper.ColorToNative(math.random(50,255), math.random(50,255), math.random(50,255))|0x1000000
-                 reaper.SetProjectMarker3(0, m_idx, false, start_pos, 0, "Loop " .. i, color)
-                 reaper.SetProjectMarker3(0, r_idx, true, start_pos, end_pos, "Section " .. i, color)
+             local color = 0
+             if cfg_color_mode == 1 then -- Random
+                 color = reaper.ColorToNative(math.random(50,255), math.random(50,255), math.random(50,255))|0x1000000
+             elseif cfg_color_mode == 2 then -- Track Color
+                 local track = reaper.GetMediaItem_Track(item)
+                 color = reaper.GetTrackColor(track)
+             elseif cfg_color_mode == 3 then -- Item Color
+                 color = reaper.GetMediaItemInfo_Value(item, "I_CUSTOMCOLOR")
+                 if color == 0 then -- Fallback to track if item has no color
+                     local track = reaper.GetMediaItem_Track(item)
+                     color = reaper.GetTrackColor(track) 
+                 end
              end
+             
+             if cfg_color_mode > 0 and color ~= 0 then
+                 reaper.SetProjectMarker3(0, m_idx, false, start_pos, 0, m_name, color)
+                 reaper.SetProjectMarker3(0, r_idx, true, start_pos, end_pos, r_name, color)
+             end
+             count = count + 1
         end
 
         -- TRIM ITEM LOGIC
@@ -465,20 +604,231 @@ function PerformScan()
     reaper.Undo_EndBlock("Auto Detect Loop Points (Batch)", -1)
 end
 
-function ExportLoops()
-    -- Configure Render Settings for Region Export
-    -- RENDER_BOUNDSFLAG: 3 = Project Regions
-    reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 3, true)
+--------------------------------------------------------------------------------
+-- RENDER PRESETS LOGIC (Ported/Adapted from cfillion_Apply render preset.lua)
+--------------------------------------------------------------------------------
+local RENDER_PRESETS = {}
+local RENDER_PRESET_NAMES = {"(Current Settings)"}
+local cfg_render_preset_idx = 0 -- 0 = Current Settings
+
+-- Helper: Base64 Decode
+local function decodeBase64(data)
+    if reaper.NF_Base64_Decode then
+        return select(2, reaper.NF_Base64_Decode(data))
+    end
+    local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    data = data:gsub('[^'..b..'=]', '')
+    return data:gsub('.', function(x)
+        if x == '=' then return '' end
+        local r, f = '', b:find(x) - 1
+        for i = 6, 1, -1 do
+            r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and '1' or '0')
+        end
+        return r
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if #x ~= 8 then return '' end
+        local c = 0
+        for i = 1, 8 do
+            c = c + (x:sub(i, i) == '1' and 2 ^ (8 - i) or 0)
+        end
+        return string.char(c)
+    end)
+end
+
+-- Helper: Tokenizer
+local function tokenize(line)
+    local pos, tokens = 1, {}
+    while pos do
+        local tail, eat = nil, 1
+        local quote = line:sub(pos, pos)
+        if quote == '"' or quote == "'" or quote == '`' then
+            pos = pos + 1
+            tail = line:find(quote .. '%s', pos)
+            eat = 2
+            if not tail then
+                if line:sub(-1) == quote then tail = line:len() else tail = nil end -- permissive
+            end
+        else
+            tail = line:find('%s', pos)
+        end
+        if pos <= line:len() then
+            table.insert(tokens, line:sub(pos, tail and tail - 1))
+        end
+        pos = tail and tail + eat
+    end
+    return tokens
+end
+
+-- Helpers: Parser State
+local function insertPreset(presets, name)
+    local preset = presets[name]
+    if not preset then preset = {}; presets[name] = preset end
+    return preset
+end
+
+local function addPresetSettings(preset, mask, value)
+    preset.RENDER_SETTINGS = (value & mask) | (preset.RENDER_SETTINGS or 0)
+    preset._render_settings_mask = mask | (preset._render_settings_mask or 0)
+end
+
+local function propertyExtractor(preset, key)
+    return function(file, line)
+        preset[key] = (preset[key] or '') .. line
+        return true
+    end
+end
+
+local function parseNodeContents(extractor, defaultParser)
+    local function parser(presets, file, line)
+        line = line:match('^%s*(.*)$')
+        if line:sub(1, 1) == '>' then return defaultParser end
+        local ok = extractor(file, line)
+        if ok then return parser end
+        return nil -- error
+    end
+    return parser
+end
+
+-- Forward declaration
+local parseDefault 
+
+function parseFormatPreset(presets, file, tokens)
+    if #tokens < 8 then return parseDefault end
+    local preset = insertPreset(presets, tokens[2])
+    preset.RENDER_SRATE           = tonumber(tokens[3])
+    preset.RENDER_CHANNELS        = tonumber(tokens[4])
+    preset.projrenderlimit        = tonumber(tokens[5])
+    preset.projrenderrateinternal = tonumber(tokens[6])
+    preset.projrenderrateinternal = tonumber(tokens[6])
+    preset.projrenderresample     = tonumber(tokens[7])
+    preset.RENDER_DITHER          = tonumber(tokens[8])
+    preset.RENDER_FORMAT          = '' 
+    if tokens[9] then
+        addPresetSettings(preset, 0x6F14, tonumber(tokens[9]))
+    end
+    return parseNodeContents(propertyExtractor(preset, 'RENDER_FORMAT'), parseDefault)
+end
+
+function parseOutputPreset(presets, file, tokens)
+    if #tokens < 9 then return parseDefault end
+    local preset = insertPreset(presets, tokens[2])
+    -- We skip BOUNDS and PATTERN intentionally if we want to override them, 
+    -- BUT the user might want the preset's pattern. 
+    -- For this integration, we will apply everything, then override Bounds/Pattern explicitly in ExportLoops.
     
-    -- Set Filename Pattern to "$region" (to use region names like "Section 1")
-    reaper.GetSetProjectInfo_String(0, "RENDER_PATTERN", "$region", true)
+    preset.RENDER_BOUNDSFLAG = tonumber(tokens[3])
+    preset.RENDER_STARTPOS   = tonumber(tokens[4])
+    preset.RENDER_ENDPOS     = tonumber(tokens[5])
+    
+    local settingsMask = 0x10EB | 0x6F14 -- Combined mask
+    addPresetSettings(preset, settingsMask, tonumber(tokens[6]))
+    
+    preset.RENDER_PATTERN    = tostring(tokens[8])
+    preset.RENDER_TAILFLAG   = tonumber(tokens[9]) == 0 and 0 or 0xFF
+    -- Handle directory v6.43+
+    if tokens[10] and tokens[10] ~= "" then preset.RENDER_FILE = tokens[10] end
+    if tokens[11] then preset.RENDER_TAILMS = tonumber(tokens[11]) end
+    return parseDefault
+end
+
+parseDefault = function(presets, file, line)
+    local tokens = tokenize(line)
+    if not tokens[1] then return parseDefault end
+    
+    if tokens[1] == '<RENDERPRESET' then return parseFormatPreset(presets, file, tokens)
+    elseif tokens[1] == 'RENDERPRESET_OUTPUT' then return parseOutputPreset(presets, file, tokens)
+    end
+    return parseDefault
+end
+
+local function LoadRenderPresets()
+    local filename = 'reaper-render.ini'
+    local path = reaper.GetResourcePath() .. '/' .. filename
+    if not reaper.file_exists(path) then return end
+    
+    local file = io.open(path, 'r')
+    if not file then return end
+    
+    local parser = parseDefault
+    for line in file:lines() do
+        line = line:match('^(.-)\r*$')
+        local next_parser = parser(RENDER_PRESETS, filename, line)
+        if next_parser then parser = next_parser end
+    end
+    file:close()
+
+    -- Populate Names List
+    for name, _ in pairs(RENDER_PRESETS) do
+        table.insert(RENDER_PRESET_NAMES, name)
+    end
+    table.sort(RENDER_PRESET_NAMES, function(a,b) 
+        if a == "(Current Settings)" then return true end
+        if b == "(Current Settings)" then return false end
+        return a:lower() < b:lower() 
+    end)
+end
+
+local function ApplyRenderPreset(preset_name)
+    local preset = RENDER_PRESETS[preset_name]
+    if not preset then return end
+    
+    local project = 0
+    for key, value in pairs(preset) do
+        if key == 'RENDER_FORMAT' then
+             -- Handled specially at end
+        elseif key:match('^_') then 
+             -- internal
+        elseif type(value) == 'string' then
+            reaper.GetSetProjectInfo_String(project, key, value, true)
+        elseif key:match('^[a-z]') then -- lowercase config vars
+            reaper.SNM_SetIntConfigVar(key, value)
+        else
+            -- Apply with mask if exists
+            local mask = preset[('_%s_mask'):format(key:lower())]
+            if mask then
+                local cur = reaper.GetSetProjectInfo(project, key, 0, false)
+                value = (value & mask) | (cur & ~mask)
+            end
+            reaper.GetSetProjectInfo(project, key, value, true)
+        end
+    end
+    
+    if preset.RENDER_FORMAT then
+        reaper.GetSetProjectInfo_String(project, 'RENDER_FORMAT', preset.RENDER_FORMAT, true)
+    end
+end
+
+-- INIT PRESETS
+LoadRenderPresets()
+
+function ExportLoops()
+    -- 1. Apply Preset if selected
+    if cfg_render_preset_idx > 0 then
+        local name = RENDER_PRESET_NAMES[cfg_render_preset_idx + 1]
+        ApplyRenderPreset(name)
+    end
+
+    -- 2. Configure Render Settings for Region Export (Overrides Preset)
+    -- RENDER_BOUNDSFLAG: 3 = Project Regions, 2 = Time Selection
+    if cfg_render_bounds ~= -1 then
+        reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", cfg_render_bounds, true)
+        
+        -- Set Filename Pattern
+        if cfg_render_bounds == 3 then
+            -- Regions -> Use region name
+            reaper.GetSetProjectInfo_String(0, "RENDER_PATTERN", "$region", true)
+        else
+            -- Time Selection -> Use project name
+            reaper.GetSetProjectInfo_String(0, "RENDER_PATTERN", "$project", true)
+        end
+    end
     
     -- Open Render Dialog
     reaper.Main_OnCommand(40015, 0) -- File: Render project to disk...
 end
 
 --------------------------------------------------------------------------------
--- USER PRESETS PERSISTENCE
+-- USER PRESETS PERSISTENCE (Existing)
 --------------------------------------------------------------------------------
 function UpdateExtState()
     local str = ""
@@ -557,6 +907,171 @@ end
 LoadUserPresets() -- Init load
 
 --------------------------------------------------------------------------------
+-- UTILITY FUNCTIONS
+--------------------------------------------------------------------------------
+
+function GetProjectKeyString()
+    -- Use user selected key
+    local key_str = KEY_NAMES[cfg_user_key_root + 1]
+    if cfg_user_key_minor then
+        key_str = key_str .. "m"
+    end
+    return key_str
+end
+
+function GetFormattedBPM()
+    local bpm = reaper.Master_GetTempo()
+    -- Format as integer for cleaner filename
+    return string.format("%d", math.floor(bpm + 0.5))
+end
+
+function SetTrackSelected(track, selected)
+    reaper.SetTrackSelected(track, selected)
+end
+
+function Transport_Stop()
+    reaper.Main_OnCommand(1016, 0) -- Transport: Stop
+end
+
+function Transport_Pause()
+    reaper.Main_OnCommand(1008, 0) -- Transport: Pause
+end
+
+function PreviewCurrentLoop()
+    local cursor_pos = reaper.GetCursorPosition()
+    
+    -- 1. Get All Regions
+    local regions = {}
+    local i = 0
+    repeat
+        local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
+        if retval > 0 and isrgn then
+            table.insert(regions, {pos=pos, rgnend=rgnend})
+        end
+        i = i + 1
+    until retval == 0
+    
+    if #regions == 0 then
+        reaper.ShowMessageBox("No Regions detected in project.", "Preview Loop", 0)
+        return
+    end
+
+    -- 2. Sort Regions
+    table.sort(regions, function(a,b) return a.pos < b.pos end)
+    
+    -- 3. Determine Target Region
+    local target_r = nil
+    
+    -- Check if inside a region
+    for _, r in ipairs(regions) do
+        if cursor_pos >= r.pos and cursor_pos < r.rgnend then
+            target_r = r
+            break
+        end
+    end
+    
+    -- If not inside, find the next closest region
+    if not target_r then
+        for _, r in ipairs(regions) do
+            if r.pos > cursor_pos then
+                target_r = r
+                break
+            end
+        end
+    end
+     
+    -- If still not found (cursor after last region), wrap to first? or just take last?
+    -- Let's take the first usage case: user likely wants to start from beginning if at end.
+    if not target_r and #regions > 0 then
+        target_r = regions[1]
+    end
+    
+    -- 4. Execute Play
+    if target_r then
+        -- Always ensure loop points are set correctly for the target region
+        reaper.GetSet_LoopTimeRange(true, true, target_r.pos, target_r.rgnend, false)
+        reaper.GetSetRepeat(1) -- Enable Repeat
+        
+        -- Check Play State
+        local play_state = reaper.GetPlayState()
+        local is_paused = (play_state & 2 == 2)
+        local cursor_inside = (cursor_pos >= target_r.pos and cursor_pos < target_r.rgnend)
+        
+        if is_paused and cursor_inside then
+            -- If Paused and inside region, just Resume (don't move cursor)
+            reaper.Main_OnCommand(1007, 0) -- Transport: Play
+        else
+            -- Otherwise (Stopped, Playing elsewhere, or Force Restart), Start from beginning
+            reaper.SetEditCurPos(target_r.pos, true, false) -- Move cursor to start
+            reaper.Main_OnCommand(1007, 0) -- Transport: Play
+        end
+    end
+end
+
+function Transport_Nav(dir)
+    local cursor_pos = reaper.GetCursorPosition()
+    local regions = {}
+    local i = 0
+    repeat
+        local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
+        if retval > 0 and isrgn then
+            table.insert(regions, {pos=pos, rgnend=rgnend})
+        end
+        i = i + 1
+    until retval == 0
+    
+    if #regions == 0 then return end
+    
+    -- Sort regions by position to ensure logical navigation
+    table.sort(regions, function(a,b) return a.pos < b.pos end)
+    
+    local target_idx = -1
+    local cur_idx = -1
+    
+    -- Check if we are currently inside a region
+    for k, r in ipairs(regions) do
+        if cursor_pos >= r.pos and cursor_pos < r.rgnend then
+            cur_idx = k
+            break
+        end
+    end
+    
+    if cur_idx ~= -1 then
+        -- We are in a region, go safely to prev/next
+        target_idx = cur_idx + dir
+    else
+        -- Not in a region, find closest
+        if dir > 0 then
+             -- Find first region starting after cursor
+             for k, r in ipairs(regions) do
+                 if r.pos > cursor_pos then target_idx = k; break end
+             end
+             -- If none found (end of project), maybe wrap to 1? Or stop.
+             if target_idx == -1 and #regions > 0 then target_idx = 1 end -- Wrap to start
+        else
+             -- Find first region ending before cursor (loop backwards)
+             for k = #regions, 1, -1 do
+                 local r = regions[k]
+                 if r.rgnend <= cursor_pos then target_idx = k; break end
+             end
+             -- If none found (start of project), maybe wrap to last?
+             if target_idx == -1 and #regions > 0 then target_idx = #regions end -- Wrap to end
+        end
+    end
+    
+    -- Bounds check
+    if target_idx < 1 then target_idx = #regions end
+    if target_idx > #regions then target_idx = 1 end
+    
+    -- Execute Jump
+    local t = regions[target_idx]
+    if t then
+        reaper.SetEditCurPos(t.pos, true, false)
+        PreviewCurrentLoop()
+    end
+end
+
+--------------------------------------------------------------------------------
 -- DRAW GUI
 --------------------------------------------------------------------------------
 function DrawGUI()
@@ -567,14 +1082,105 @@ function DrawGUI()
     local visible, open = reaper.ImGui_Begin(ctx, "Auto Loop Detector", true, flags)
     if visible then
         -- Title
-        reaper.ImGui_TextColored(ctx, UI.Info, "RMS DETECTION")
+        -- Title / Detection Mode Selector
+        reaper.ImGui_SetNextItemWidth(ctx, 150)
+        local mode_preview = (cfg_detection_mode == 1) and "RMS (Default)" or "Transient (Peak)"
+        
+        if reaper.ImGui_BeginCombo(ctx, "##detectmode", mode_preview) then
+            if reaper.ImGui_Selectable(ctx, "RMS (Default)", cfg_detection_mode == 1) then cfg_detection_mode = 1 end
+            if reaper.ImGui_Selectable(ctx, "Transient (Peak)", cfg_detection_mode == 2) then cfg_detection_mode = 2 end
+            reaper.ImGui_EndCombo(ctx)
+        end
+        if reaper.ImGui_IsItemHovered(ctx) then
+             reaper.ImGui_SetTooltip(ctx, "Detection Algorithm:\n- RMS: Average energy (Vocals, Pads)\n- Transient: Peak levels (Drums, Percussion)")
+        end
+        
         reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_TextDisabled(ctx, "(Mini)")
+        reaper.ImGui_TextDisabled(ctx, "(Mode)")
+        
+        -- Settings Button (Gear)
+        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetContentRegionAvail(ctx) - 26)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 12) -- Rounded
+        if reaper.ImGui_Button(ctx, "⚙") then 
+             reaper.ImGui_OpenPopup(ctx, "SettingsMenu")
+        end
+        reaper.ImGui_PopStyleVar(ctx)
+        reaper.ImGui_PopStyleColor(ctx)
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Settings (Naming, Coloring...)") end
+        
+        -- SETTINGS POPUP
+        if reaper.ImGui_BeginPopup(ctx, "SettingsMenu") then
+             reaper.ImGui_TextColored(ctx, UI.Info, "Configuration")
+             reaper.ImGui_Separator(ctx)
+             
+             -- Naming Scheme
+             reaper.ImGui_Text(ctx, "Name Mode")
+             reaper.ImGui_SetNextItemWidth(ctx, 150)
+             if reaper.ImGui_BeginCombo(ctx, "##naming_pop", cfg_naming_scheme == 1 and "Simple" or (cfg_naming_scheme == 2 and "Track Name" or "Item Name")) then
+                if reaper.ImGui_Selectable(ctx, "Simple (Section X)", cfg_naming_scheme == 1) then cfg_naming_scheme = 1 end
+                if reaper.ImGui_Selectable(ctx, "Track Name (Guitar 1, 2...)", cfg_naming_scheme == 2) then cfg_naming_scheme = 2 end
+                if reaper.ImGui_Selectable(ctx, "Item Name (File 1, 2...)", cfg_naming_scheme == 3) then cfg_naming_scheme = 3 end
+                reaper.ImGui_EndCombo(ctx)
+             end
+             
+             -- Smart Naming Options
+             reaper.ImGui_Dummy(ctx, 0, 2)
+             local changed_bpm, new_bpm = reaper.ImGui_Checkbox(ctx, "Attach BPM (_120bpm)", cfg_append_bpm)
+             if changed_bpm then cfg_append_bpm = new_bpm end
+             
+             local changed_key, new_key = reaper.ImGui_Checkbox(ctx, "Attach Key", cfg_append_key)
+             if changed_key then cfg_append_key = new_key end
+             
+             if cfg_append_key then
+                 reaper.ImGui_SameLine(ctx)
+                 reaper.ImGui_SetNextItemWidth(ctx, 45)
+                 if reaper.ImGui_BeginCombo(ctx, "##keyroot", KEY_NAMES[cfg_user_key_root + 1]) then
+                     for i, k in ipairs(KEY_NAMES) do
+                         local is_sel = (cfg_user_key_root == i - 1)
+                         if reaper.ImGui_Selectable(ctx, k, is_sel) then
+                             cfg_user_key_root = i - 1
+                         end
+                         if is_sel then reaper.ImGui_SetItemDefaultFocus(ctx) end
+                     end
+                     reaper.ImGui_EndCombo(ctx)
+                 end
+                 
+                 reaper.ImGui_SameLine(ctx)
+                 local changed_min, new_min = reaper.ImGui_Checkbox(ctx, "m", cfg_user_key_minor)
+                 if changed_min then cfg_user_key_minor = new_min end
+             end
+             
+             reaper.ImGui_Dummy(ctx, 0, 5)
+             
+             -- Color Mode
+             reaper.ImGui_Text(ctx, "Color Mode")
+             reaper.ImGui_SetNextItemWidth(ctx, 150)
+             local c_preview = "Color"
+            if cfg_color_mode == 1 then c_preview = "Random"
+            elseif cfg_color_mode == 2 then c_preview = "Track Color"
+            elseif cfg_color_mode == 3 then c_preview = "Item Color"
+            elseif cfg_color_mode == 0 then c_preview = "No Color"
+            end
+            
+            if reaper.ImGui_BeginCombo(ctx, "##coloring_pop", c_preview) then
+                if reaper.ImGui_Selectable(ctx, "Track Color (Match Track)", cfg_color_mode == 2) then cfg_color_mode = 2 end
+                if reaper.ImGui_Selectable(ctx, "Item Color (Match Clip)", cfg_color_mode == 3) then cfg_color_mode = 3 end
+                if reaper.ImGui_Selectable(ctx, "Random Colors", cfg_color_mode == 1) then cfg_color_mode = 1 end
+                if reaper.ImGui_Selectable(ctx, "No Color (Default)", cfg_color_mode == 0) then cfg_color_mode = 0 end
+                reaper.ImGui_EndCombo(ctx)
+            end
+             
+             reaper.ImGui_EndPopup(ctx)
+        end
+        
         reaper.ImGui_Separator(ctx)
         reaper.ImGui_Dummy(ctx, 0, 5) 
+         
         
         -- PARAMETERS PANEL
-        if reaper.ImGui_BeginChild(ctx, "ConfigPanel", 0, 195, 1) then
+        if true then
+
             
             -- Detect Item Type for UI Feedback
             local is_midi_target = false
@@ -633,6 +1239,53 @@ function DrawGUI()
                     reaper.ImGui_SetTooltip(ctx, "Delete Preset")
                 end
             end
+
+            -- TRANSPORT BAR (Play/Pause/Stop)
+            reaper.ImGui_SameLine(ctx, 0, 15) -- Spacing
+            
+            -- Prev (Blue)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1E90FFFF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x00BFFFFF)
+            if reaper.ImGui_Button(ctx, "⏮") then Transport_Nav(-1) end
+            reaper.ImGui_PopStyleColor(ctx, 2)
+            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Previous Loop") end
+
+            reaper.ImGui_SameLine(ctx)
+
+            -- Play (Green)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x228B22FF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x2E8B57FF)
+            if reaper.ImGui_Button(ctx, "▶") then PreviewCurrentLoop() end
+            reaper.ImGui_PopStyleColor(ctx, 2)
+            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Preview Loop (Play)") end
+            
+            reaper.ImGui_SameLine(ctx)
+            
+            -- Pause (Orange/Yellow)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0xDAA520FF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xFFD700FF)
+            if reaper.ImGui_Button(ctx, "⏸") then Transport_Pause() end
+            reaper.ImGui_PopStyleColor(ctx, 2)
+            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Pause") end
+            
+            reaper.ImGui_SameLine(ctx)
+            
+            -- Stop (Red)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0xB22222FF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xDC143CFF)
+            if reaper.ImGui_Button(ctx, "■") then Transport_Stop() end
+            reaper.ImGui_PopStyleColor(ctx, 2)
+            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Stop") end
+
+            reaper.ImGui_SameLine(ctx)
+
+            -- Next (Blue)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1E90FFFF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x00BFFFFF)
+            if reaper.ImGui_Button(ctx, "⏭") then Transport_Nav(1) end
+            reaper.ImGui_PopStyleColor(ctx, 2)
+            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Next Loop") end
+            
             
             reaper.ImGui_Dummy(ctx, 0, 3)
 
@@ -655,6 +1308,9 @@ function DrawGUI()
                 end
             end
             
+            -- Naming and Coloring moved to Settings Menu
+             
+            
             -- Min Silence
             reaper.ImGui_AlignTextToFramePadding(ctx)
             reaper.ImGui_Text(ctx, "Silence")
@@ -674,30 +1330,28 @@ function DrawGUI()
             reaper.ImGui_Dummy(ctx, 0, 2)
             
             -- OPTIONS
-            local changed_c, new_c = reaper.ImGui_Checkbox(ctx, "Random Colors", cfg_random_colors)
-            if changed_c then cfg_random_colors = new_c end
-            
+            -- Row 1
+            local changed_tr, new_tr = reaper.ImGui_Checkbox(ctx, "Trim Excess", cfg_trim_item)
+            if changed_tr then cfg_trim_item = new_tr end
+
             reaper.ImGui_SameLine(ctx, 160)
             local changed_g, new_g = reaper.ImGui_Checkbox(ctx, "Snap to Grid", cfg_snap_grid)
             if changed_g then cfg_snap_grid = new_g end
 
-            -- Trim Option
-            local changed_tr, new_tr = reaper.ImGui_Checkbox(ctx, "Trim Excess", cfg_trim_item)
-            if changed_tr then cfg_trim_item = new_tr end
+            -- Row 2
+            local changed_af, new_af = reaper.ImGui_Checkbox(ctx, "Auto Fades", cfg_auto_fades)
+            if changed_af then cfg_auto_fades = new_af end
 
             reaper.ImGui_SameLine(ctx, 160)
             local changed_sp, new_sp = reaper.ImGui_Checkbox(ctx, "Split Items", cfg_split_items)
             if changed_sp then cfg_split_items = new_sp end
 
-            -- Advanced Row
-            local changed_af, new_af = reaper.ImGui_Checkbox(ctx, "Auto Fades", cfg_auto_fades)
-            if changed_af then cfg_auto_fades = new_af end
-
-            reaper.ImGui_SameLine(ctx, 160)
+            -- Row 3
             local changed_ss, new_ss = reaper.ImGui_Checkbox(ctx, "Strip Silence", cfg_strip_silence)
             if changed_ss then cfg_strip_silence = new_ss end
 
-            reaper.ImGui_EndChild(ctx)
+            -- reaper.ImGui_EndChild(ctx)
+
         end
 
         reaper.ImGui_Dummy(ctx, 0, 5)
@@ -716,7 +1370,45 @@ function DrawGUI()
         reaper.ImGui_Dummy(ctx, 0, 2)
         
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), UI.FrameBg)
-        if reaper.ImGui_Button(ctx, "Export (Render)...", btn_w, 24) then
+        -- Render Preset Selector
+        reaper.ImGui_SetNextItemWidth(ctx, 110)
+        local current_p_name = RENDER_PRESET_NAMES[cfg_render_preset_idx + 1] or ""
+        if reaper.ImGui_BeginCombo(ctx, "##renderpreset", current_p_name) then
+            for i, name in ipairs(RENDER_PRESET_NAMES) do
+                local is_selected = (cfg_render_preset_idx == i - 1)
+                if reaper.ImGui_Selectable(ctx, name, is_selected) then
+                    cfg_render_preset_idx = i - 1
+                end
+                if is_selected then reaper.ImGui_SetItemDefaultFocus(ctx) end
+            end
+            reaper.ImGui_EndCombo(ctx)
+        end
+        if reaper.ImGui_IsItemHovered(ctx) then
+             reaper.ImGui_SetTooltip(ctx, "Select Render Preset (Output Format, etc.)")
+        end
+
+        reaper.ImGui_SameLine(ctx)
+        
+        -- Render Bounds Selector
+        reaper.ImGui_SetNextItemWidth(ctx, 110)
+        local bound_preview = "Default"
+        if cfg_render_bounds == 3 then bound_preview = "Regions"
+        elseif cfg_render_bounds == 2 then bound_preview = "Time Sel"
+        end
+        
+        if reaper.ImGui_BeginCombo(ctx, "##renderbound", bound_preview) then
+            if reaper.ImGui_Selectable(ctx, "Default (Preset)", cfg_render_bounds == -1) then cfg_render_bounds = -1 end
+            if reaper.ImGui_Selectable(ctx, "Project Regions", cfg_render_bounds == 3) then cfg_render_bounds = 3 end
+            if reaper.ImGui_Selectable(ctx, "Time Selection", cfg_render_bounds == 2) then cfg_render_bounds = 2 end
+            reaper.ImGui_EndCombo(ctx)
+        end
+        if reaper.ImGui_IsItemHovered(ctx) then
+             reaper.ImGui_SetTooltip(ctx, "Select Render Bounds:\n- Default: Use bounds from the selected Preset\n- Regions: Force Project Regions\n- Time Sel: Force Time Selection")
+        end
+        
+        reaper.ImGui_SameLine(ctx)
+        
+        if reaper.ImGui_Button(ctx, "Export...", -1, 24) then
             ExportLoops()
         end
         reaper.ImGui_PopStyleColor(ctx, 1)
