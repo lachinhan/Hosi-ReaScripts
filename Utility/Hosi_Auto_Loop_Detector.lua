@@ -30,7 +30,9 @@ local cfg_detection_mode = 1 -- 1=RMS (Default), 2=Transient (Peak)
 local cfg_append_bpm = false -- New option
 local cfg_append_key = false -- New option
 local cfg_user_key_root = 0 -- 0=C, 1=C#, etc.
-local cfg_user_key_minor = false -- New option for Minor key (m)
+local cfg_user_key_minor = false
+local cfg_normalize = false -- New option
+local cfg_normalize_target = -1.0 -- Target dB -- New option for Minor key (m)
 local KEY_NAMES = {"C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"}
 
 -- PRESETS DEFINITION
@@ -265,6 +267,47 @@ function GetItemPeakData(item, threshold_db, min_silence_sec, min_loop_len)
 
     reaper.DestroyAudioAccessor(accessor)
     return detected_loops
+end
+
+function NormalizeMediaItem(item, target_db)
+    local take = reaper.GetActiveTake(item)
+    if not take or reaper.TakeIsMIDI(take) then return end
+
+    local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    local source = reaper.GetMediaItemTake_Source(take)
+    local samplerate = reaper.GetMediaSourceSampleRate(source)
+    local num_channels = reaper.GetMediaSourceNumChannels(source)
+    
+    local accessor = reaper.CreateTakeAudioAccessor(take)
+    local window_size = 0.05 -- 50ms chunks for speed
+    local samples_per_window = math.floor(samplerate * window_size)
+    local buffer = reaper.new_array(samples_per_window * num_channels)
+    
+    local pos = 0
+    local max_peak = 0
+    
+    while pos < item_len do
+        local retval = reaper.GetAudioAccessorSamples(accessor, samplerate, num_channels, pos, samples_per_window, buffer)
+        if retval <= 0 then break end
+        local tbl = buffer.table()
+        for i = 1, #tbl do
+             local abs_val = math.abs(tbl[i])
+             if abs_val > max_peak then max_peak = abs_val end
+        end
+        pos = pos + window_size
+    end
+    
+    reaper.DestroyAudioAccessor(accessor)
+    
+    if max_peak > 0 then
+        local current_db = 20 * math.log(max_peak, 10)
+        local diff_db = target_db - current_db
+        local gain = 10 ^ (diff_db / 20)
+        
+        -- Apply to Item Volume (Absolute, not relative, to prevent double-gain on re-run)
+        -- Accessor reads RAW source, so 'gain' is the total required amplification.
+        reaper.SetMediaItemInfo_Value(item, "D_VOL", gain)
+    end
 end
 
 function GetMidiData(item, min_silence_sec, min_loop_len)
@@ -555,6 +598,7 @@ function ProcessSingleItem(item)
                     end
                     
                     if not deleted then
+                        -- Apply Auto Fades
                         if cfg_auto_fades then
                             reaper.SetMediaItemInfo_Value(it, "D_FADEINLEN", 0.010)
                             reaper.SetMediaItemInfo_Value(it, "D_FADEOUTLEN", 0.010)
@@ -562,6 +606,11 @@ function ProcessSingleItem(item)
                             -- Force remove default fades for ALL items (Loops & Silence)
                             reaper.SetMediaItemInfo_Value(it, "D_FADEINLEN", 0.0)
                             reaper.SetMediaItemInfo_Value(it, "D_FADEOUTLEN", 0.0)
+                        end
+                        
+                        -- Normalize Logic
+                        if cfg_normalize then
+                            NormalizeMediaItem(it, cfg_normalize_target)
                         end
                     end
                 end 
@@ -572,6 +621,263 @@ function ProcessSingleItem(item)
     else
         return 0
     end
+end
+
+function Action_SliceToSampler()
+    local item_count = reaper.CountSelectedMediaItems(0)
+    if item_count == 0 then
+        reaper.ShowMessageBox("Please select loop items first.", "Slice to Sampler", 0)
+        return
+    end
+    
+    reaper.Undo_BeginBlock()
+    
+    -- 1. Create Sampler Track
+    reaper.Main_OnCommand(40001, 0) -- Track: Insert new track
+    local sampler_track = reaper.GetSelectedTrack(0, 0)
+    reaper.GetSetMediaTrackInfo_String(sampler_track, "P_NAME", "Hosi Sampler", true)
+    
+    -- Fix 1: Set Track to MIDI Input, Record Arm, and Monitor
+    reaper.SetMediaTrackInfo_Value(sampler_track, "I_RECARM", 1) -- Arm Record
+    reaper.SetMediaTrackInfo_Value(sampler_track, "I_RECMON", 1) -- Monitor Input (ON)
+    -- 4096 (MIDI) + (63 << 5) (All Devices) + 0 (All Channels) = 6112
+    reaper.SetMediaTrackInfo_Value(sampler_track, "I_RECINPUT", 6112)
+    
+    -- 2. Copy Items to New Track
+    -- We'll use a trick: Select items -> Copy -> Select New Track -> Paste
+    -- But we need to ensure cursor is correct or use logic to move
+    
+    -- Restore original selection first
+    -- Actually, simpler loop copy:
+    local new_items = {}
+    local original_items = {}
+    for i = 0, item_count - 1 do
+        table.insert(original_items, reaper.GetSelectedMediaItem(0, i))
+    end
+    
+    for _, item in ipairs(original_items) do
+        local track = reaper.GetMediaItem_Track(item)
+        local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+        local len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+        
+        -- Copy item
+        local chunk = ""
+        local retval, str = reaper.GetItemStateChunk(item, "", false)
+        chunk = str
+        
+        local new_item = reaper.AddMediaItemToTrack(sampler_track)
+        reaper.SetItemStateChunk(new_item, chunk, false)
+        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", pos)
+        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", len)
+        table.insert(new_items, new_item)
+    end
+    
+    -- 3. Bake Volume/Fades (Normalize) into new files
+    -- Select ONLY new items
+    reaper.Main_OnCommand(40289, 0) -- Item: Unselect all items
+    for _, item in ipairs(new_items) do
+        reaper.SetMediaItemSelected(item, true)
+        
+        -- Fix: Ensure Normalization is applied/re-applied to these copies before baking
+        if cfg_normalize then
+             NormalizeMediaItem(item, cfg_normalize_target)
+        end
+    end
+    
+    -- Action: Item: Apply track/take FX to items as new take (mono output) - 40209
+    -- This bakes Item Volume (handled by Normalize) and Fades into the new file.
+    reaper.Main_OnCommand(40209, 0) 
+    
+    -- 4. Map to RS5k
+    -- Re-get selected items (the new takes)
+    local baked_items = {}
+    local baked_count = reaper.CountSelectedMediaItems(0)
+    for i = 0, baked_count - 1 do
+        table.insert(baked_items, reaper.GetSelectedMediaItem(0, i))
+    end
+    
+    -- Sort by position to map C4, C#4... sequentially
+    table.sort(baked_items, function(a,b) 
+        return reaper.GetMediaItemInfo_Value(a, "D_POSITION") < reaper.GetMediaItemInfo_Value(b, "D_POSITION") 
+    end)
+    
+    for i, item in ipairs(baked_items) do
+        local take = reaper.GetActiveTake(item)
+        if take then
+            local source = reaper.GetMediaItemTake_Source(take)
+            local filename = reaper.GetMediaSourceFileName(source, "")
+            
+            if filename and filename ~= "" then
+                -- Add RS5k
+                local fx_idx = reaper.TrackFX_AddByName(sampler_track, "ReaSamplomatic5000", false, -1)
+                
+                -- Set File
+                reaper.TrackFX_SetNamedConfigParm(sampler_track, fx_idx, "FILE0", filename)
+                reaper.TrackFX_SetNamedConfigParm(sampler_track, fx_idx, "DONE", "")
+                
+                -- Map Note (Start at 60 / C4)
+                local note = 59 + i
+                if note > 127 then note = 127 end
+                
+                -- Param 3: Note Min (0-127 / 128) -> Value/128? No, plain value for SetParam is 0-1 normalized
+                -- For RS5k:
+                -- 3: Note range start (0-127) -> val / 127
+                -- 4: Note range end (0-127)
+                -- 8: Loop (0=off, 1=on)
+                -- 9: Attack
+                -- 10: Release
+                -- 11: Obey note-offs (0=off, 1=on)
+                
+                reaper.TrackFX_SetParam(sampler_track, fx_idx, 3, note / 127) -- Note Min
+                reaper.TrackFX_SetParam(sampler_track, fx_idx, 4, note / 127) -- Note Max
+                reaper.TrackFX_SetParam(sampler_track, fx_idx, 8, 0) -- Loop OFF
+                reaper.TrackFX_SetParam(sampler_track, fx_idx, 9, 0) -- Attack 0
+                reaper.TrackFX_SetParam(sampler_track, fx_idx, 10, 0.05) -- Release (Small release for smoother cut)
+                
+                -- Fix 2: Prevent Feedback/Overlap
+                reaper.TrackFX_SetParam(sampler_track, fx_idx, 11, 1) -- Obey note-offs = ON
+                
+                -- Max Voices (Param 25 in some versions, check validity)
+                -- To be safe, Obey note-offs is the main fix requested (stop when release).
+                -- If we want true "Cut Self" on retrigger, Obey note-offs helps if user releases key.
+                -- We'll stick to Obey note-offs as it's standard for RS5k "Playable" mode.
+                
+                -- Rename Instance
+                reaper.TrackFX_SetNamedConfigParm(sampler_track, fx_idx, "renamed_name", "Pad " .. i)
+            end
+        end
+    end
+    
+    -- Mute/Hide original items? Or just mute the new items on timeline?
+    -- User wants a Sampler. The items on timeline are just sources now.
+    -- Let's Mute the baked items so they don't play double
+    reaper.Main_OnCommand(40135, 0) -- Item properties: Toggle mute
+    
+    reaper.Undo_EndBlock("Slice to Sampler", -1)
+    reaper.ShowMessageBox("Mapped " .. #baked_items .. " slices to 'Hosi Sampler' track (Start Note: C4)", "Success", 0)
+end
+
+function Action_GenerateVariations()
+    local item_count = reaper.CountSelectedMediaItems(0)
+    if item_count == 0 then
+        reaper.ShowMessageBox("Please select loop items first.", "Variations", 0)
+        return
+    end
+    
+    reaper.Undo_BeginBlock()
+    
+    local original_items = {}
+    for i = 0, item_count - 1 do
+        table.insert(original_items, reaper.GetSelectedMediaItem(0, i))
+    end
+    
+    -- Create Track for Variations
+    reaper.Main_OnCommand(40001, 0) -- Track: Insert new track
+    local var_track = reaper.GetSelectedTrack(0, 0)
+    reaper.GetSetMediaTrackInfo_String(var_track, "P_NAME", "Variations", true)
+    
+    for _, item in ipairs(original_items) do
+        local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+        local len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+        local take = reaper.GetActiveTake(item)
+        local source = reaper.GetMediaItemTake_Source(take)
+        local item_chunk = ""
+        local retval, str = reaper.GetItemStateChunk(item, "", false)
+        item_chunk = str
+        
+        -- Helper to create variation
+        local function CreateVar(suffix, rate, pitch, reverse)
+            local new_item = reaper.AddMediaItemToTrack(var_track)
+            reaper.SetItemStateChunk(new_item, item_chunk, false)
+            reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", pos + (len * 1.5)) -- Offset nicely? Or just stack? Let's stack sequentially on new track
+            -- Actually, let's put them at the same time but maybe on new tracks?
+            -- User wants variations. Usually they want them to audition.
+            -- Stacking on same track might be messy.
+            -- Let's just create them on the new track, spaced out by length + 1s.
+            -- But "pos" depends on original.
+            -- Decision: Place them vertically on new lanes? REAPER FIPM?
+            -- Simple: Place them on the new track at original position essentially (but they will overlap).
+            -- Better: Place them sequentially on the new track starting at cursor?
+            -- Let's stick to: Create them on new track at Original Position. User can solo/mute.
+            -- Actually, "Variations" usually implies new files for sample pack.
+            
+            reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", pos)
+            reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", len) -- Will change for Rate
+            
+            local new_take = reaper.GetActiveTake(new_item)
+            if rate ~= 1.0 then
+                reaper.SetMediaItemTakeInfo_Value(new_take, "D_PLAYRATE", rate)
+                reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", len / rate)
+            end
+            
+            if pitch ~= 0 then
+                 reaper.SetMediaItemTakeInfo_Value(new_take, "D_PITCH", pitch)
+            end
+            
+            if reverse then
+                -- Reverse Take command needs selection.
+                -- Use Item State Chunk trick for reverse? "REV 1"
+                -- Or standard command 41051
+                reaper.Main_OnCommand(40289, 0) -- Unselect all
+                reaper.SetMediaItemSelected(new_item, true)
+                reaper.Main_OnCommand(41051, 0) -- Reverse items as new take
+                -- This creates a new take.
+                reaper.Main_OnCommand(40131, 0) -- Crop to active take
+            end
+            
+            -- Rename
+            local tk = reaper.GetActiveTake(new_item)
+            local name = reaper.GetTakeName(tk)
+            reaper.GetSetMediaItemTakeInfo_String(tk, "P_NAME", name .. "_" .. suffix, true)
+            
+            return new_item
+        end
+        
+        -- Need to offset positions so they don't stack directly if we want to see them?
+        -- Let's create separate tracks for each type?
+        -- Or just create them. User can sort.
+        -- Let's create them on 1 track, but spaced by 2 seconds to the right of original?
+        -- Or just overlap (Takes).
+        -- Strategy: Create 5 items on the new track.
+        -- 1. Reverse
+        local i1 = CreateVar("Rev", 1.0, 0, true)
+        reaper.SetMediaItemInfo_Value(i1, "D_POSITION", pos)
+        
+        -- 2. Half
+        local i2 = CreateVar("Half", 0.5, 0, false)
+        reaper.SetMediaItemInfo_Value(i2, "D_POSITION", pos + len + 2)
+        
+        -- 3. Double
+        local i3 = CreateVar("Double", 2.0, 0, false)
+        reaper.SetMediaItemInfo_Value(i3, "D_POSITION", pos + (len*3) + 4)
+        
+        -- 4. Octave Up
+        local i4 = CreateVar("High", 1.0, 12, false)
+        reaper.SetMediaItemInfo_Value(i4, "D_POSITION", pos + (len*4) + 6)
+        
+        -- 5. Octave Down
+        local i5 = CreateVar("Low", 1.0, -12, false)
+        reaper.SetMediaItemInfo_Value(i5, "D_POSITION", pos + (len*5) + 8)
+    end
+    
+    reaper.Undo_EndBlock("Generate Variations", -1)
+    reaper.ShowMessageBox("Generated variations on 'Variations' track.", "Success", 0)
+end
+
+function Action_SecretUnReverse()
+    -- Easter Egg: Un-Reverse selected items (Flip them back)
+    local item_count = reaper.CountSelectedMediaItems(0)
+    if item_count == 0 then return end
+    
+    reaper.Undo_BeginBlock()
+    -- Simply run "Reverse items as new take" again. 
+    -- If it was Reversed, it becomes Forward (Original).
+    -- If it was Forward, it becomes Reversed (Chaos).
+    reaper.Main_OnCommand(41051, 0)
+    reaper.Undo_EndBlock("Easter Egg: De-Reverse", -1)
+    
+    -- Fun Message
+    reaper.ShowMessageBox("🥚 EASTER EGG FOUND! 🥚\n\nTime has been reversed... back to normal!\n(Un-Reverse applied)", "Secret Feature", 0)
 end
 
 function PerformScan()
@@ -910,6 +1216,22 @@ LoadUserPresets() -- Init load
 -- UTILITY FUNCTIONS
 --------------------------------------------------------------------------------
 
+function OpenURL(url)
+    if reaper.CF_ShellExecute then
+        reaper.CF_ShellExecute(url)
+    else
+        local os_name = reaper.GetOS()
+        if os_name:match("Win") then
+            -- Use explorer.exe to avoid cmd window flash
+            reaper.ExecProcess('explorer.exe "' .. url .. '"', 0)
+        elseif os_name:match("OSX") then
+            os.execute('open "' .. url .. '"')
+        else
+            os.execute('xdg-open "' .. url .. '"')
+        end
+    end
+end
+
 function GetProjectKeyString()
     -- Use user selected key
     local key_str = KEY_NAMES[cfg_user_key_root + 1]
@@ -1077,7 +1399,7 @@ end
 function DrawGUI()
     local count_c, count_v = PushTheme(ctx)
     local flags = reaper.ImGui_WindowFlags_NoCollapse()
-    reaper.ImGui_SetNextWindowSize(ctx, 320, 290, reaper.ImGui_Cond_FirstUseEver())
+    reaper.ImGui_SetNextWindowSize(ctx, 380, 290, reaper.ImGui_Cond_FirstUseEver())
     
     local visible, open = reaper.ImGui_Begin(ctx, "Auto Loop Detector", true, flags)
     if visible then
@@ -1129,47 +1451,80 @@ function DrawGUI()
              local changed_bpm, new_bpm = reaper.ImGui_Checkbox(ctx, "Attach BPM (_120bpm)", cfg_append_bpm)
              if changed_bpm then cfg_append_bpm = new_bpm end
              
-             local changed_key, new_key = reaper.ImGui_Checkbox(ctx, "Attach Key", cfg_append_key)
-             if changed_key then cfg_append_key = new_key end
+             local changed_k, new_k = reaper.ImGui_Checkbox(ctx, "Attach Key", cfg_append_key)
+             if changed_k then cfg_append_key = new_k end
              
              if cfg_append_key then
                  reaper.ImGui_SameLine(ctx)
-                 reaper.ImGui_SetNextItemWidth(ctx, 45)
-                 if reaper.ImGui_BeginCombo(ctx, "##keyroot", KEY_NAMES[cfg_user_key_root + 1]) then
-                     for i, k in ipairs(KEY_NAMES) do
-                         local is_sel = (cfg_user_key_root == i - 1)
-                         if reaper.ImGui_Selectable(ctx, k, is_sel) then
-                             cfg_user_key_root = i - 1
-                         end
-                         if is_sel then reaper.ImGui_SetItemDefaultFocus(ctx) end
-                     end
-                     reaper.ImGui_EndCombo(ctx)
-                 end
+                 -- Key Root
+                 local key_names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
+                 reaper.ImGui_SetNextItemWidth(ctx, 50)
+                 local changed_r, new_r = reaper.ImGui_Combo(ctx, "Root", cfg_user_key_root, table.concat(key_names, "\0"))
+                 if changed_r then cfg_user_key_root = new_r end
                  
                  reaper.ImGui_SameLine(ctx)
-                 local changed_min, new_min = reaper.ImGui_Checkbox(ctx, "m", cfg_user_key_minor)
-                 if changed_min then cfg_user_key_minor = new_min end
+                 local changed_m, new_m = reaper.ImGui_Checkbox(ctx, "m", cfg_user_key_minor)
+                 if changed_m then cfg_user_key_minor = new_m end
              end
-             
+
              reaper.ImGui_Dummy(ctx, 0, 5)
+             reaper.ImGui_Separator(ctx)
+             reaper.ImGui_Text(ctx, "Processing")
+             
+             -- Normalize
+             local changed_n, new_n = reaper.ImGui_Checkbox(ctx, "Normalize", cfg_normalize)
+             if changed_n then cfg_normalize = new_n end
+             
+             if cfg_normalize then
+                 reaper.ImGui_SameLine(ctx)
+                 reaper.ImGui_SetNextItemWidth(ctx, 80)
+                 local changed_db, new_db = reaper.ImGui_InputDouble(ctx, "dB Target", cfg_normalize_target, 0.1, 1.0, "%.1f")
+                 if changed_db then 
+                     if new_db > 0.0 then new_db = 0.0 end -- Safety Cap
+                     cfg_normalize_target = new_db 
+                 end
+             end
+             if reaper.ImGui_IsItemHovered(ctx) then
+                  reaper.ImGui_SetTooltip(ctx, "Auto Scale Volume to Target Peak dB.\nNote: Only works on individual items (Enable Split Items for best results!)")
+             end
+
+             reaper.ImGui_Dummy(ctx, 0, 5)
+             reaper.ImGui_Separator(ctx)
              
              -- Color Mode
              reaper.ImGui_Text(ctx, "Color Mode")
              reaper.ImGui_SetNextItemWidth(ctx, 150)
              local c_preview = "Color"
-            if cfg_color_mode == 1 then c_preview = "Random"
-            elseif cfg_color_mode == 2 then c_preview = "Track Color"
-            elseif cfg_color_mode == 3 then c_preview = "Item Color"
-            elseif cfg_color_mode == 0 then c_preview = "No Color"
-            end
+             if cfg_color_mode == 1 then c_preview = "Random"
+             elseif cfg_color_mode == 2 then c_preview = "Track Color"
+             elseif cfg_color_mode == 3 then c_preview = "Item Color"
+             elseif cfg_color_mode == 0 then c_preview = "No Color"
+             end
             
-            if reaper.ImGui_BeginCombo(ctx, "##coloring_pop", c_preview) then
-                if reaper.ImGui_Selectable(ctx, "Track Color (Match Track)", cfg_color_mode == 2) then cfg_color_mode = 2 end
-                if reaper.ImGui_Selectable(ctx, "Item Color (Match Clip)", cfg_color_mode == 3) then cfg_color_mode = 3 end
-                if reaper.ImGui_Selectable(ctx, "Random Colors", cfg_color_mode == 1) then cfg_color_mode = 1 end
-                if reaper.ImGui_Selectable(ctx, "No Color (Default)", cfg_color_mode == 0) then cfg_color_mode = 0 end
-                reaper.ImGui_EndCombo(ctx)
-            end
+             if reaper.ImGui_BeginCombo(ctx, "##coloring_pop", c_preview) then
+                 if reaper.ImGui_Selectable(ctx, "Track Color (Match Track)", cfg_color_mode == 2) then cfg_color_mode = 2 end
+                 if reaper.ImGui_Selectable(ctx, "Item Color (Match Clip)", cfg_color_mode == 3) then cfg_color_mode = 3 end
+                 if reaper.ImGui_Selectable(ctx, "Random Colors", cfg_color_mode == 1) then cfg_color_mode = 1 end
+                 if reaper.ImGui_Selectable(ctx, "No Color (Default)", cfg_color_mode == 0) then cfg_color_mode = 0 end
+                 reaper.ImGui_EndCombo(ctx)
+             end
+             
+             reaper.ImGui_Separator(ctx)
+             reaper.ImGui_Dummy(ctx, 0, 5) -- Add spacing
+             
+             -- Donate Button (Bold/Black Text)
+             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0xFFA500FF) -- Orange/Gold
+             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xFFB732FF)
+             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0xE09100FF)
+             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x000000FF)   -- Black Text
+             
+             if reaper.ImGui_Button(ctx, "Donate (PayPal)", -1) then 
+                  OpenURL("https://paypal.me/nkstudio")
+             end
+             reaper.ImGui_PopStyleColor(ctx, 4) -- Pop 4 colors
+             if reaper.ImGui_IsItemHovered(ctx) then
+                 reaper.ImGui_SetTooltip(ctx, "Support the developer! ☕\n(nkstudio)")
+             end
              
              reaper.ImGui_EndPopup(ctx)
         end
@@ -1349,6 +1704,34 @@ function DrawGUI()
             -- Row 3
             local changed_ss, new_ss = reaper.ImGui_Checkbox(ctx, "Strip Silence", cfg_strip_silence)
             if changed_ss then cfg_strip_silence = new_ss end
+            
+            reaper.ImGui_SameLine(ctx, 160)
+            
+            -- Map MIDI Button (Row 3 Col 2 Left)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), UI.Button) 
+            if reaper.ImGui_Button(ctx, "Map to MIDI", 90) then
+                Action_SliceToSampler()
+            end
+            if reaper.ImGui_IsItemHovered(ctx) then
+                 reaper.ImGui_SetTooltip(ctx, "Create 'Hosi Sampler' Track (RS5k)\nfrom selected slices (Starts at C4).")
+            end
+            
+            reaper.ImGui_SameLine(ctx)
+            
+            -- Variations Button (Row 3 Col 2 Right)
+            if reaper.ImGui_Button(ctx, "Variations", 90) then
+                Action_GenerateVariations()
+            end
+            
+            -- EASTER EGG TRIGGER: Right Click
+            if reaper.ImGui_IsItemClicked(ctx, 1) then -- 1 = Right Click
+                 Action_SecretUnReverse()
+            end
+            
+            reaper.ImGui_PopStyleColor(ctx) -- Pop shared color
+            if reaper.ImGui_IsItemHovered(ctx) then
+                 reaper.ImGui_SetTooltip(ctx, "Generate 5 Variations:\n- Reverse\n- Half-time\n- Double-time\n- Octave Up (+12)\n- Octave Down (-12)\n(Right-Click for a secret...)")
+            end
 
             -- reaper.ImGui_EndChild(ctx)
 
