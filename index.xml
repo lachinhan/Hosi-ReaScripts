@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="372b224a65480e2b14d27f8efcff8d310c951059">
+<index version="1" name="Hosi Scripts" commit="816d606d207e217451f752cf168e3db2f6cc1839">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -955,6 +955,30 @@
       </metadata>
       <version name="1.0" author="Hosi" time="2025-09-02T09:32:41Z">
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/6df257261193e43f0eb111fadeaf260b1d851daf/Utility/Hosi_Variator.lua</source>
+      </version>
+    </reapack>
+    <reapack name="Hosi_Variator_Pro.lua" type="script" desc="Hosi Variator - Sound Design Edition">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 SOUND DESIGN EDITION This script is a powerful Texture Morphing and Randomization tool for Sound Design.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Features:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Tape Mode: Link Rate & Pitch for organic varispeed effects.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Layering Control: Precise control over Start Offset and Free Mode positioning.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Texture Tools: Reverse probability, Formant shifting (future), and more.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Modern Dark UI: Professional interface with preset management.\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Instructions:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Select media items.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Configure randomization parameters in the tabs.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Use "Global Chaos" to scale the overall intensity.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 4.\tx360\tab Click "Mutate" to process.\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="2.0" author="Hosi" time="2025-12-14T09:48:39Z">
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/816d606d207e217451f752cf168e3db2f6cc1839/Utility/Hosi_Variator_Pro.lua</source>
       </version>
     </reapack>
     <reapack name="MidSide_Split_Tool - ReaImGui.lua" type="script" desc="Hosi Mid/Side Split Tool">
