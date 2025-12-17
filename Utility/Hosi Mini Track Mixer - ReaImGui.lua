@@ -1,7 +1,7 @@
 --[[
 @description    Hosi Mini Track Mixer (ReaImGui Version)
 @author         Hosi
-@version        1.9.4
+@version        1.9.5
 @reaper_version 6.0
 @provides
   [main] . > Hosi_Mini Track Mixer (ReaImGui).lua
@@ -17,6 +17,8 @@
   - SWS/S&M Extension (optional, for better track selection focus)
 
 @changelog
+  v1.9.5 (2025-Dec-17)
+  - Add and Search Tags
   v1.9.4 (2025-Dec-11)
   - Fix errors
   - Visual EQ in Channel Trip
@@ -83,7 +85,7 @@
 
 -- --- USER CONFIGURATION ---
 local config = {
-    win_title = "Hosi Mini Track Mixer v1.9.4",
+    win_title = "Hosi Mini Track Mixer v1.9.5",
     refresh_interval = 0.05,
     indent_size = 15.0
 }
@@ -374,6 +376,10 @@ local state = {
     rename_item_new_name = "",
     -- GROUP RENAME POPUP
     open_group_rename_popup = false,
+    -- SMART TAGS STATE
+    popup_tag_track_idx = nil,
+    new_tag_text = "",
+    open_tag_popup = false,
     -- HIDE HIDDEN TRACKS OPTION
     hide_hidden_tracks = false,
     -- COLOR FILTER STATE
@@ -903,6 +909,30 @@ function DrawTrackContextMenuOptions(ctx, track, i, guid_str, name)
     imgui.Text(ctx, "Track: " .. name)
     imgui.Separator(ctx)
     
+    -- TAGS SUBMENU
+    if imgui.BeginMenu(ctx, "Tags 🏷️") then
+        if imgui.MenuItem(ctx, "➕ Add New Tag...") then
+            state.popup_tag_track_idx = i
+            state.new_tag_text = ""
+            state.open_tag_popup = true
+        end
+        imgui.Separator(ctx)
+        
+        local current_tags = GetTrackTags(track)
+        if #current_tags == 0 then
+            imgui.TextDisabled(ctx, "(No tags)")
+        else
+            for _, tag in ipairs(current_tags) do
+                -- Click to Remove
+                if imgui.MenuItem(ctx, "❌ " .. tag) then
+                    RemoveTrackTag(track, tag)
+                end
+            end
+        end
+        imgui.EndMenu(ctx)
+    end
+    imgui.Separator(ctx)
+
     -- Grouping Submenu
     if imgui.BeginMenu(ctx, "Pooling / Grouping 🔗") then
          if imgui.MenuItem(ctx, "No Group", nil, GetTrackGroup(track)==0) then SetTrackGroup(track, 0) end
@@ -1010,6 +1040,39 @@ function PopTheme()
     -- Pop all pushed colors (26) and vars (9)
     imgui.PopStyleColor(ctx, 26)
     imgui.PopStyleVar(ctx, 9)
+end
+
+-- TAG SYSTEM HELPERS
+function GetTrackTags(track)
+    local retval, str = reaper.GetSetMediaTrackInfo_String(track, "P_EXT:HosiTags", "", false)
+    if not retval or str == "" then return {} end
+    local tags = {}
+    for tag in str:gmatch("([^,]+)") do
+        tags[#tags+1] = tag
+    end
+    return tags
+end
+
+function AddTrackTag(track, new_tag)
+    if not new_tag or new_tag == "" then return end
+    local tags = GetTrackTags(track)
+    -- Check duplicate
+    for _, t in ipairs(tags) do
+        if t == new_tag then return end
+    end
+    table.insert(tags, new_tag)
+    reaper.GetSetMediaTrackInfo_String(track, "P_EXT:HosiTags", table.concat(tags, ","), true)
+end
+
+function RemoveTrackTag(track, tag_to_remove)
+    local tags = GetTrackTags(track)
+    local new_tags = {}
+    for _, t in ipairs(tags) do
+        if t ~= tag_to_remove then
+            table.insert(new_tags, t)
+        end
+    end
+    reaper.GetSetMediaTrackInfo_String(track, "P_EXT:HosiTags", table.concat(new_tags, ","), true)
 end
 
 function load_theme_setting()
@@ -1479,6 +1542,17 @@ end
 function ApplyAdvancedFilter(i, filter_text)
     filter_text = filter_text:gsub("^%s*(.-)%s*$", "%1") -- trim
     if filter_text == "" then return true end
+
+    -- TAG FILTERING
+    if filter_text:sub(1,1) == "#" then
+        local tag_query = filter_text:sub(2):lower()
+        if tag_query == "" then return true end
+        local tags = GetTrackTags(state.tracks[i])
+        for _, tag in ipairs(tags) do
+            if tag:lower():find(tag_query, 1, true) then return true end
+        end
+        return false
+    end
 
     -- Normalize logical operators to handle case-insensitivity
     local query = filter_text:gsub(" and ", " AND "):gsub(" or ", " OR "):gsub(" not ", " NOT ")
@@ -2694,6 +2768,36 @@ function loop()
             
             imgui.EndPopup(ctx)
         end
+
+        -- NEW POPUP for Adding Tags
+        if state.open_tag_popup then
+            imgui.OpenPopup(ctx, "AddTagPopup")
+            state.open_tag_popup = false
+        end
+
+        if imgui.BeginPopupModal(ctx, "AddTagPopup", true, imgui.WindowFlags_NoResize) then
+            imgui.Text(ctx, "Enter Tag Name (no spaces):")
+            local enter_pressed
+            local changed, text = imgui.InputText(ctx, "##taginput", state.new_tag_text)
+            if changed then state.new_tag_text = text end
+            enter_pressed = imgui.IsItemDeactivatedAfterEdit(ctx) and imgui.IsKeyPressed(ctx, imgui.Key_Enter)
+            
+            if imgui.IsWindowAppearing(ctx) then imgui.SetKeyboardFocusHere(ctx, -1) end
+
+            if imgui.Button(ctx, "Add Tag", 120, 0) or enter_pressed then
+                if state.popup_tag_track_idx and state.tracks[state.popup_tag_track_idx] then
+                    local clean_tag = state.new_tag_text:gsub("%s+", "") -- Remove spaces
+                    AddTrackTag(state.tracks[state.popup_tag_track_idx], clean_tag)
+                end
+                imgui.CloseCurrentPopup(ctx)
+            end
+            imgui.SameLine(ctx)
+            if imgui.Button(ctx, "Cancel", 120, 0) then
+                imgui.CloseCurrentPopup(ctx)
+            end
+            imgui.EndPopup(ctx)
+        end
+
         
         imgui.SameLine(ctx, 0, group_spacing)
         
@@ -3567,6 +3671,18 @@ function loop()
                                 ShowTooltip("Show/Hide this track in TCP and Mixer.")
                                 
                                 imgui.TableNextColumn(ctx) -- Track Name
+                                
+                                -- 2. Tags Logic (Inline Buttons)
+                                local tags = GetTrackTags(track)
+                                for _, tag in ipairs(tags) do
+                                    imgui.PushStyleColor(ctx, imgui.Col_Button, 0x4A90E2aa)
+                                    if imgui.SmallButton(ctx, tag .. "##tag"..i) then
+                                        state.filter_text = "#" .. tag
+                                        if state.sync_view then SyncTrackVisibility() end
+                                    end
+                                    imgui.PopStyleColor(ctx)
+                                    imgui.SameLine(ctx, 0, 4)
+                                end
                                 local display_name = string.format("%02d: %s", i, name)
                                 if state.isFolder[i] then display_name = (state.folderCollapsed[i] and "📂 " or "📁 ") .. display_name end
                                 local r, g, b = reaper.ColorFromNative(reaper.GetTrackColor(track))
@@ -3630,7 +3746,11 @@ function loop()
                                 
                                 -- Mute Button
                                 local is_muted = (state.tracksMut[i] == 1)
-                                if is_muted then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0,0,0.5)) end
+                                if is_muted then 
+                                    imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0,0,0.5)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonHovered,PackColor(1,0,0,0.8)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonActive,PackColor(1,0,0,1.0)) 
+                                end
                                 if imgui.Button(ctx,"M##"..i,25,0) then 
                                     reaper.Undo_BeginBlock()
                                     local new_val = 1 - state.tracksMut[i]
@@ -3639,13 +3759,17 @@ function loop()
                                     reaper.Undo_EndBlock("Toggle Mute", -1)
                                     ForceUIRefresh()
                                 end 
-                                if is_muted then imgui.PopStyleColor(ctx) end
+                                if is_muted then imgui.PopStyleColor(ctx, 3) end
                                 ShowTooltip("Mute")
                                 imgui.SameLine(ctx,0,2)
 
                                 -- Solo Button
                                 local is_solo = (state.tracksSol[i] > 0)
-                                if is_solo then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,1,0,0.5)) end
+                                if is_solo then 
+                                    imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,1,0,0.5)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonHovered,PackColor(1,1,0,0.8)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonActive,PackColor(1,1,0,1.0)) 
+                                end
                                 if imgui.Button(ctx,"S##"..i,25,0) then 
                                     reaper.Undo_BeginBlock()
                                     local new_val = (state.tracksSol[i] > 0) and 0 or 1
@@ -3654,25 +3778,33 @@ function loop()
                                     reaper.Undo_EndBlock("Toggle Solo", -1)
                                     ForceUIRefresh()
                                 end 
-                                if is_solo then imgui.PopStyleColor(ctx) end
+                                if is_solo then imgui.PopStyleColor(ctx, 3) end
                                 ShowTooltip("Solo")
                                 imgui.SameLine(ctx,0,2)
 
                                 -- FX Button
                                 local is_fx_visible = (state.tracksFX[i] ~= -1)
-                                if is_fx_visible then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(0,1,0,0.5)) end
+                                if is_fx_visible then 
+                                    imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(0,1,0,0.5)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonHovered,PackColor(0,1,0,0.8)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonActive,PackColor(0,1,0,1.0)) 
+                                end
                                 if imgui.Button(ctx,"FX##"..i,25,0) then 
                                     local mode = (state.tracksFX[i] == -1) and 1 or 0
                                     reaper.TrackFX_Show(track, 0, mode)
                                     state.tracksFX[i] = (mode == 1) and 1 or -1
                                 end 
-                                if is_fx_visible then imgui.PopStyleColor(ctx) end
+                                if is_fx_visible then imgui.PopStyleColor(ctx, 3) end
                                 ShowTooltip("Open FX Chain window")
                                 imgui.SameLine(ctx,0,2)
 
                                 -- Phase Button
                                 local is_phase_inv = (state.tracksPhase[i] == 1)
-                                if is_phase_inv then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0.5,0,0.5)) end
+                                if is_phase_inv then 
+                                    imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0.5,0,0.5)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonHovered,PackColor(1,0.5,0,0.8)) 
+                                    imgui.PushStyleColor(ctx,imgui.Col_ButtonActive,PackColor(1,0.5,0,1.0)) 
+                                end
                                 if imgui.Button(ctx,"ø##"..i,25,0) then 
                                     reaper.Undo_BeginBlock()
                                     local new_val = 1 - state.tracksPhase[i]
@@ -3681,14 +3813,19 @@ function loop()
                                     reaper.Undo_EndBlock("Toggle Phase", -1)
                                     ForceUIRefresh()
                                 end 
-                                if is_phase_inv then imgui.PopStyleColor(ctx) end
+                                if is_phase_inv then imgui.PopStyleColor(ctx, 3) end
                                 ShowTooltip("Invert Phase")
                                 imgui.SameLine(ctx,0,2)
+                                -- Pin Button
                                 local has_pins = state.pinnedParams[guid_str] and #state.pinnedParams[guid_str] > 0
-                                if has_pins then imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(0.2, 0.6, 1.0, 0.7)) end
+                                if has_pins then 
+                                    imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(0.2, 0.6, 1.0, 0.7)) 
+                                    imgui.PushStyleColor(ctx, imgui.Col_ButtonHovered, PackColor(0.2, 0.6, 1.0, 0.9)) 
+                                    imgui.PushStyleColor(ctx, imgui.Col_ButtonActive, PackColor(0.2, 0.6, 1.0, 1.0)) 
+                                end
                                 if imgui.Button(ctx, "Pin##pin"..i, 28, 0) then state.popup_pin_track_idx = i; state.open_pin_popup = true end
                                 ShowTooltip("Pin an FX parameter from this track\nfor quick control in 'FX PARAMS' mode.")
-                                if has_pins then imgui.PopStyleColor(ctx) end
+                                if has_pins then imgui.PopStyleColor(ctx, 3) end
                                 
                                 imgui.PopStyleVar(ctx) -- Pop FramePadding
 
@@ -4485,6 +4622,20 @@ function DrawSendMatrix(ctx)
              
              -- Row Header
              imgui.PushItemWidth(ctx, row_header_w)
+             
+             -- Render Tags
+             local tags = GetTrackTags(track)
+             if #tags > 0 then
+                 for _, tag in ipairs(tags) do
+                     imgui.PushStyleColor(ctx, imgui.Col_Button, 0x4A90E2aa)
+                     imgui.PushStyleColor(ctx, imgui.Col_ButtonHovered, 0x4A90E2ff)
+                     imgui.PushStyleColor(ctx, imgui.Col_ButtonActive, 0x4A90E2aa)
+                     imgui.SmallButton(ctx, tag .. "##tag" .. i .. tag)
+                     imgui.PopStyleColor(ctx, 3)
+                     imgui.SameLine(ctx, 0, 4)
+                 end
+             end
+
              if imgui.Selectable(ctx, name .. "##Row"..i, state.tracksSel[i], 0, row_header_w - 10, 0) then
                  local is_ctrl = imgui.IsKeyDown(ctx, 4096) or imgui.IsKeyDown(ctx, 1)
                  SetTrackSelected(track, not state.tracksSel[i], is_ctrl)
@@ -4763,6 +4914,37 @@ function DrawStatusBar(ctx, bar_height)
     
     imgui.PopStyleVar(ctx)
     imgui.EndGroup(ctx)
+end
+
+-- HELPER: Tags
+function GetTrackTags(track)
+    local retval, str = reaper.GetSetMediaTrackInfo_String(track, "P_EXT:HosiTags", "", false)
+    if not retval or str == "" then return {} end
+    local tags = {}
+    for tag in str:gmatch("([^,]+)") do
+        tags[#tags+1] = tag
+    end
+    return tags
+end
+
+function AddTrackTag(track, new_tag)
+    if not new_tag or new_tag == "" then return end
+    local tags = GetTrackTags(track)
+    -- Check duplicate
+    for _, t in ipairs(tags) do
+        if t == new_tag then return end
+    end
+    table.insert(tags, new_tag)
+    reaper.GetSetMediaTrackInfo_String(track, "P_EXT:HosiTags", table.concat(tags, ","), true)
+end
+
+-- HELPER: Track Selection Logic
+function SetTrackSelected(track, new_val, is_add)
+    if is_add then
+        reaper.SetTrackSelected(track, new_val)
+    else
+        reaper.SetOnlyTrackSelected(track)
+    end
 end
 
 -- --- SCRIPT START AND EXIT ---
