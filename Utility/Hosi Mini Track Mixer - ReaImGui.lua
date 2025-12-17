@@ -347,11 +347,11 @@ local state = {
         reaComp_params = {}
     },
     -- Presets
-    preset1 = { track = {} },
-    preset2 = { track = {} },
-    preset3 = { track = {} },
-    preset4 = { track = {} },
-    preset5 = { track = {} },
+    preset1 = {},
+    preset2 = {},
+    preset3 = {},
+    preset4 = {},
+    preset5 = {},
     -- Custom Menu
     customMenu = {},
     open_custom_menu_config = false,
@@ -374,6 +374,11 @@ local state = {
     rename_item_new_name = "",
     -- GROUP RENAME POPUP
     open_group_rename_popup = false,
+    -- HIDE HIDDEN TRACKS OPTION
+    hide_hidden_tracks = false,
+    -- COLOR FILTER STATE
+    project_colors = {},
+    active_color_filter = nil,
     -- THEME STATE
     current_theme = "Modern Dark"
 }
@@ -725,6 +730,50 @@ function DrawEQMiniPlot(ctx, track)
             reaper.GetSetMediaTrackInfo_String(track, "P_EXT:Hosi_EQTypes", table.concat(parts, ","), true)
             
             imgui.EndPopup(ctx)
+         end
+         
+         -- DRAG INTERACTION (Refined: Relative Delta)
+         if imgui.IsItemActive(ctx) and imgui.IsMouseDragging(ctx, 0) then
+             hover_any = true
+             
+             -- Initialize drag state if needed
+             if not state.is_dragging_eq then
+                 state.is_dragging_eq = true
+                 state.drag_start_mx, state.drag_start_my = imgui.GetMousePos(ctx)
+             end
+             
+             local dx, dy = imgui.GetMouseDelta(ctx)
+             
+             -- 1. Identify Param Indices
+             local param_idx_freq = (b.id - 1) * 3
+             local param_idx_gain = (b.id - 1) * 3 + 1
+             
+             -- 2. Get Current Normalized Values (0..1)
+             local curr_norm_f = reaper.TrackFX_GetParamNormalized(track, eq_idx, param_idx_freq)
+             local curr_norm_g = reaper.TrackFX_GetParamNormalized(track, eq_idx, param_idx_gain)
+             
+             -- 3. Apply Delta
+             -- Sensitivity: Full width = full range? Maybe slower.
+             -- Let's say 400px width = 1.0 change. -> 1/400 = 0.0025 per pixel.
+             local sensitivity = 0.0025
+             
+             local new_norm_f = curr_norm_f + (dx * sensitivity)
+             local new_norm_g = curr_norm_g - (dy * sensitivity) -- Invert Y
+             
+             -- 4. Clamp
+             new_norm_f = math.max(0.0, math.min(1.0, new_norm_f))
+             new_norm_g = math.max(0.0, math.min(1.0, new_norm_g))
+             
+             -- 5. Set Param Normalized
+             reaper.TrackFX_SetParamNormalized(track, eq_idx, param_idx_freq, new_norm_f)
+             reaper.TrackFX_SetParamNormalized(track, eq_idx, param_idx_gain, new_norm_g)
+             
+             -- Tooltip (Reads the *resulting* value from the plugin, effectively)
+             local _, cur_f_formatted = reaper.TrackFX_GetFormattedParamValue(track, eq_idx, param_idx_freq, "")
+             local _, cur_g_formatted = reaper.TrackFX_GetFormattedParamValue(track, eq_idx, param_idx_gain, "")
+             ShowTooltip(string.format("Band %d\nFreq: %s\nGain: %s", b.id, cur_f_formatted, cur_g_formatted))
+         else
+             state.is_dragging_eq = false
          end
     end
     
@@ -1520,6 +1569,11 @@ function SyncTrackVisibility()
             should_show = false
         end
 
+        -- Color Filter Sync
+        if state.active_color_filter and reaper.GetTrackColor(state.tracks[i]) ~= state.active_color_filter then
+            should_show = false
+        end
+
         local new_vis_state = should_show and 1 or 0
         reaper.SetMediaTrackInfo_Value(state.tracks[i], "B_SHOWINTCP", new_vis_state)
         reaper.SetMediaTrackInfo_Value(state.tracks[i], "B_SHOWINMIXER", new_vis_state)
@@ -2008,6 +2062,14 @@ function DrawVerticalMixerArea(ctx, height)
                 
                 local show_track = ApplyAdvancedFilter(i, state.filter_text)
                 if show_track and not ApplyViewFilter(i) then show_track = false end
+
+                -- Hide Hidden Tracks Filter
+                if show_track and state.hide_hidden_tracks and not state.tracksVisible[i] then show_track = false end
+
+                -- Color Filter
+                if show_track and state.active_color_filter then
+                     if reaper.GetTrackColor(track) ~= state.active_color_filter then show_track = false end
+                end
                 
                 -- Extra Filters matching List View
                 local guid_str = reaper.GetTrackGUID(track)
@@ -2072,6 +2134,10 @@ function update_and_check_tracks()
         {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
     end
     
+    -- Reset Color Collection (rebuild every update to catch changes)
+    state.project_colors = {}
+    local seen_colors = {}
+    
     state.last_selected_track_idx = nil
     local last_sel_track = reaper.GetLastTouchedTrack()
 
@@ -2095,8 +2161,14 @@ function update_and_check_tracks()
         state.tracksHasItems[i] = reaper.CountTrackMediaItems(track) > 0
         state.tracksFXCount[i] = reaper.TrackFX_GetCount(track)
         
-        state.tracksHasItems[i] = reaper.CountTrackMediaItems(track) > 0
-        state.tracksFXCount[i] = reaper.TrackFX_GetCount(track)
+        -- Collect Unique Colors (ignore default 0 if desired, but 0 is a valid "no color")
+        local t_col = reaper.GetTrackColor(track)
+        if not seen_colors[t_col] then
+            seen_colors[t_col] = true
+            table.insert(state.project_colors, t_col)
+        end
+        
+
         
         -- Gather FX List for Rack
         state.tracksFXList[i] = {}
@@ -2204,40 +2276,108 @@ function update_and_check_tracks()
     end
 end
 
-function save_preset(preset_num)
-    local preset_table = state["preset" .. preset_num]
-    if not preset_table then return end
 
-    preset_table.track, preset_table.pan, preset_table.vol,
-    preset_table.mute, preset_table.solo = {}, {}, {}, {}, {}
-    
-    for i = 1, #state.tracks do
-        preset_table.track[i] = state.tracks[i]
-        preset_table.pan[i] = state.tracksPan[i]
-        preset_table.vol[i] = state.tracksVol[i]
-        preset_table.mute[i] = state.tracksMut[i]
-        preset_table.solo[i] = state.tracksSol[i]
+-- Helper for serialization
+function serialize_preset(data)
+    local parts = {}
+    for i, track_data in ipairs(data) do
+        local str = string.format("%s|%.4f|%.4f|%.4f|%d|%d|%d", 
+            track_data.guid, track_data.vol, track_data.pan, track_data.width, 
+            track_data.mute, track_data.solo, track_data.phase or 0)
+        table.insert(parts, str)
     end
+    return table.concat(parts, ";")
+end
+
+function deserialize_preset(str)
+    local data = {}
+    for part in str:gmatch("[^;]+") do
+        local guid, vol, pan, width, mute, solo, phase = part:match("([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)")
+        if guid then
+            table.insert(data, {
+                guid = guid,
+                vol = tonumber(vol),
+                pan = tonumber(pan),
+                width = tonumber(width),
+                mute = tonumber(mute),
+                solo = tonumber(solo),
+                phase = tonumber(phase) or 0
+            })
+        end
+    end
+    return data
+end
+
+function LoadPresetsFromExtState()
+    for i = 1, 5 do
+        local key = "Preset_" .. i
+        local retval, str = reaper.GetProjExtState(0, "HosiMixer", key)
+        if retval == 1 and str ~= "" then
+            state["preset" .. i] = deserialize_preset(str)
+        else
+            state["preset" .. i] = {} 
+        end
+    end
+end
+
+function save_preset(preset_num)
+    local preset_data = {}
+    for i = 1, #state.tracks do
+        local track = state.tracks[i]
+        if reaper.ValidatePtr(track, "MediaTrack*") then
+             table.insert(preset_data, {
+                 guid = reaper.GetTrackGUID(track),
+                 vol = state.tracksVol[i],
+                 pan = state.tracksPan[i],
+                 width = state.tracksWidth[i],
+                 mute = state.tracksMut[i],
+                 solo = state.tracksSol[i],
+                 phase = state.tracksPhase[i]
+             })
+        end
+    end
+    state["preset" .. preset_num] = preset_data
+    
+    -- Save to ExtState
+    local str = serialize_preset(preset_data)
+    reaper.SetProjExtState(0, "HosiMixer", "Preset_" .. preset_num, str)
+    
     reaper.ShowMessageBox("Preset " .. preset_num .. " saved.", "Notification", 0)
 end
 
 function load_preset(preset_num)
-    local preset_table = state["preset" .. preset_num]
-    if not preset_table or #preset_table.track == 0 then
+    local preset_data = state["preset" .. preset_num]
+    if not preset_data or #preset_data == 0 then
         reaper.ShowMessageBox("Preset " .. preset_num .. " is empty.", "Notification", 0)
         return
     end
 
-    for i = 1, #preset_table.track do
-        local track = state.tracks[i]
+    reaper.Undo_BeginBlock()
+    local applied_count = 0
+    
+    -- Map GUID to current track objects for fast lookup
+    local guid_map = {}
+    for i = 1, #state.tracks do
+        local guid = reaper.GetTrackGUID(state.tracks[i])
+        guid_map[guid] = state.tracks[i]
+    end
+    
+    for _, data in ipairs(preset_data) do
+        local track = guid_map[data.guid]
         if track and reaper.ValidatePtr(track, "MediaTrack*") then
-            reaper.SetMediaTrackInfo_Value(track, "D_VOL", preset_table.vol[i])
-            reaper.SetMediaTrackInfo_Value(track, "D_PAN", preset_table.pan[i])
-            reaper.SetMediaTrackInfo_Value(track, "B_MUTE", preset_table.mute[i])
-            reaper.SetMediaTrackInfo_Value(track, "I_SOLO", preset_table.solo[i])
+            reaper.SetMediaTrackInfo_Value(track, "D_VOL", data.vol)
+            reaper.SetMediaTrackInfo_Value(track, "D_PAN", data.pan)
+            reaper.SetMediaTrackInfo_Value(track, "D_WIDTH", data.width)
+            reaper.SetMediaTrackInfo_Value(track, "B_MUTE", data.mute)
+            reaper.SetMediaTrackInfo_Value(track, "I_SOLO", data.solo)
+            if data.phase then reaper.SetMediaTrackInfo_Value(track, "B_PHASE", data.phase) end
+            applied_count = applied_count + 1
         end
     end
-    reaper.ShowMessageBox("Preset " .. preset_num .. " loaded.", "Notification", 0)
+    
+    reaper.Undo_EndBlock("Load Preset " .. preset_num, -1)
+    reaper.ShowMessageBox("Preset " .. preset_num .. " loaded (".. applied_count .." tracks).", "Notification", 0)
+    ForceUIRefresh()
 end
 
 function CycleEditMode()
@@ -2511,9 +2651,51 @@ function loop()
         local layout_icon_w = 35
         
         -- Added snapshots_w and increased spacing multiplier to 6
-        local buttons_total_w = presets_width + snapshots_w + toggle_btn_w + layout_icon_w + view_combo_w + sync_check_w + custom_menu_w + (group_spacing * 7)
+        local buttons_total_w = presets_width + snapshots_w + toggle_btn_w + layout_icon_w + view_combo_w + sync_check_w + custom_menu_w + (group_spacing * 7) + 30 -- +30 for Color Palette
         local search_width = available_w - buttons_total_w - 15
         if search_width < 50 then search_width = 50 end
+        
+        -- COLOR PALETTE BUTTON
+        local col_icon = state.active_color_filter and "🎨!" or "🎨"
+        if state.active_color_filter then imgui.PushStyleColor(ctx, imgui.Col_Button, 0x4A90E2FF) end
+        if imgui.Button(ctx, col_icon.."##Palette", 25, 25) then
+            imgui.OpenPopup(ctx, "ColorPalettePopup")
+        end
+        if state.active_color_filter then imgui.PopStyleColor(ctx) end
+        ShowTooltip("Filter tracks by color.\nCurrent: "..(state.active_color_filter and "Active" or "None"))
+        
+        if imgui.BeginPopup(ctx, "ColorPalettePopup") then
+            imgui.Text(ctx, "Select Color Filter:")
+            imgui.Separator(ctx)
+            
+            if imgui.Button(ctx, "Clear Filter", -1) then
+                state.active_color_filter = nil
+                if state.sync_view then SyncTrackVisibility() end
+                imgui.CloseCurrentPopup(ctx)
+            end
+            
+            imgui.Separator(ctx)
+            -- Grid of colors
+            local cols = 8
+            local cw = 20
+            for c_i, c_val in ipairs(state.project_colors) do
+                local r, g, b = reaper.ColorFromNative(c_val)
+                imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(r/255, g/255, b/255, 1))
+                if imgui.Button(ctx, "##col"..c_i, cw, cw) then
+                    state.active_color_filter = c_val
+                    if state.sync_view then SyncTrackVisibility() end
+                    imgui.CloseCurrentPopup(ctx)
+                end
+                imgui.PopStyleColor(ctx)
+                
+                if c_i % cols ~= 0 and c_i < #state.project_colors then imgui.SameLine(ctx) end
+            end
+            if #state.project_colors == 0 then imgui.TextDisabled(ctx, "(No track colors)") end
+            
+            imgui.EndPopup(ctx)
+        end
+        
+        imgui.SameLine(ctx, 0, group_spacing)
         
         imgui.PushItemWidth(ctx, search_width)
         local filter_changed, new_filter_text = imgui.InputText(ctx, "##Search", state.filter_text, 256)
@@ -2701,6 +2883,12 @@ function loop()
                      end
                  end
                  imgui.EndMenu(ctx)
+            end
+            
+            imgui.Separator(ctx)
+            if imgui.MenuItem(ctx, "👁️ Hide Hidden Source Tracks", nil, state.hide_hidden_tracks) then
+                 state.hide_hidden_tracks = not state.hide_hidden_tracks
+                 reaper.SetExtState("Hosi.MiniTrackMixer", "HideHiddenTracks", tostring(state.hide_hidden_tracks), true)
             end
             
             imgui.Separator(ctx)
@@ -3317,6 +3505,14 @@ function loop()
                         local show_track = ApplyAdvancedFilter(i, state.filter_text)
                         
                         if show_track and not ApplyViewFilter(i) then show_track = false end
+                        
+                        -- Hide Hidden Tracks Filter
+                        if show_track and state.hide_hidden_tracks and not state.tracksVisible[i] then show_track = false end
+                        
+                        -- Color Filter
+                        if show_track and state.active_color_filter then
+                             if reaper.GetTrackColor(track) ~= state.active_color_filter then show_track = false end
+                        end
 
                         local guid_str = reaper.GetTrackGUID(track)
                         if show_track and state.edit_mode == "FX PARAMS" and (not state.pinnedParams[guid_str] or #state.pinnedParams[guid_str] == 0) then show_track = false end
@@ -3376,7 +3572,7 @@ function loop()
                                 local r, g, b = reaper.ColorFromNative(reaper.GetTrackColor(track))
                                 imgui.PushStyleColor(ctx, imgui.Col_Header, PackColor(r/255, g/255, b/255, 0.3)); imgui.PushStyleColor(ctx, imgui.Col_HeaderHovered, PackColor(r/255, g/255, b/255, 0.5)); imgui.PushStyleColor(ctx, imgui.Col_HeaderActive, PackColor(r/255, g/255, b/255, 0.7))
                                 
-                                if imgui.Selectable(ctx, display_name.."##track"..i, state.tracksSel[i], imgui.SelectableFlags_SpanAllColumns) then
+                                if imgui.Selectable(ctx, display_name.."##track"..i, state.tracksSel[i], imgui.SelectableFlags_None) then
                                     state.last_selected_track_idx = i
                                     
                                     -- Restore selection logic
@@ -3432,10 +3628,62 @@ function loop()
                                 -- Reduce padding for small buttons to center text
                                 imgui.PushStyleVar(ctx, imgui.StyleVar_FramePadding, 0, 4)
                                 
-                                if state.tracksMut[i]==1 then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0,0,0.5)) end; if imgui.Button(ctx,"M##"..i,25,0) then reaper.SetMediaTrackInfo_Value(track,"B_MUTE",1-state.tracksMut[i]) end; if state.tracksMut[i]==1 then imgui.PopStyleColor(ctx) end; ShowTooltip("Mute"); imgui.SameLine(ctx,0,2)
-                                if state.tracksSol[i]>0 then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,1,0,0.5)) end; if imgui.Button(ctx,"S##"..i,25,0) then reaper.SetMediaTrackInfo_Value(track,"I_SOLO",state.tracksSol[i]>0 and 0 or 1) end; if state.tracksSol[i]>0 then imgui.PopStyleColor(ctx) end; ShowTooltip("Solo"); imgui.SameLine(ctx,0,2)
-                                if state.tracksFX[i]~=-1 then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(0,1,0,0.5)) end; if imgui.Button(ctx,"FX##"..i,25,0) then reaper.TrackFX_Show(track,0,state.tracksFX[i]==-1 and 1 or -1) end; if state.tracksFX[i]~=-1 then imgui.PopStyleColor(ctx) end; ShowTooltip("Open FX Chain window"); imgui.SameLine(ctx,0,2)
-                                if state.tracksPhase[i]==1 then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0.5,0,0.5)) end; if imgui.Button(ctx,"ø##"..i,25,0) then reaper.SetMediaTrackInfo_Value(track,"B_PHASE",1-state.tracksPhase[i]) end; if state.tracksPhase[i]==1 then imgui.PopStyleColor(ctx) end; ShowTooltip("Invert Phase"); imgui.SameLine(ctx,0,2)
+                                -- Mute Button
+                                local is_muted = (state.tracksMut[i] == 1)
+                                if is_muted then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0,0,0.5)) end
+                                if imgui.Button(ctx,"M##"..i,25,0) then 
+                                    reaper.Undo_BeginBlock()
+                                    local new_val = 1 - state.tracksMut[i]
+                                    reaper.SetMediaTrackInfo_Value(track,"B_MUTE", new_val)
+                                    state.tracksMut[i] = new_val 
+                                    reaper.Undo_EndBlock("Toggle Mute", -1)
+                                    ForceUIRefresh()
+                                end 
+                                if is_muted then imgui.PopStyleColor(ctx) end
+                                ShowTooltip("Mute")
+                                imgui.SameLine(ctx,0,2)
+
+                                -- Solo Button
+                                local is_solo = (state.tracksSol[i] > 0)
+                                if is_solo then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,1,0,0.5)) end
+                                if imgui.Button(ctx,"S##"..i,25,0) then 
+                                    reaper.Undo_BeginBlock()
+                                    local new_val = (state.tracksSol[i] > 0) and 0 or 1
+                                    reaper.SetMediaTrackInfo_Value(track,"I_SOLO", new_val) 
+                                    state.tracksSol[i] = new_val
+                                    reaper.Undo_EndBlock("Toggle Solo", -1)
+                                    ForceUIRefresh()
+                                end 
+                                if is_solo then imgui.PopStyleColor(ctx) end
+                                ShowTooltip("Solo")
+                                imgui.SameLine(ctx,0,2)
+
+                                -- FX Button
+                                local is_fx_visible = (state.tracksFX[i] ~= -1)
+                                if is_fx_visible then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(0,1,0,0.5)) end
+                                if imgui.Button(ctx,"FX##"..i,25,0) then 
+                                    local mode = (state.tracksFX[i] == -1) and 1 or 0
+                                    reaper.TrackFX_Show(track, 0, mode)
+                                    state.tracksFX[i] = (mode == 1) and 1 or -1
+                                end 
+                                if is_fx_visible then imgui.PopStyleColor(ctx) end
+                                ShowTooltip("Open FX Chain window")
+                                imgui.SameLine(ctx,0,2)
+
+                                -- Phase Button
+                                local is_phase_inv = (state.tracksPhase[i] == 1)
+                                if is_phase_inv then imgui.PushStyleColor(ctx,imgui.Col_Button,PackColor(1,0.5,0,0.5)) end
+                                if imgui.Button(ctx,"ø##"..i,25,0) then 
+                                    reaper.Undo_BeginBlock()
+                                    local new_val = 1 - state.tracksPhase[i]
+                                    reaper.SetMediaTrackInfo_Value(track,"B_PHASE", new_val)
+                                    state.tracksPhase[i] = new_val
+                                    reaper.Undo_EndBlock("Toggle Phase", -1)
+                                    ForceUIRefresh()
+                                end 
+                                if is_phase_inv then imgui.PopStyleColor(ctx) end
+                                ShowTooltip("Invert Phase")
+                                imgui.SameLine(ctx,0,2)
                                 local has_pins = state.pinnedParams[guid_str] and #state.pinnedParams[guid_str] > 0
                                 if has_pins then imgui.PushStyleColor(ctx, imgui.Col_Button, PackColor(0.2, 0.6, 1.0, 0.7)) end
                                 if imgui.Button(ctx, "Pin##pin"..i, 28, 0) then state.popup_pin_track_idx = i; state.open_pin_popup = true end
@@ -4224,6 +4472,14 @@ function DrawSendMatrix(ctx)
             is_vis = state.is_visible[i]
         end
         
+        -- Hide Hidden Tracks Filter for Matrix
+        if state.hide_hidden_tracks and not state.tracksVisible[i] then is_vis = false end
+        
+        -- Color Filter for Matrix
+        if state.active_color_filter then
+             if reaper.GetTrackColor(track) ~= state.active_color_filter then is_vis = false end
+        end
+        
         if is_vis then
              local _, name = reaper.GetTrackName(track)
              
@@ -4513,7 +4769,11 @@ end
 function Main()
     load_pinned_params()
     load_custom_menu()
+    LoadPresetsFromExtState()
     load_theme_setting()
+    
+    local hidden_opt = reaper.GetExtState("Hosi.MiniTrackMixer", "HideHiddenTracks")
+    if hidden_opt == "true" then state.hide_hidden_tracks = true end
     update_and_check_tracks()
     loop()
 end
