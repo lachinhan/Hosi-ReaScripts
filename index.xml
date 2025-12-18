@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="681e10e3356e7a32b14dc69eeca4f69115516ce4">
+<index version="1" name="Hosi Scripts" commit="1bbb3abf79911a7cb4d11174471c598895ec5a0c">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -529,7 +529,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Chorus\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Chorus.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A rich chorus effect with 20 presets for widening and thickening vocals and instruments.\par}
 }
 ]]></description>
       </metadata>
@@ -544,7 +544,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Compress\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective compressor.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A modern, versatile compressor with 30 presets and a hardware-rack UI.\par}
 }
 ]]></description>
       </metadata>
@@ -559,7 +559,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX De-Ess\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective De-Ess.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A precision de-esser with 20 presets for taming sibilance and harshness.\par}
 }
 ]]></description>
       </metadata>
@@ -574,7 +574,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Delay\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Delay.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A flexible delay unit with 25 presets, including tape, ping-pong, and rhythmic styles.\par}
 }
 ]]></description>
       </metadata>
@@ -589,7 +589,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Master\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Master.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A powerful mastering processor with 30 presets for various genres.\par}
 }
 ]]></description>
       </metadata>
@@ -604,7 +604,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Noise Gate\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Noise Gate.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A responsive noise gate with 20 presets for drums, guitars, and vocals.\par}
 }
 ]]></description>
       </metadata>
@@ -619,7 +619,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Reverb\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Reverb.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A lush algorithmic reverb with 25 presets ranging from tiled rooms to infinite washes.\par}
 }
 ]]></description>
       </metadata>
@@ -634,7 +634,7 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Rotary\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Rotary.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A vintage rotary speaker simulator with 20 presets for classic organ and guitar tones.\par}
 }
 ]]></description>
       </metadata>
@@ -649,12 +649,28 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Simple EQ\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective Simple EQ.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A simple and effective EQ with 30 presets for quick tonal shaping.\par}
 }
 ]]></description>
       </metadata>
       <version name="1.0" author="Hosi Prod" time="2025-09-01T04:04:14Z">
         <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/8b27148dd6308de3b29961350504da4330ed1a17/JSFX/HosiFX_Simple_EQ.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="HosiFX_Vocal_Chain.jsfx" type="effect" desc="HosiFX Vocal Chain">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 HosiFX Vocal Chain\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A complete vocal processing chain (Gate, De-Ess, Comp, EQ, Delay, Reverb) with per-module presets and unified control.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="HosiFX" time="2025-12-18T13:22:20Z">
+        <changelog><![CDATA[+ Initial release.]]></changelog>
+        <source>https://github.com/lachinhan/Hosi-ReaScripts/raw/1bbb3abf79911a7cb4d11174471c598895ec5a0c/JSFX/HosiFX_Vocal_Chain.jsfx</source>
       </version>
     </reapack>
     <reapack name="Hybrid DeEsser Pro.jsfx" type="effect" desc="Hosi Hybrid DeEsser Pro">
