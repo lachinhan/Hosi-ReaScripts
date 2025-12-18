@@ -1,19 +1,19 @@
 desc:HosiFX Simple EQ
-version:1.0
-author:Hosi Prod
-changelog:
-+ v1.0 - Initial release.
+version: 1.0
+author: HosiFX
 about:
   # HosiFX Simple EQ
-    A simple and effective Simple EQ.
+  A simple and effective EQ with 30 presets for quick tonal shaping.
+changelog:
+  + Initial modern release with expanded presets and new UI.
 // Copyright 2024 HosiFX. All rights reserved.
 // Lấy cảm hứng từ giao diện của MuseFX Simple EQ.
 
 // --- Sliders ---
 // Núm vặn "Amount" chính, điều khiển cường độ của EQ.
-slider1:50<0,100,0.1>Amount (%)
+slider1:50<0,100,0.1>-Amount (%)
 // Bộ chọn preset, được thiết kế cho các tác vụ EQ.
-slider2:0<0,24,1{Air,Backing Vocals,Bass Body,Boost Vocals,Clarity,Low Thump,Mix Low End,Mud Reduction,Presence,Reduce Sizzle,Scoop,Strings Lustre,Sub Bass,Tame Rumble,Tight Attack,Vintage Vibe,Remove Boxiness,Guitar Body,Snare Snap,Kick Punch,Hi-Hat Shimmer,De-Boom,Telephone FX,Warm Pad,Lead Synth Cut}>Preset
+slider2:0<0,29,1{Air,Backing Vocals,Bass Body,Boost Vocals,Clarity,Low Thump,Mix Low End,Mud Reduction,Presence,Reduce Sizzle,Scoop,Strings Lustre,Sub Bass,Tame Rumble,Tight Attack,Vintage Vibe,Remove Boxiness,Guitar Body,Snare Snap,Kick Punch,Hi-Hat Shimmer,De-Boom,Telephone FX,Warm Pad,Lead Synth Cut,Radio Voice,Drum Overhead,Bass Definition,Vocal Cut,Master Air}>-Preset
 
 // --- I/O Pins ---
 in_pin:left input
@@ -22,7 +22,7 @@ out_pin:left output
 out_pin:right output
 
 // --- Options ---
-options:gfx_hz=120
+options:gfx_hz=60
 options:no_meter
 
 @init
@@ -40,34 +40,40 @@ b0=1; b1=0; b2=0; a1=0; a2=0;
 l_x1=0; l_x2=0; l_y1=0; l_y2=0;
 r_x1=0; r_x2=0; r_y1=0; r_y2=0;
 
-// --- Tên Preset ---
-// Danh sách này khớp với định nghĩa trong slider2.
-preset_names.0 = "Air";
-preset_names.1 = "Backing Vocals";
-preset_names.2 = "Bass Body";
-preset_names.3 = "Boost Vocals";
-preset_names.4 = "Clarity";
-preset_names.5 = "Low Thump";
-preset_names.6 = "Mix Low End";
-preset_names.7 = "Mud Reduction";
-preset_names.8 = "Presence";
-preset_names.9 = "Reduce Sizzle";
-preset_names.10 = "Scoop";
-preset_names.11 = "Strings Lustre";
-preset_names.12 = "Sub Bass";
-preset_names.13 = "Tame Rumble";
-preset_names.14 = "Tight Attack";
-preset_names.15 = "Vintage Vibe";
-preset_names.16 = "Remove Boxiness";
-preset_names.17 = "Guitar Body";
-preset_names.18 = "Snare Snap";
-preset_names.19 = "Kick Punch";
-preset_names.20 = "Hi-Hat Shimmer";
-preset_names.21 = "De-Boom";
-preset_names.22 = "Telephone FX";
-preset_names.23 = "Warm Pad";
-preset_names.24 = "Lead Synth Cut";
-num_presets = 25;
+// --- Tên Preset (Safe Memory) ---
+// Use safe memory offset
+preset_names = 32768; 
+preset_names[0] = "Air";
+preset_names[1] = "Backing Vocals";
+preset_names[2] = "Bass Body";
+preset_names[3] = "Boost Vocals";
+preset_names[4] = "Clarity";
+preset_names[5] = "Low Thump";
+preset_names[6] = "Mix Low End";
+preset_names[7] = "Mud Reduction";
+preset_names[8] = "Presence";
+preset_names[9] = "Reduce Sizzle";
+preset_names[10] = "Scoop";
+preset_names[11] = "Strings Lustre";
+preset_names[12] = "Sub Bass";
+preset_names[13] = "Tame Rumble";
+preset_names[14] = "Tight Attack";
+preset_names[15] = "Vintage Vibe";
+preset_names[16] = "Remove Boxiness";
+preset_names[17] = "Guitar Body";
+preset_names[18] = "Snare Snap";
+preset_names[19] = "Kick Punch";
+preset_names[20] = "Hi-Hat Shimmer";
+preset_names[21] = "De-Boom";
+preset_names[22] = "Telephone FX";
+preset_names[23] = "Warm Pad";
+preset_names[24] = "Lead Synth Cut";
+preset_names[25] = "Radio Voice";
+preset_names[26] = "Drum Overhead";
+preset_names[27] = "Bass Definition";
+preset_names[28] = "Vocal Cut";
+preset_names[29] = "Master Air";
+num_presets = 30;
 
 // --- Hàm tính toán hệ số Filter ---
 function calculate_coeffs(type, freq, q, gain_db) (
@@ -170,6 +176,16 @@ function update_parameters() (
     filter_type=2; center_freq=4000; q_val=0.7; max_gain_db=-6;
   ) : preset == 24 ? ( // Lead Synth Cut
     filter_type=0; center_freq=2000; q_val=1.8; max_gain_db=9;
+  ) : preset == 25 ? ( // Radio Voice
+    filter_type=0; center_freq=2000; q_val=3.0; max_gain_db=12;
+  ) : preset == 26 ? ( // Drum Overhead
+    filter_type=2; center_freq=5000; q_val=0.7; max_gain_db=6;
+  ) : preset == 27 ? ( // Bass Definition
+    filter_type=0; center_freq=800; q_val=1.5; max_gain_db=5;
+  ) : preset == 28 ? ( // Vocal Cut
+    filter_type=0; center_freq=1000; q_val=2.0; max_gain_db=-4;
+  ) : preset == 29 ? ( // Master Air
+    filter_type=2; center_freq=16000; q_val=0.5; max_gain_db=4;
   );
 
   // Gain được điều chỉnh bởi núm 'Amount'
@@ -211,158 +227,213 @@ r_x2 = r_x1; r_x1 = spl1;
 r_y2 = r_y1; r_y1 = r_out;
 spl1 = r_out;
 
-@gfx 640 400
-// --- Vẽ và tương tác GUI ---
+@gfx 500 420
+// --- Modern UI (EQ / Cyan) ---
+
+// Colors
+c_bg_r=0.15; c_bg_g=0.16; c_bg_b=0.18;
+// Teal/Cyan for EQ
+c_accent_r=0.0; c_accent_g=0.8; c_accent_b=0.85; 
+c_lcd_bg_r=0.02; c_lcd_bg_g=0.1; c_lcd_bg_b=0.1;
+
 w=gfx_w; h=gfx_h;
 size = min(w,h);
-is_retina = gfx_ext_flags & 1;
+cx = w/2; 
+cy = h * 0.55;
 
-// --- Màu sắc và kích thước (Chủ đề Teal) ---
-bg_r=0.2; bg_g=0.55; bg_b=0.5;
-knob_color_r=0.4; knob_color_g=0.8; knob_color_b=0.75;
-text_color_r=0.95; text_color_g=0.98; text_color_b=0.98;
-logo_color_r=0.95; logo_color_g=0.98; logo_color_b=0.98;
-hosifx_logo_color_r = 0.25; hosifx_logo_color_g = 0.6; hosifx_logo_color_b = 0.55; // Màu HosiFX chìm vào nền
-dot_color_r=0.3; dot_color_g=0.65; dot_color_b=0.6;
-dot_active_color_r = 0.9;
-dot_active_color_g = 0.95;
-dot_active_color_b = 0.95;
-
-knob_x = w/2;
-knob_y = h/2 + size*0.05;
-knob_r = size*0.3;
-knob_w = size*0.08;
-knob_inner_r = knob_r - knob_w;
-knob_as = -tau * 0.625; // Góc bắt đầu (-225 độ)
-knob_range = tau * 0.75; // Toàn bộ phạm vi góc (270 độ)
-
-// --- Vẽ ---
-gfx_a = 1;
-gfx_aa = 1; // Bật khử răng cưa
-
-// Nền
-gfx_set(bg_r, bg_g, bg_b, 1);
+// --- Background ---
+gfx_set(c_bg_r, c_bg_g, c_bg_b, 1);
 gfx_rect(0,0,w,h);
 
-// Các chấm chỉ báo xung quanh núm vặn
-num_dots = 12;
-i = 0;
-loop(num_dots,
-  angle = knob_as + (i / (num_dots-1)) * knob_range;
-  dot_x = knob_x + cos(angle) * (knob_r + size*0.01);
-  dot_y = knob_y + sin(angle) * (knob_r + size*0.01);
-  dot_size = size * 0.012;
+// --- Header ---
+gfx_setfont(1, "Impact", size*0.06);
+gfx_set(1, 1, 1, 0.4); 
+gfx_measurestr("HOSIFX Simple EQ", lw, lh);
+gfx_x = cx - lw/2;
+gfx_y = h * 0.04;
+gfx_drawstr("HOSIFX Simple EQ");
 
-  // Tô màu các chấm dựa trên vị trí núm vặn
-  (i / (num_dots-1) - 0.001 <= slider1/100) ?
-    gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b) :
-    gfx_set(dot_color_r, dot_color_g, dot_color_b);
+// --- LCD Screen ---
+lcd_w = w * 0.65;
+lcd_h = size * 0.12;
+lcd_x = (w - lcd_w) / 2;
+lcd_y = h * 0.15;
 
-  gfx_circle(dot_x, dot_y, dot_size, 1);
-  i+=1;
+// Glow
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 0.15);
+gfx_roundrect(lcd_x-3, lcd_y-3, lcd_w+6, lcd_h+6, 5);
+// BG
+gfx_set(c_lcd_bg_r, c_lcd_bg_g, c_lcd_bg_b, 1);
+gfx_roundrect(lcd_x, lcd_y, lcd_w, lcd_h, 4);
+
+// Text
+idx = slider2|0;
+idx < 0 ? idx=0; idx > 24 ? idx=24; 
+preset_ptr = preset_names[idx]; 
+
+gfx_setfont(2, "Verdana", size*0.05);
+gfx_measurestr(preset_ptr, pw, ph);
+// Text color matches accent
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 1); 
+gfx_x = cx - pw/2;
+gfx_y = lcd_y + (lcd_h - ph)/2;
+gfx_drawstr(preset_ptr);
+
+// Arrows
+gfx_set(1,1,1, 0.3);
+ts = size*0.025;
+gfx_triangle(lcd_x-ts*1.5, lcd_y+lcd_h/2, lcd_x-ts*0.5, lcd_y+lcd_h/2-ts, lcd_x-ts*0.5, lcd_y+lcd_h/2+ts);
+gfx_triangle(lcd_x+lcd_w+ts*1.5, lcd_y+lcd_h/2, lcd_x+lcd_w+ts*0.5, lcd_y+lcd_h/2-ts, lcd_x+lcd_w+ts*0.5, lcd_y+lcd_h/2+ts);
+
+// Label
+gfx_setfont(3, "Arial", size*0.025);
+gfx_set(0.6,0.6,0.6,1);
+gfx_measurestr("PRESET", tw, th);
+gfx_x = cx - tw/2; gfx_y = lcd_y - th - 3;
+gfx_drawstr("PRESET");
+
+// --- Bipolar Arc ---
+knob_r = size * 0.22;
+arc_r = knob_r + size*0.04;
+arc_w = size * 0.02;
+
+// 7 o'clock to 5 o'clock
+ang_start = 2.3562;
+ang_end = 7.0686;
+total_ang = ang_end - ang_start;
+
+norm_val = slider1 / 100;
+ang_curr = ang_start + norm_val * total_ang;
+
+function draw_thick_arc(c_x, c_y, radius, thick, a_start, a_end, r, g, b, a) (
+  gfx_set(r,g,b,a);
+  step_sz = 0.04; 
+  loop_r_start = radius - thick/2;
+  num_rings = 5; 
+  ring_stp = thick / num_rings;
+  i_ring = 0;
+  loop(num_rings,
+    cur_rad = loop_r_start + i_ring * ring_stp;
+    cur_a = a_start;
+    last_x = c_x + cos(cur_a) * cur_rad;
+    last_y = c_y + sin(cur_a) * cur_rad;
+    while(
+      cur_a += step_sz;
+      cur_a > a_end ? cur_a = a_end;
+      cur_x = c_x + cos(cur_a) * cur_rad;
+      cur_y = c_y + sin(cur_a) * cur_rad;
+      gfx_line(last_x, last_y, cur_x, cur_y);
+      last_x = cur_x; last_y = cur_y;
+      cur_a < a_end;
+    );
+    i_ring += 1;
+  );
 );
 
-// Núm vặn chính
-// Bóng đổ
-gfx_set(0,0,0,0.2);
-gfx_circle(knob_x, knob_y+size*0.015, knob_r, 1);
-// Thân núm
-gfx_set(0.9, 0.92, 0.92, 1); // Màu xám nhạt đồng nhất
-gfx_circle(knob_x, knob_y, knob_r, 1);
+// BG
+draw_thick_arc(cx, cy, arc_r, arc_w, ang_start, ang_end, 0.2, 0.25, 0.3, 0.3);
 
-// Vòng trong của núm
-gfx_set(bg_r, bg_g, bg_b, 0.5);
-gfx_circle(knob_x, knob_y, knob_inner_r, 1);
+// Active
+// For EQ, we might want center-out drawing.
+ang_center = ang_start + 0.5 * total_ang;
+arc_ang1 = ang_center; 
+arc_ang2 = ang_curr;
+arc_ang1 > arc_ang2 ? ( t=arc_ang1; arc_ang1=arc_ang2; arc_ang2=t; );
 
-// Chỉ báo trên núm vặn
-indicator_angle = knob_as + (slider1/100) * knob_range;
-indicator_radius = knob_inner_r * 0.7;
-indicator_x = knob_x + cos(indicator_angle) * indicator_radius;
-indicator_y = knob_y + sin(indicator_angle) * indicator_radius;
-indicator_size = size * 0.02;
-gfx_set(0.2, 0.2, 0.2, 0.8);
-gfx_circle(indicator_x, indicator_y, indicator_size, 1);
+abs(arc_ang2-arc_ang1) > 0.01 ? (
+  draw_thick_arc(cx, cy, arc_r, arc_w, arc_ang1, arc_ang2, c_accent_r, c_accent_g, c_accent_b, 1.0);
+);
 
-// --- Nhãn văn bản ---
-gfx_set(text_color_r, text_color_g, text_color_b);
+// --- Knob Body ---
+gfx_set(0.12, 0.1, 0.1, 1);
+gfx_circle(cx, cy, knob_r, 1);
+gfx_set(0,0,0, 0.4);
+gfx_arc(cx, cy, knob_r, 0, $pi, 1);
 
-// Tên Preset
-font_size_preset = size * 0.09;
-gfx_setfont(1, "Arial", font_size_preset);
-preset_name = preset_names[slider2|0];
-gfx_measurestr(preset_name, preset_w, preset_h);
-preset_x = knob_x - preset_w/2;
-preset_y = knob_y - knob_r - size*0.18;
-gfx_x = preset_x;
-gfx_y = preset_y;
-gfx_drawstr(preset_name);
+// Indicator Dot
+dot_ang = ang_curr;
+dot_r = knob_r * 0.75;
+dx = cx + cos(dot_ang) * dot_r;
+dy = cy + sin(dot_ang) * dot_r;
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 0.8);
+gfx_circle(dx, dy, size*0.03, 1);
+gfx_set(1,1,1,0.9);
+gfx_circle(dx, dy, size*0.012, 1);
 
-// --- Logo và giá trị (sắp xếp lại tương tự HosiFX Master) ---
+// --- Footer Values ---
+gfx_setfont(4, "Arial", size*0.08);
+sprintf(#sval, "%.1f %%", slider1);
+gfx_measurestr(#sval, vw, vh);
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 1);
+gfx_x = cx - vw/2;
+gfx_y = cy + knob_r + size*0.1;
+gfx_drawstr(#sval);
 
-// --- Giá trị Amount (dưới cùng) ---
-gfx_set(text_color_r, text_color_g, text_color_b);
-font_size_val = size*0.05;
-gfx_setfont(1, "Arial", font_size_val);
-sprintf(#val_str, "%.1f %%", slider1);
-gfx_measurestr(#val_str, val_w, val_h);
-y_pos_val = h - val_h - size*0.055;
-gfx_x = knob_x - val_w/2;
-gfx_y = y_pos_val;
-gfx_drawstr(#val_str);
-
-// --- Logo SIMPLE EQ (trên giá trị) ---
-gfx_set(logo_color_r, logo_color_g, logo_color_b);
-font_size_logo_sub = size*0.05;
-gfx_setfont(1, "Arial Narrow Bold", font_size_logo_sub);
-gfx_measurestr("SIMPLE EQ", logo_sub_w, logo_sub_h);
-y_pos_sub = y_pos_val - logo_sub_h;
-gfx_x = w/2 - logo_sub_w/2;
-gfx_y = y_pos_sub;
-gfx_drawstr("SIMPLE EQ");
-
-// --- Logo HOSIFX (trên cùng) ---
-gfx_set(hosifx_logo_color_r, hosifx_logo_color_g, hosifx_logo_color_b);
-font_size_logo_main = size*0.07;
-gfx_setfont(1, "Arial Black", font_size_logo_main);
-gfx_measurestr("HOSIFX", logo_main_w, logo_main_h);
-y_pos_main = y_pos_sub - logo_main_h * 1.05;
-gfx_x = w/2 - logo_main_w/2;
-gfx_y = y_pos_main;
-gfx_drawstr("HOSIFX");
-
-
-// --- Logic tương tác chuột ---
+// --- Interactions ---
 mouse_down = mouse_cap & 1;
+mouse_click = mouse_down && !(last_mouse_cap & 1);
 mouse_up = (last_mouse_cap & 1) && !mouse_down;
 
-// Điều khiển núm chính bằng con lăn chuột
-slider1 += mouse_wheel * 2.0;
-slider1 = min(max(slider1, 0), 100);
-mouse_wheel != 0 ? caller = 1;
-
-// Kiểm tra thao tác nhấp và kéo trên núm chính
-dist = sqrt((mouse_x-knob_x)^2+(mouse_y-knob_y)^2);
-mouse_down && (dragging==0) && (dist <= knob_r) ? (
-  dragging=1;
-  drag_start_y=mouse_y;
-  drag_start_val=slider1;
+// Preset Control
+// 1. Arrows (Cycle)
+mouse_y < h * 0.3 && mouse_click ? (
+  mouse_x < cx - lcd_w*0.3 ? ( // Left arrow area
+    slider2 -= 1; slider2 < 0 ? slider2 = 29;
+    caller = 1;
+  ) : mouse_x > cx + lcd_w*0.3 ? ( // Right arrow area
+    slider2 += 1; slider2 > 29 ? slider2 = 0;
+    caller = 1;
+  ) : (
+    // 2. Center Click (Popup Menu)
+    // Build menu string dynamically
+    menu_str = #; 
+    strcpy(menu_str, ""); // Clear
+    i=0;
+    loop(num_presets,
+      i == slider2 ? strcat(menu_str, "!") : strcat(menu_str, ""); // Checkmark for active
+      strcat(menu_str, preset_names[i]);
+      i < num_presets-1 ? strcat(menu_str, "|");
+      i+=1;
+    );
+    
+    gfx_x = mouse_x; gfx_y = mouse_y;
+    selected = gfx_showmenu(menu_str);
+    selected > 0 ? (
+      slider2 = selected - 1;
+      caller = 1;
+    );
+  );
 );
 
-// Xử lý hành động kéo
-(dragging==1) ? (
-  sensitivity=(100/size)*0.4;
-  delta=(drag_start_y-mouse_y)*sensitivity;
-  old_slider1 = slider1;
-  slider1=drag_start_val+delta;
-  slider1=max(0,min(100,slider1));
-  old_slider1 != slider1 ? caller = 1;
+// Knob
+dist = sqrt((mouse_x-cx)^2 + (mouse_y-cy)^2);
+hover_knob = mouse_y > h*0.3 && dist < knob_r * 1.5;
+
+mouse_click && hover_knob ? (
+  time_precise() - last_click_time < 0.25 ? (
+    slider1 = 50; // Reset to 50% default
+    caller = 1;
+    dragging = 0;
+  ) : (
+    dragging = 1;
+    drag_y = mouse_y;
+    drag_val = slider1;
+  );
+  last_click_time = time_precise();
 );
 
-// Thả kéo khi nút chuột được nhả ra
-mouse_up ? (
-  dragging=0;
+dragging ? (
+  slider1 = drag_val + (drag_y - mouse_y) * 0.4;
+  slider1 = min(max(slider1, 0), 100);
+  caller = 1;
 );
+mouse_up ? dragging = 0;
 
-// Đặt lại con lăn chuột và lưu trạng thái chuột cuối cùng
-mouse_wheel = 0;
+// Wheel
+mouse_wheel != 0 ? (
+  slider1 += (mouse_wheel/120)*5;
+  slider1 = min(max(slider1, 0), 100);
+  caller = 1;
+  mouse_wheel = 0;
+);
 last_mouse_cap = mouse_cap;

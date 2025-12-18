@@ -1,21 +1,18 @@
 desc:HosiFX Chorus
-version:1.0
-author:Hosi Prod
-changelog:
-+ v1.0 - Initial release.
+version: 1.0
+author: HosiFX
 about:
   # HosiFX Chorus
-    A simple and effective Chorus.
-
+  A rich chorus effect with 20 presets for widening and thickening vocals and instruments.
+changelog:
+  + Initial modern release with expanded presets and new UI.
 // Copyright 2024 HosiFX. All rights reserved.
 
-// Lấy cảm hứng từ giao diện của MuseFX Chorus.
-
 // --- Sliders ---
-// Núm vặn "Amount" chính, điều khiển cường độ hiệu ứng.
-slider1:50<0,100,0.1>Amount (%)
-// Bộ chọn preset, được thiết kế cho các hiệu ứng chorus/modulation.
-slider2:0<0,12,1{80s Choir,Ethereal Choir,Lead Vox Phaser,Sci-Fi,Vibrato Guitar,Vocals Thickener,Wide Synth Pad,Classic Flanger,Rotary Speaker,Acoustic Shimmer,Detune,Synth Doubler,Juno Chorus}>Preset
+// "Amount" knob (Mix/Depth)
+slider1:50<0,100,0.1>-Amount (%)
+// Preset selector
+slider2:0<0,19,1{80s Choir,Ethereal Choir,Lead Vox Phaser,Sci-Fi,Vibrato Guitar,Vocals Thickener,Wide Synth Pad,Classic Flanger,Rotary Speaker,Acoustic Shimmer,Detune,Synth Doubler,Juno Chorus,Stereo Widen,Bass Chorus,Resonant Flange,Liquid Metal,Slow Phase,Underwater,Fast Leslie}>-Preset
 
 // --- I/O Pins ---
 in_pin:left input
@@ -24,93 +21,85 @@ out_pin:left output
 out_pin:right output
 
 // --- Options ---
-options:gfx_hz=120
+options:gfx_hz=60
 options:no_meter
-options:gmem=chorus_buf,50000 // Cấp phát bộ nhớ cho buffer của chorus
+options:gmem=chorus_buf,50000
 
 @init
-// --- Khởi tạo chung ---
-gfx_clear=0;
+// --- General Init ---
+gfx_clear = -1;
 tau = 2 * $pi;
-// Biến trạng thái tương tác chuột.
 dragging = 0;
-// Cờ để kích hoạt cập nhật tham số.
 caller = 1;
+// Force reset to 50%
+slider1 = 50;
 
-// --- Khởi tạo Chorus ---
+// --- Chorus Init ---
+// IMPORTANT: Offset audio buffer to avoid overwriting preset names at index 0
+chorus_buf = 32768;
 max_delay_samps = srate * 0.05; // 50ms max delay
+
 buf_L = chorus_buf;
 buf_R = chorus_buf + max_delay_samps;
-wp = 0; // Write pointer
+wp = 0; 
 
-// LFO phases
 lfo_phase_L = 0;
-lfo_phase_R = 0.25; // Phase offset for stereo width
+lfo_phase_R = 0.25; 
 
-// --- Tên Preset ---
-// Danh sách này khớp với định nghĩa trong slider2.
-preset_names.0 = "80s Choir";
-preset_names.1 = "Ethereal Choir";
-preset_names.2 = "Lead Vox Phaser";
-preset_names.3 = "Sci-Fi";
-preset_names.4 = "Vibrato Guitar";
-preset_names.5 = "Vocals Thickener";
-preset_names.6 = "Wide Synth Pad";
-preset_names.7 = "Classic Flanger";
-preset_names.8 = "Rotary Speaker";
-preset_names.9 = "Acoustic Shimmer";
-preset_names.10 = "Detune";
-preset_names.11 = "Synth Doubler";
-preset_names.12 = "Juno Chorus";
-num_presets = 13;
+// --- Preset Names (Memory Init) ---
+preset_names = 0;
+preset_names[0] = "80s Choir";
+preset_names[1] = "Ethereal Choir";
+preset_names[2] = "Lead Vox Phaser";
+preset_names[3] = "Sci-Fi";
+preset_names[4] = "Vibrato Guitar";
+preset_names[5] = "Vocals Thickener";
+preset_names[6] = "Wide Synth Pad";
+preset_names[7] = "Classic Flanger";
+preset_names[8] = "Rotary Speaker";
+preset_names[9] = "Acoustic Shimmer";
+preset_names[10] = "Detune";
+preset_names[11] = "Synth Doubler";
+preset_names[12] = "Juno Chorus";
+preset_names[13] = "Stereo Widen";
+preset_names[14] = "Bass Chorus";
+preset_names[15] = "Resonant Flange";
+preset_names[16] = "Liquid Metal";
+preset_names[17] = "Slow Phase";
+preset_names[18] = "Underwater";
+preset_names[19] = "Fast Leslie";
+num_presets = 20;
 
-// --- Định nghĩa tham số Preset ---
+// --- Parameters ---
 function update_parameters() (
-  // Núm 'Amount' điều khiển mix và depth
   amount = slider1 / 100;
   wet = amount;
   dry = 1 - amount;
-
-  // Chọn preset dựa trên slider2
   preset = slider2|0;
 
-  // Giá trị mặc định
-  rate_hz = 0.5;
-  depth_ms = 5;
-  delay_ms = 15;
-  feedback = 0;
-  stereo_width = 1;
+  rate_hz = 0.5; depth_ms = 5; delay_ms = 15; feedback = 0; stereo_width = 1;
 
-  // Định nghĩa tham số cho mỗi preset
-  preset == 0 ? ( // 80s Choir
-    rate_hz = 0.8; depth_ms = 7; delay_ms = 20; feedback = 0.2;
-  ) : preset == 1 ? ( // Ethereal Choir
-    rate_hz = 0.3; depth_ms = 10; delay_ms = 25; feedback = 0.4;
-  ) : preset == 2 ? ( // Lead Vox Phaser
-    rate_hz = 1.5; depth_ms = 2; delay_ms = 5; feedback = 0.7;
-  ) : preset == 3 ? ( // Sci-Fi
-    rate_hz = 4.0; depth_ms = 15; delay_ms = 10; feedback = 0.5;
-  ) : preset == 4 ? ( // Vibrato Guitar
-    rate_hz = 5.0; depth_ms = 3; delay_ms = 2; feedback = 0; wet=1; dry=0;
-  ) : preset == 5 ? ( // Vocals Thickener
-    rate_hz = 0.2; depth_ms = 1.5; delay_ms = 12; feedback = 0;
-  ) : preset == 6 ? ( // Wide Synth Pad
-    rate_hz = 0.4; depth_ms = 8; delay_ms = 22; feedback = 0.3; stereo_width = 1.5;
-  ) : preset == 7 ? ( // Classic Flanger
-    rate_hz = 0.2; depth_ms = 4; delay_ms = 2; feedback = 0.8;
-  ) : preset == 8 ? ( // Rotary Speaker
-    rate_hz = 6.0; depth_ms = 2; delay_ms = 1; feedback = 0.1;
-  ) : preset == 9 ? ( // Acoustic Shimmer
-    rate_hz = 0.6; depth_ms = 2.5; delay_ms = 18; feedback = 0.1;
-  ) : preset == 10 ? ( // Detune
-    rate_hz = 0.05; depth_ms = 4; delay_ms = 15; feedback = 0;
-  ) : preset == 11 ? ( // Synth Doubler
-    rate_hz = 0.1; depth_ms = 6; delay_ms = 20; feedback = 0; stereo_width = 2.0;
-  ) : preset == 12 ? ( // Juno Chorus
-    rate_hz = 0.5; depth_ms = 4; delay_ms = 18; feedback = 0;
-  );
+  preset == 0 ? ( rate_hz = 0.8; depth_ms = 7; delay_ms = 20; feedback = 0.2; )
+  : preset == 1 ? ( rate_hz = 0.3; depth_ms = 10; delay_ms = 25; feedback = 0.4; )
+  : preset == 2 ? ( rate_hz = 1.5; depth_ms = 2; delay_ms = 5; feedback = 0.7; )
+  : preset == 3 ? ( rate_hz = 4.0; depth_ms = 15; delay_ms = 10; feedback = 0.5; )
+  : preset == 4 ? ( rate_hz = 5.0; depth_ms = 3; delay_ms = 2; feedback = 0; wet=1; dry=0; )
+  : preset == 5 ? ( rate_hz = 0.2; depth_ms = 1.5; delay_ms = 12; feedback = 0; )
+  : preset == 6 ? ( rate_hz = 0.4; depth_ms = 8; delay_ms = 22; feedback = 0.3; stereo_width = 1.5; )
+  : preset == 7 ? ( rate_hz = 0.2; depth_ms = 4; delay_ms = 2; feedback = 0.8; )
+  : preset == 8 ? ( rate_hz = 6.0; depth_ms = 2; delay_ms = 1; feedback = 0.1; )
+  : preset == 9 ? ( rate_hz = 0.6; depth_ms = 2.5; delay_ms = 18; feedback = 0.1; )
+  : preset == 10 ? ( rate_hz = 0.05; depth_ms = 4; delay_ms = 15; feedback = 0; )
+  : preset == 11 ? ( rate_hz = 0.1; depth_ms = 6; delay_ms = 20; feedback = 0; stereo_width = 2.0; )
+  : preset == 12 ? ( rate_hz = 0.5; depth_ms = 4; delay_ms = 18; feedback = 0; )
+  : preset == 13 ? ( rate_hz = 0.1; depth_ms = 8; delay_ms = 25; feedback = 0; stereo_width = 3.0; ) // Widen
+  : preset == 14 ? ( rate_hz = 0.4; depth_ms = 3; delay_ms = 15; feedback = 0; ) // Bass (subtle)
+  : preset == 15 ? ( rate_hz = 0.2; depth_ms = 6; delay_ms = 3; feedback = 0.85; ) // Resonant
+  : preset == 16 ? ( rate_hz = 8.0; depth_ms = 1; delay_ms = 1; feedback = 0.9; ) // Liquid
+  : preset == 17 ? ( rate_hz = 0.1; depth_ms = 4; delay_ms = 2; feedback = 0.6; ) // Slow Phase
+  : preset == 18 ? ( rate_hz = 2.0; depth_ms = 10; delay_ms = 30; feedback = 0.4; ) // Underwater
+  : preset == 19 ? ( rate_hz = 7.0; depth_ms = 2; delay_ms = 5; feedback = 0; ); // Fast Leslie (Sim)
   
-  // Chuyển đổi tham số sang đơn vị phù hợp
   lfo_inc = rate_hz / srate;
   depth_samps = depth_ms * 0.001 * srate;
   delay_samps = delay_ms * 0.001 * srate;
@@ -118,32 +107,19 @@ function update_parameters() (
 );
 
 @slider
-// Khi bất kỳ thanh trượt nào thay đổi, hãy đặt cờ 'caller'.
 caller = 1;
 
 @block
-// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
-caller == 1 ? (
-  update_parameters();
-);
+caller == 1 ? update_parameters();
 
 @sample
-// --- Xử lý âm thanh thời gian thực ---
+caller == 1 ? ( update_parameters(); caller = 0; );
 
-// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
-caller == 1 ? (
-  update_parameters();
-  caller = 0;
-);
-
-// --- LFOs ---
 lfo_phase_L += lfo_inc; lfo_phase_L %= 1;
 lfo_phase_R += lfo_inc; lfo_phase_R %= 1;
 lfo_L = sin(lfo_phase_L * tau);
 lfo_R = sin(lfo_phase_R * tau);
 
-// --- Modulated Delay ---
-// Tính toán vị trí đọc (read position) với nội suy
 function get_delayed(buf, lfo_out, in_val) (
   mod_delay = delay_samps + lfo_out * depth_samps;
   rp_frac = wp - mod_delay;
@@ -151,181 +127,223 @@ function get_delayed(buf, lfo_out, in_val) (
   frac = rp_frac - rp1;
   rp2 = rp1 + 1;
   
-  // Wrap around buffer
   rp1 = (rp1 + max_delay_samps) % max_delay_samps;
   rp2 = (rp2 + max_delay_samps) % max_delay_samps;
   
-  // Linear interpolation
   val1 = buf[rp1];
   val2 = buf[rp2];
   delayed_val = val1 + (val2 - val1) * frac;
   
-  // Ghi vào buffer với feedback
   buf[wp] = in_val + delayed_val * feedback;
-  
   delayed_val;
 );
 
 delayed_L = get_delayed(buf_L, lfo_L, spl0);
 delayed_R = get_delayed(buf_R, lfo_R, spl1);
 
-// Cập nhật con trỏ ghi
 wp = (wp + 1) % max_delay_samps;
 
-// --- Mix ---
 spl0 = spl0 * dry + delayed_L * wet;
 spl1 = spl1 * dry + delayed_R * wet;
 
-@gfx 640 400
-// --- Vẽ và tương tác GUI ---
+@gfx 500 420
+// --- Modern UI (Chorus / Electric Lime) ---
+
+// Colors
+c_bg_r=0.15; c_bg_g=0.16; c_bg_b=0.18;
+// Electric Lime Green for Chorus
+c_accent_r=0.6; c_accent_g=0.95; c_accent_b=0.2; 
+c_lcd_bg_r=0.05; c_lcd_bg_g=0.15; c_lcd_bg_b=0.05;
+
 w=gfx_w; h=gfx_h;
 size = min(w,h);
-is_retina = gfx_ext_flags & 1;
+cx = w/2; 
+cy = h * 0.55;
 
-// --- Màu sắc và kích thước (Chủ đề Magenta) ---
-bg_r=0.3; bg_g=0.18; bg_b=0.3;
-knob_color_r=0.8; knob_color_g=0.7; knob_color_b=0.6;
-text_color_r=0.98; text_color_g=0.92; text_color_b=0.95;
-logo_color_r=0.98; logo_color_g=0.92; logo_color_b=0.95;
-hosifx_logo_color_r = 0.4; hosifx_logo_color_g = 0.28; hosifx_logo_color_b = 0.4;
-dot_color_r=0.5; dot_color_g=0.38; dot_color_b=0.5;
-dot_active_color_r = 0.9;
-dot_active_color_g = 0.75;
-dot_active_color_b = 0.85;
-
-knob_x = w/2;
-knob_y = h/2 + size*0.05;
-knob_r = size*0.3;
-knob_w = size*0.08;
-knob_inner_r = knob_r - knob_w;
-knob_as = -tau * 0.625; // Góc bắt đầu (-225 độ)
-knob_range = tau * 0.75; // Toàn bộ phạm vi góc (270 độ)
-
-// --- Vẽ ---
-gfx_a = 1;
-gfx_aa = 1; // Bật khử răng cưa
-
-// Nền
-gfx_set(bg_r, bg_g, bg_b, 1);
+// --- Background ---
+gfx_set(c_bg_r, c_bg_g, c_bg_b, 1);
 gfx_rect(0,0,w,h);
 
-// Các chấm chỉ báo xung quanh núm vặn
-num_dots = 12;
-i = 0;
-loop(num_dots,
-  angle = knob_as + (i / (num_dots-1)) * knob_range;
-  dot_x = knob_x + cos(angle) * (knob_r + size*0.01);
-  dot_y = knob_y + sin(angle) * (knob_r + size*0.01);
-  dot_size = size * 0.012;
+// --- Header ---
+gfx_setfont(1, "Impact", size*0.06);
+gfx_set(1, 1, 1, 0.5); 
+gfx_measurestr("HOSIFX Chorus", lw, lh);
+gfx_x = cx - lw/2;
+gfx_y = h * 0.04;
+gfx_drawstr("HOSIFX Chorus");
 
-  // Tô màu các chấm dựa trên vị trí núm vặn
-  (i / (num_dots-1) - 0.001 <= slider1/100) ?
-    gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b) :
-    gfx_set(dot_color_r, dot_color_g, dot_color_b);
+// --- LCD Screen ---
+lcd_w = w * 0.65;
+lcd_h = size * 0.12;
+lcd_x = (w - lcd_w) / 2;
+lcd_y = h * 0.15;
 
-  gfx_circle(dot_x, dot_y, dot_size, 1);
-  i+=1;
+// Glow
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 0.15);
+gfx_roundrect(lcd_x-3, lcd_y-3, lcd_w+6, lcd_h+6, 5);
+// BG
+gfx_set(c_lcd_bg_r, c_lcd_bg_g, c_lcd_bg_b, 1);
+gfx_roundrect(lcd_x, lcd_y, lcd_w, lcd_h, 4);
+
+// Text
+idx = slider2|0;
+idx < 0 ? idx=0; idx > 12 ? idx=12; 
+preset_ptr = preset_names[idx]; 
+
+gfx_setfont(2, "Verdana", size*0.05);
+gfx_measurestr(preset_ptr, pw, ph);
+// Text color matches accent
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 1); 
+gfx_x = cx - pw/2;
+gfx_y = lcd_y + (lcd_h - ph)/2;
+gfx_drawstr(preset_ptr);
+
+// Arrows
+gfx_set(1,1,1, 0.3);
+ts = size*0.025;
+gfx_triangle(lcd_x-ts*1.5, lcd_y+lcd_h/2, lcd_x-ts*0.5, lcd_y+lcd_h/2-ts, lcd_x-ts*0.5, lcd_y+lcd_h/2+ts);
+gfx_triangle(lcd_x+lcd_w+ts*1.5, lcd_y+lcd_h/2, lcd_x+lcd_w+ts*0.5, lcd_y+lcd_h/2-ts, lcd_x+lcd_w+ts*0.5, lcd_y+lcd_h/2+ts);
+
+// Label
+gfx_setfont(3, "Arial", size*0.025);
+gfx_set(0.6,0.6,0.6,1);
+gfx_measurestr("PRESET", tw, th);
+gfx_x = cx - tw/2; gfx_y = lcd_y - th - 3;
+gfx_drawstr("PRESET");
+
+// --- Unipolar Arc ---
+knob_r = size * 0.22;
+arc_r = knob_r + size*0.04;
+arc_w = size * 0.02;
+
+ang_min = 2.3562; 
+ang_max = 7.0686; 
+total_ang = ang_max - ang_min;
+
+norm_val = slider1 / 100;
+ang_curr = ang_min + norm_val * total_ang;
+
+function draw_thick_arc(c_x, c_y, radius, thick, a_start, a_end, r, g, b, a) (
+  gfx_set(r,g,b,a);
+  step_sz = 0.04; 
+  loop_r_start = radius - thick/2;
+  num_rings = 5; 
+  ring_stp = thick / num_rings;
+  i_ring = 0;
+  loop(num_rings,
+    cur_rad = loop_r_start + i_ring * ring_stp;
+    cur_a = a_start;
+    last_x = c_x + cos(cur_a) * cur_rad;
+    last_y = c_y + sin(cur_a) * cur_rad;
+    while(
+      cur_a += step_sz;
+      cur_a > a_end ? cur_a = a_end;
+      cur_x = c_x + cos(cur_a) * cur_rad;
+      cur_y = c_y + sin(cur_a) * cur_rad;
+      gfx_line(last_x, last_y, cur_x, cur_y);
+      last_x = cur_x; last_y = cur_y;
+      cur_a < a_end;
+    );
+    i_ring += 1;
+  );
 );
 
-// Núm vặn chính
-// Bóng đổ
-gfx_set(0,0,0,0.2);
-gfx_circle(knob_x, knob_y+size*0.015, knob_r, 1);
-// Thân núm
-gfx_set(0.9, 0.92, 0.92, 1); // Màu xám nhạt đồng nhất
-gfx_circle(knob_x, knob_y, knob_r, 1);
+// 1. BG
+draw_thick_arc(cx, cy, arc_r, arc_w, ang_min, ang_max, 0.2, 0.3, 0.1, 0.3);
 
-// Vòng trong của núm
-gfx_set(bg_r, bg_g, bg_b, 0.5);
-gfx_circle(knob_x, knob_y, knob_inner_r, 1);
+// 2. Active
+abs(ang_curr - ang_min) > 0.01 ? (
+  draw_thick_arc(cx, cy, arc_r, arc_w, ang_min, ang_curr, c_accent_r, c_accent_g, c_accent_b, 1.0);
+);
 
-// Chỉ báo trên núm vặn
-indicator_angle = knob_as + (slider1/100) * knob_range;
-indicator_radius = knob_inner_r * 0.7;
-indicator_x = knob_x + cos(indicator_angle) * indicator_radius;
-indicator_y = knob_y + sin(indicator_angle) * indicator_radius;
-indicator_size = size * 0.025;
-gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b, 0.9);
-gfx_circle(indicator_x, indicator_y, indicator_size, 1);
+// --- Knob Body ---
+gfx_set(0.12, 0.12, 0.12, 1);
+gfx_circle(cx, cy, knob_r, 1);
+gfx_set(0,0,0, 0.4);
+gfx_arc(cx, cy, knob_r, 0, $pi, 1);
 
-// --- Nhãn văn bản ---
-gfx_set(text_color_r, text_color_g, text_color_b);
+// Indicator Dot
+dot_r = knob_r * 0.75;
+dx = cx + cos(ang_curr) * dot_r;
+dy = cy + sin(ang_curr) * dot_r;
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 0.8);
+gfx_circle(dx, dy, size*0.03, 1);
+gfx_set(1,1,1,0.9);
+gfx_circle(dx, dy, size*0.012, 1);
 
-// Tên Preset
-font_size_preset = size * 0.09;
-gfx_setfont(1, "Arial", font_size_preset);
-preset_name = preset_names[slider2|0];
-gfx_measurestr(preset_name, preset_w, preset_h);
-preset_x = knob_x - preset_w/2;
-preset_y = knob_y - knob_r - size*0.18;
-gfx_x = preset_x;
-gfx_y = preset_y;
-gfx_drawstr(preset_name);
+// --- Footer Values ---
+gfx_setfont(4, "Arial", size*0.08);
+sprintf(#sval, "%.1f %%", slider1);
+gfx_measurestr(#sval, vw, vh);
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 1);
+gfx_x = cx - vw/2;
+gfx_y = cy + knob_r + size*0.1;
+gfx_drawstr(#sval);
 
-// --- Logo và giá trị ---
-// Giá trị Amount (%)
-gfx_set(text_color_r, text_color_g, text_color_b);
-font_size_val = size*0.05;
-gfx_setfont(1, "Arial", font_size_val);
-sprintf(#val_str, "%.1f %%", slider1);
-gfx_measurestr(#val_str, val_w, val_h);
-y_pos_val = h - val_h - size*0.055;
-gfx_x = knob_x - val_w/2;
-gfx_y = y_pos_val;
-gfx_drawstr(#val_str);
-
-// --- Logo CHORUS (trên giá trị) ---
-gfx_set(logo_color_r, logo_color_g, logo_color_b);
-font_size_logo_sub = size*0.05;
-gfx_setfont(1, "Arial Narrow Bold", font_size_logo_sub);
-gfx_measurestr("CHORUS", logo_sub_w, logo_sub_h);
-y_pos_sub = y_pos_val - logo_sub_h;
-gfx_x = w/2 - logo_sub_w/2;
-gfx_y = y_pos_sub;
-gfx_drawstr("CHORUS");
-
-// --- Logo HOSIFX (trên cùng) ---
-gfx_set(hosifx_logo_color_r, hosifx_logo_color_g, hosifx_logo_color_b);
-font_size_logo_main = size*0.07;
-gfx_setfont(1, "Arial Black", font_size_logo_main);
-gfx_measurestr("HOSIFX", logo_main_w, logo_main_h);
-y_pos_main = y_pos_sub - logo_main_h * 1.05;
-gfx_x = w/2 - logo_main_w/2;
-gfx_y = y_pos_main;
-gfx_drawstr("HOSIFX");
-
-// --- Logic tương tác chuột ---
+// --- Interactions ---
 mouse_down = mouse_cap & 1;
+mouse_click = mouse_down && !(last_mouse_cap & 1);
 mouse_up = (last_mouse_cap & 1) && !mouse_down;
 
-// Điều khiển núm chính bằng con lăn chuột
-slider1 += mouse_wheel * 2.0;
-slider1 = min(max(slider1, 0), 100);
-mouse_wheel != 0 ? caller = 1;
-
-// Kiểm tra thao tác nhấp và kéo trên núm chính
-dist = sqrt((mouse_x-knob_x)^2+(mouse_y-knob_y)^2);
-mouse_down && (dragging==0) && (dist <= knob_r) ? (
-  dragging=1;
-  drag_start_y=mouse_y;
-  drag_start_val=slider1;
+// Preset Control
+// 1. Arrows (Cycle)
+mouse_y < h * 0.3 && mouse_click ? (
+  mouse_x < cx - lcd_w*0.3 ? ( // Left arrow area
+    slider2 -= 1; slider2 < 0 ? slider2 = 19;
+    caller = 1;
+  ) : mouse_x > cx + lcd_w*0.3 ? ( // Right arrow area
+    slider2 += 1; slider2 > 19 ? slider2 = 0;
+    caller = 1;
+  ) : (
+    // 2. Center Click (Popup Menu)
+    menu_str = #; 
+    strcpy(menu_str, ""); 
+    i=0;
+    loop(num_presets,
+      i == slider2 ? strcat(menu_str, "!") : strcat(menu_str, ""); 
+      strcat(menu_str, preset_names[i]);
+      i < num_presets-1 ? strcat(menu_str, "|");
+      i+=1;
+    );
+    
+    gfx_x = mouse_x; gfx_y = mouse_y;
+    selected = gfx_showmenu(menu_str);
+    selected > 0 ? (
+      slider2 = selected - 1;
+      caller = 1;
+    );
+  );
 );
 
-// Xử lý hành động kéo
-(dragging==1) ? (
-  sensitivity=(100/size)*0.4;
-  delta=(drag_start_y-mouse_y)*sensitivity;
-  old_slider1 = slider1;
-  slider1=drag_start_val+delta;
-  slider1=max(0,min(100,slider1));
-  old_slider1 != slider1 ? caller = 1;
+// Knob
+dist = sqrt((mouse_x-cx)^2 + (mouse_y-cy)^2);
+hover_knob = mouse_y > h*0.3 && dist < knob_r * 1.5;
+
+mouse_click && hover_knob ? (
+  time_precise() - last_click_time < 0.25 ? (
+    slider1 = 50; // Reset to 50%
+    caller = 1;
+    dragging = 0;
+  ) : (
+    dragging = 1;
+    drag_y = mouse_y;
+    drag_val = slider1;
+  );
+  last_click_time = time_precise();
 );
 
-// Thả kéo khi nút chuột được nhả ra
-mouse_up ? (
-  dragging=0;
+dragging ? (
+  slider1 = drag_val + (drag_y - mouse_y) * 0.5;
+  slider1 = min(max(slider1, 0), 100);
+  caller = 1;
 );
+mouse_up ? dragging = 0;
 
-// Đặt lại con lăn chuột và lưu trạng thái chuột cuối cùng
-mouse_wheel = 0;
+// Wheel
+mouse_wheel != 0 ? (
+  slider1 += (mouse_wheel/120)*5;
+  slider1 = min(max(slider1, 0), 100);
+  caller = 1;
+  mouse_wheel = 0;
+);
 last_mouse_cap = mouse_cap;

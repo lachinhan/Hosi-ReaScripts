@@ -1,19 +1,18 @@
 desc:HosiFX De-Ess
-version:1.0
-author:Hosi Prod
-changelog:
-+ v1.0 - Initial release.
+version: 1.0
+author: HosiFX
 about:
   # HosiFX De-Ess
-    A simple and effective De-Ess.
+  A precision de-esser with 20 presets for taming sibilance and harshness.
+changelog:
+  + Initial modern release with expanded presets and new UI.
 // Copyright 2024 HosiFX. All rights reserved.
-// Lấy cảm hứng từ giao diện của MuseFX De-Ess.
 
 // --- Sliders ---
-// Núm vặn "Amount" chính, điều khiển cường độ de-essing.
-slider1:50<0,100,0.1>Amount (%)
-// Bộ chọn preset, được thiết kế cho các tác vụ de-essing.
-slider2:0<0,11,1{Female Voice,Harshness,Male Voice,Sibilance,Steel Guitar,Strings Rosin,Overheads,Cymbal Tamer,Lisp Control,Synth Fizz,Digital Harshness,Vocal Polish}>Preset
+// "Amount" knob
+slider1:50<0,100,0.1>-Amount (%)
+// Preset selector
+slider2:0<0,19,1{Female Voice,Harshness,Male Voice,Sibilance,Steel Guitar,Strings Rosin,Overheads,Cymbal Tamer,Lisp Control,Synth Fizz,Digital Harshness,Vocal Polish,Hi-Hat Control,Plosive Reduce,Podcast Clean,Bright Vocal Cut,Soften Dialog,Tame Reverb,Smooth Treble,Aggressive DeEss}>-Preset
 
 // --- I/O Pins ---
 in_pin:left input
@@ -22,52 +21,58 @@ out_pin:left output
 out_pin:right output
 
 // --- Options ---
-options:gfx_hz=120
+options:gfx_hz=60
 options:no_meter
 
 @init
-// --- Khởi tạo chung ---
-gfx_clear=0;
+// --- General Init ---
+gfx_clear = -1;
 tau = 2 * $pi;
-// Biến trạng thái tương tác chuột.
 dragging = 0;
-// Cờ để kích hoạt cập nhật tham số.
 caller = 1;
+// Force reset to 50%
+slider1 = 50;
 
-// --- Khởi tạo De-Esser ---
-// Khởi tạo mức của bộ dò envelope và các biến filter.
+// --- De-Esser Init ---
 env_db = -120;
 // Filter sidechain (bandpass)
 sc_b0=1; sc_b1=0; sc_b2=0; sc_a1=0; sc_a2=0;
 sc_l_x1=0; sc_l_x2=0; sc_l_y1=0; sc_l_y2=0;
 sc_r_x1=0; sc_r_x2=0; sc_r_y1=0; sc_r_y2=0;
-// Filter chính (dynamic high-shelf)
+// Filter main (dynamic high-shelf)
 dyn_b0=1; dyn_b1=0; dyn_b2=0; dyn_a1=0; dyn_a2=0;
 dyn_l_x1=0; dyn_l_x2=0; dyn_l_y1=0; dyn_l_y2=0;
 dyn_r_x1=0; dyn_r_x2=0; dyn_r_y1=0; dyn_r_y2=0;
 
-// --- Tên Preset ---
-// Danh sách này khớp với định nghĩa trong slider2.
-preset_names.0 = "Female Voice";
-preset_names.1 = "Harshness";
-preset_names.2 = "Male Voice";
-preset_names.3 = "Sibilance";
-preset_names.4 = "Steel Guitar";
-preset_names.5 = "Strings Rosin";
-preset_names.6 = "Overheads";
-preset_names.7 = "Cymbal Tamer";
-preset_names.8 = "Lisp Control";
-preset_names.9 = "Synth Fizz";
-preset_names.10 = "Digital Harshness";
-preset_names.11 = "Vocal Polish";
-num_presets = 12;
+// --- Preset Names (Memory Init) ---
+preset_names = 0;
+preset_names[0] = "Female Voice";
+preset_names[1] = "Harshness";
+preset_names[2] = "Male Voice";
+preset_names[3] = "Sibilance";
+preset_names[4] = "Steel Guitar";
+preset_names[5] = "Strings Rosin";
+preset_names[6] = "Overheads";
+preset_names[7] = "Cymbal Tamer";
+preset_names[8] = "Lisp Control";
+preset_names[9] = "Synth Fizz";
+preset_names[10] = "Digital Harshness";
+preset_names[11] = "Vocal Polish";
+preset_names[12] = "Hi-Hat Control";
+preset_names[13] = "Plosive Reduce";
+preset_names[14] = "Podcast Clean";
+preset_names[15] = "Bright Vocal Cut";
+preset_names[16] = "Soften Dialog";
+preset_names[17] = "Tame Reverb";
+preset_names[18] = "Smooth Treble";
+preset_names[19] = "Aggressive DeEss";
+num_presets = 20;
 
-// --- Hàm tiện ích ---
+// --- Utils ---
 function DB_TO_LINEAR(db) ( 10^(db/20); );
 function LINEAR_TO_DB(lin) ( lin > 0 ? 20*log10(lin) : -120; );
 
-// --- Hàm tính toán hệ số Filter ---
-// Tính toán hệ số cho bộ lọc sidechain (band-pass)
+// --- Filter Coeffs ---
 function calculate_sc_coeffs(freq, q) (
   w0 = tau * freq / srate;
   cos_w0 = cos(w0);
@@ -82,7 +87,6 @@ function calculate_sc_coeffs(freq, q) (
   sc_a2 = (1 - alpha) / a0;
 );
 
-// Tính toán hệ số cho bộ lọc dynamic (high-shelf)
 function calculate_dyn_coeffs(freq, q, gain_db) (
   A = 10^(gain_db / 40);
   w0 = tau * freq / srate;
@@ -97,90 +101,55 @@ function calculate_dyn_coeffs(freq, q, gain_db) (
   a1_ = 2 * ((A - 1) - (A + 1) * cos_w0);
   a2_ = (A + 1) - (A - 1) * cos_w0 - 2 * sqrt(A) * alpha;
 
-  // Chuẩn hóa
-  dyn_b0 = b0_ / a0_;
-  dyn_b1 = b1_ / a0_;
-  dyn_b2 = b2_ / a0_;
-  dyn_a1 = a1_ / a0_;
-  dyn_a2 = a2_ / a0_;
+  dyn_b0 = b0_ / a0_; dyn_b1 = b1_ / a0_; dyn_b2 = b2_ / a0_;
+  dyn_a1 = a1_ / a0_; dyn_a2 = a2_ / a0_;
 );
 
-// --- Định nghĩa tham số Preset ---
+// --- Parameters ---
 function update_parameters() (
-  // Núm 'Amount' điều khiển ngưỡng.
   amount = slider1 / 100;
-
-  // Chọn preset dựa trên slider2
   preset = slider2|0;
 
-  // Giá trị mặc định
-  thresh_db = -24;
-  freq_hz = 6000;
-  q_val = 1.5;
-  attack_ms = 1;
-  release_ms = 50;
-  max_reduction_db = -12;
+  thresh_db = -24; freq_hz = 6000; q_val = 1.5; attack_ms = 1; release_ms = 50; max_reduction_db = -12;
 
-  // Định nghĩa tham số cho mỗi preset
-  preset == 0 ? ( // Female Voice
-    freq_hz=7500; q_val=2.0; thresh_db=-26;
-  ) : preset == 1 ? ( // Harshness
-    freq_hz=4500; q_val=1.2; thresh_db=-22; max_reduction_db=-9;
-  ) : preset == 2 ? ( // Male Voice
-    freq_hz=6000; q_val=1.8; thresh_db=-28;
-  ) : preset == 3 ? ( // Sibilance
-    freq_hz=7000; q_val=2.5; thresh_db=-24; max_reduction_db=-15;
-  ) : preset == 4 ? ( // Steel Guitar
-    freq_hz=9000; q_val=2.0; thresh_db=-20;
-  ) : preset == 5 ? ( // Strings Rosin
-    freq_hz=10000; q_val=1.5; thresh_db=-18;
-  ) : preset == 6 ? ( // Overheads
-    freq_hz=8500; q_val=1.8; thresh_db=-25;
-  ) : preset == 7 ? ( // Cymbal Tamer
-    freq_hz=9500; q_val=2.2; thresh_db=-22; max_reduction_db=-10;
-  ) : preset == 8 ? ( // Lisp Control
-    freq_hz=5500; q_val=2.5; thresh_db=-30;
-  ) : preset == 9 ? ( // Synth Fizz
-    freq_hz=11000; q_val=1.5; thresh_db=-20;
-  ) : preset == 10 ? ( // Digital Harshness
-    freq_hz=5000; q_val=1.0; thresh_db=-24; max_reduction_db=-8;
-  ) : preset == 11 ? ( // Vocal Polish
-    freq_hz=8000; q_val=2.0; thresh_db=-32; max_reduction_db=-6;
-  );
+  preset == 0 ? ( freq_hz=7500; q_val=2.0; thresh_db=-26; )
+  : preset == 1 ? ( freq_hz=4500; q_val=1.2; thresh_db=-22; max_reduction_db=-9; )
+  : preset == 2 ? ( freq_hz=6000; q_val=1.8; thresh_db=-28; )
+  : preset == 3 ? ( freq_hz=7000; q_val=2.5; thresh_db=-24; max_reduction_db=-15; )
+  : preset == 4 ? ( freq_hz=9000; q_val=2.0; thresh_db=-20; )
+  : preset == 5 ? ( freq_hz=10000; q_val=1.5; thresh_db=-18; )
+  : preset == 6 ? ( freq_hz=8500; q_val=1.8; thresh_db=-25; )
+  : preset == 7 ? ( freq_hz=9500; q_val=2.2; thresh_db=-22; max_reduction_db=-10; )
+  : preset == 8 ? ( freq_hz=5500; q_val=2.5; thresh_db=-30; )
+  : preset == 9 ? ( freq_hz=11000; q_val=1.5; thresh_db=-20; )
+  : preset == 10 ? ( freq_hz=5000; q_val=1.0; thresh_db=-24; max_reduction_db=-8; )
+  : preset == 11 ? ( freq_hz=8000; q_val=2.0; thresh_db=-32; max_reduction_db=-6; )
+  : preset == 12 ? ( freq_hz=12000; q_val=1.5; thresh_db=-24; max_reduction_db=-15; ) // HiHat
+  : preset == 13 ? ( freq_hz=200; q_val=1.0; thresh_db=-20; max_reduction_db=-10; ) // Plosive (Low freq)
+  : preset == 14 ? ( freq_hz=6500; q_val=1.8; thresh_db=-28; max_reduction_db=-8; ) // Podcast
+  : preset == 15 ? ( freq_hz=4000; q_val=2.5; thresh_db=-25; ) // Bright Cut
+  : preset == 16 ? ( freq_hz=5000; q_val=1.2; thresh_db=-30; max_reduction_db=-12; ) // Soften
+  : preset == 17 ? ( freq_hz=9000; q_val=1.0; thresh_db=-35; max_reduction_db=-8; ) // Tame Reverb
+  : preset == 18 ? ( freq_hz=10000; q_val=0.7; thresh_db=-22; ) // Smooth Treble
+  : preset == 19 ? ( freq_hz=6000; q_val=2.0; thresh_db=-40; max_reduction_db=-20; ); // Aggressive
 
-  // Núm "Amount" điều chỉnh ngưỡng.
-  // 0% = ngưỡng cao (+0dB), 100% = ngưỡng thấp (preset_thresh - 20dB)
   current_thresh_db = thresh_db - (20 * amount);
   
-  // Tính toán hệ số attack và release cho bộ dò envelope.
   attack_coeff = exp(-1 / (attack_ms * srate * 0.001));
   release_coeff = exp(-1 / (release_ms * srate * 0.001));
 
-  // Tính toán hệ số cho bộ lọc sidechain (cố định)
   calculate_sc_coeffs(freq_hz, q_val);
 );
 
 @slider
-// Khi bất kỳ thanh trượt nào thay đổi, hãy đặt cờ 'caller'.
 caller = 1;
 
 @block
-// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
-caller == 1 ? (
-  update_parameters();
-);
+caller == 1 ? update_parameters();
 
 @sample
-// --- Xử lý âm thanh thời gian thực ---
+caller == 1 ? ( update_parameters(); caller = 0; );
 
-// Cập nhật tham số nếu một thanh trượt đã được di chuyển.
-caller == 1 ? (
-  update_parameters();
-  caller = 0;
-);
-
-// --- Sidechain Filtering ---
-// Lọc tín hiệu đầu vào để chỉ lấy dải tần số sibilant.
 sc_l_out = sc_b0*spl0 + sc_b1*sc_l_x1 + sc_b2*sc_l_x2 - sc_a1*sc_l_y1 - sc_a2*sc_l_y2;
 sc_l_x2 = sc_l_x1; sc_l_x1 = spl0;
 sc_l_y2 = sc_l_y1; sc_l_y1 = sc_l_out;
@@ -189,30 +158,21 @@ sc_r_out = sc_b0*spl1 + sc_b1*sc_r_x1 + sc_b2*sc_r_x2 - sc_a1*sc_r_y1 - sc_a2*sc
 sc_r_x2 = sc_r_x1; sc_r_x1 = spl1;
 sc_r_y2 = sc_r_y1; sc_r_y1 = sc_r_out;
 
-// --- Bộ dò Envelope ---
-// Lấy mức đỉnh từ tín hiệu sidechain.
 peak_in_sc = max(abs(sc_l_out), abs(sc_r_out));
 peak_in_db = LINEAR_TO_DB(peak_in_sc);
 
-// Làm mịn mức đỉnh bằng attack và release.
 env_db = peak_in_db > env_db ?
   peak_in_db + attack_coeff * (env_db - peak_in_db) :
   peak_in_db + release_coeff * (env_db - peak_in_db);
 
-// --- Tính toán Gain Reduction ---
-// Tính toán mức giảm gain cần thiết.
 over_thresh_db = env_db - current_thresh_db;
 gain_reduction_db = 0;
 over_thresh_db > 0 ? (
-  // Áp dụng giảm gain, giới hạn bởi max_reduction_db
   gain_reduction_db = max(over_thresh_db * 2, max_reduction_db);
 );
 
-// --- Dynamic EQ ---
-// Tính toán hệ số cho bộ lọc high-shelf động.
 calculate_dyn_coeffs(freq_hz, 0.707, gain_reduction_db);
 
-// Áp dụng bộ lọc high-shelf động cho tín hiệu gốc.
 dyn_l_out = dyn_b0*spl0 + dyn_b1*dyn_l_x1 + dyn_b2*dyn_l_x2 - dyn_a1*dyn_l_y1 - dyn_a2*dyn_l_y2;
 dyn_l_x2 = dyn_l_x1; dyn_l_x1 = spl0;
 dyn_l_y2 = dyn_l_y1; dyn_l_y1 = dyn_l_out;
@@ -223,156 +183,205 @@ dyn_r_x2 = dyn_r_x1; dyn_r_x1 = spl1;
 dyn_r_y2 = dyn_r_y1; dyn_r_y1 = dyn_r_out;
 spl1 = dyn_r_out;
 
-@gfx 640 400
-// --- Vẽ và tương tác GUI ---
+@gfx 500 420
+// --- Modern UI (De-Ess / Golden Yellow) ---
+
+// Colors
+c_bg_r=0.15; c_bg_g=0.16; c_bg_b=0.18;
+// Golden Yellow for Brightness/De-Ess
+c_accent_r=1.0; c_accent_g=0.85; c_accent_b=0.2; 
+c_lcd_bg_r=0.15; c_lcd_bg_g=0.12; c_lcd_bg_b=0.05;
+
 w=gfx_w; h=gfx_h;
 size = min(w,h);
-is_retina = gfx_ext_flags & 1;
+cx = w/2; 
+cy = h * 0.55;
 
-// --- Màu sắc và kích thước (Chủ đề Brown/Gold) ---
-bg_r=0.45; bg_g=0.35; bg_b=0.25;
-knob_color_r=0.8; knob_color_g=0.7; knob_color_b=0.6;
-text_color_r=0.95; text_color_g=0.92; text_color_b=0.9;
-logo_color_r=0.95; logo_color_g=0.92; logo_color_b=0.9;
-hosifx_logo_color_r = 0.5; hosifx_logo_color_g = 0.4; hosifx_logo_color_b = 0.3;
-dot_color_r=0.6; dot_color_g=0.5; dot_color_b=0.4;
-dot_active_color_r = 0.95;
-dot_active_color_g = 0.92;
-dot_active_color_b = 0.9;
-
-knob_x = w/2;
-knob_y = h/2 + size*0.05;
-knob_r = size*0.3;
-knob_w = size*0.08;
-knob_inner_r = knob_r - knob_w;
-knob_as = -tau * 0.625; // Góc bắt đầu (-225 độ)
-knob_range = tau * 0.75; // Toàn bộ phạm vi góc (270 độ)
-
-// --- Vẽ ---
-gfx_a = 1;
-gfx_aa = 1; // Bật khử răng cưa
-
-// Nền
-gfx_set(bg_r, bg_g, bg_b, 1);
+// --- Background ---
+gfx_set(c_bg_r, c_bg_g, c_bg_b, 1);
 gfx_rect(0,0,w,h);
 
-// Các chấm chỉ báo xung quanh núm vặn
-num_dots = 12;
-i = 0;
-loop(num_dots,
-  angle = knob_as + (i / (num_dots-1)) * knob_range;
-  dot_x = knob_x + cos(angle) * (knob_r + size*0.01);
-  dot_y = knob_y + sin(angle) * (knob_r + size*0.01);
-  dot_size = size * 0.012;
+// --- Header ---
+gfx_setfont(1, "Impact", size*0.06);
+gfx_set(1, 1, 1, 0.5); 
+gfx_measurestr("HOSIFX De-Ess", lw, lh);
+gfx_x = cx - lw/2;
+gfx_y = h * 0.04;
+gfx_drawstr("HOSIFX De-Ess");
 
-  // Tô màu các chấm dựa trên vị trí núm vặn
-  (i / (num_dots-1) - 0.001 <= slider1/100) ?
-    gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b) :
-    gfx_set(dot_color_r, dot_color_g, dot_color_b);
+// --- LCD Screen ---
+lcd_w = w * 0.65;
+lcd_h = size * 0.12;
+lcd_x = (w - lcd_w) / 2;
+lcd_y = h * 0.15;
 
-  gfx_circle(dot_x, dot_y, dot_size, 1);
-  i+=1;
+// Glow
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 0.15);
+gfx_roundrect(lcd_x-3, lcd_y-3, lcd_w+6, lcd_h+6, 5);
+// BG
+gfx_set(c_lcd_bg_r, c_lcd_bg_g, c_lcd_bg_b, 1);
+gfx_roundrect(lcd_x, lcd_y, lcd_w, lcd_h, 4);
+
+// Text
+idx = slider2|0;
+idx < 0 ? idx=0; idx > 11 ? idx=11; 
+preset_ptr = preset_names[idx]; 
+
+gfx_setfont(2, "Verdana", size*0.05);
+gfx_measurestr(preset_ptr, pw, ph);
+// Text color matches accent
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 1); 
+gfx_x = cx - pw/2;
+gfx_y = lcd_y + (lcd_h - ph)/2;
+gfx_drawstr(preset_ptr);
+
+// Arrows
+gfx_set(1,1,1, 0.3);
+ts = size*0.025;
+gfx_triangle(lcd_x-ts*1.5, lcd_y+lcd_h/2, lcd_x-ts*0.5, lcd_y+lcd_h/2-ts, lcd_x-ts*0.5, lcd_y+lcd_h/2+ts);
+gfx_triangle(lcd_x+lcd_w+ts*1.5, lcd_y+lcd_h/2, lcd_x+lcd_w+ts*0.5, lcd_y+lcd_h/2-ts, lcd_x+lcd_w+ts*0.5, lcd_y+lcd_h/2+ts);
+
+// Label
+gfx_setfont(3, "Arial", size*0.025);
+gfx_set(0.6,0.6,0.6,1);
+gfx_measurestr("PRESET", tw, th);
+gfx_x = cx - tw/2; gfx_y = lcd_y - th - 3;
+gfx_drawstr("PRESET");
+
+// --- Unipolar Arc ---
+knob_r = size * 0.22;
+arc_r = knob_r + size*0.04;
+arc_w = size * 0.02;
+
+ang_min = 2.3562; 
+ang_max = 7.0686; 
+total_ang = ang_max - ang_min;
+
+norm_val = slider1 / 100;
+ang_curr = ang_min + norm_val * total_ang;
+
+function draw_thick_arc(c_x, c_y, radius, thick, a_start, a_end, r, g, b, a) (
+  gfx_set(r,g,b,a);
+  step_sz = 0.04; 
+  loop_r_start = radius - thick/2;
+  num_rings = 5; 
+  ring_stp = thick / num_rings;
+  i_ring = 0;
+  loop(num_rings,
+    cur_rad = loop_r_start + i_ring * ring_stp;
+    cur_a = a_start;
+    last_x = c_x + cos(cur_a) * cur_rad;
+    last_y = c_y + sin(cur_a) * cur_rad;
+    while(
+      cur_a += step_sz;
+      cur_a > a_end ? cur_a = a_end;
+      cur_x = c_x + cos(cur_a) * cur_rad;
+      cur_y = c_y + sin(cur_a) * cur_rad;
+      gfx_line(last_x, last_y, cur_x, cur_y);
+      last_x = cur_x; last_y = cur_y;
+      cur_a < a_end;
+    );
+    i_ring += 1;
+  );
 );
 
-// Núm vặn chính
-// Bóng đổ
-gfx_set(0,0,0,0.2);
-gfx_circle(knob_x, knob_y+size*0.015, knob_r, 1);
-// Thân núm
-gfx_set(0.9, 0.92, 0.92, 1); // Màu xám nhạt đồng nhất
-gfx_circle(knob_x, knob_y, knob_r, 1);
+// 1. BG
+draw_thick_arc(cx, cy, arc_r, arc_w, ang_min, ang_max, 0.3, 0.25, 0.1, 0.3);
 
-// Vòng trong của núm
-gfx_set(bg_r, bg_g, bg_b, 0.5);
-gfx_circle(knob_x, knob_y, knob_inner_r, 1);
+// 2. Active
+abs(ang_curr - ang_min) > 0.01 ? (
+  draw_thick_arc(cx, cy, arc_r, arc_w, ang_min, ang_curr, c_accent_r, c_accent_g, c_accent_b, 1.0);
+);
 
-// Chỉ báo trên núm vặn (đã cải thiện)
-indicator_angle = knob_as + (slider1/100) * knob_range;
-indicator_radius = knob_inner_r * 0.7;
-indicator_x = knob_x + cos(indicator_angle) * indicator_radius;
-indicator_y = knob_y + sin(indicator_angle) * indicator_radius;
-indicator_size = size * 0.025; // Đã làm lớn hơn
-gfx_set(dot_active_color_r, dot_active_color_g, dot_active_color_b, 0.9); // Đã làm sáng hơn
-gfx_circle(indicator_x, indicator_y, indicator_size, 1);
+// --- Knob Body ---
+gfx_set(0.12, 0.12, 0.12, 1);
+gfx_circle(cx, cy, knob_r, 1);
+gfx_set(0,0,0, 0.4);
+gfx_arc(cx, cy, knob_r, 0, $pi, 1);
 
-// --- Nhãn văn bản ---
-gfx_set(text_color_r, text_color_g, text_color_b);
+// Indicator Dot
+dot_r = knob_r * 0.75;
+dx = cx + cos(ang_curr) * dot_r;
+dy = cy + sin(ang_curr) * dot_r;
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 0.8);
+gfx_circle(dx, dy, size*0.03, 1);
+gfx_set(1,1,1,0.9);
+gfx_circle(dx, dy, size*0.012, 1);
 
-// Tên Preset
-font_size_preset = size * 0.09;
-gfx_setfont(1, "Arial", font_size_preset);
-preset_name = preset_names[slider2|0];
-gfx_measurestr(preset_name, preset_w, preset_h);
-preset_x = knob_x - preset_w/2;
-preset_y = knob_y - knob_r - size*0.18;
-gfx_x = preset_x;
-gfx_y = preset_y;
-gfx_drawstr(preset_name);
+// --- Footer Values ---
+gfx_setfont(4, "Arial", size*0.08);
+sprintf(#sval, "%.1f %%", slider1);
+gfx_measurestr(#sval, vw, vh);
+gfx_set(c_accent_r, c_accent_g, c_accent_b, 1);
+gfx_x = cx - vw/2;
+gfx_y = cy + knob_r + size*0.1;
+gfx_drawstr(#sval);
 
-// --- Logo và giá trị ---
-// Giá trị Amount (%)
-gfx_set(text_color_r, text_color_g, text_color_b);
-font_size_val = size*0.05;
-gfx_setfont(1, "Arial", font_size_val);
-sprintf(#val_str, "%.1f %%", slider1);
-gfx_measurestr(#val_str, val_w, val_h);
-y_pos_val = h - val_h - size*0.055;
-gfx_x = knob_x - val_w/2;
-gfx_y = y_pos_val;
-gfx_drawstr(#val_str);
-
-// --- Logo DE-ESS (trên giá trị) ---
-gfx_set(logo_color_r, logo_color_g, logo_color_b);
-font_size_logo_sub = size*0.05;
-gfx_setfont(1, "Arial Narrow Bold", font_size_logo_sub);
-gfx_measurestr("DE-ESS", logo_sub_w, logo_sub_h);
-y_pos_sub = y_pos_val - logo_sub_h;
-gfx_x = w/2 - logo_sub_w/2;
-gfx_y = y_pos_sub;
-gfx_drawstr("DE-ESS");
-
-// --- Logo HOSIFX (trên cùng) ---
-gfx_set(hosifx_logo_color_r, hosifx_logo_color_g, hosifx_logo_color_b);
-font_size_logo_main = size*0.07;
-gfx_setfont(1, "Arial Black", font_size_logo_main);
-gfx_measurestr("HOSIFX", logo_main_w, logo_main_h);
-y_pos_main = y_pos_sub - logo_main_h * 1.05;
-gfx_x = w/2 - logo_main_w/2;
-gfx_y = y_pos_main;
-gfx_drawstr("HOSIFX");
-
-// --- Logic tương tác chuột ---
+// --- Interactions ---
 mouse_down = mouse_cap & 1;
+mouse_click = mouse_down && !(last_mouse_cap & 1);
 mouse_up = (last_mouse_cap & 1) && !mouse_down;
 
-// Điều khiển núm chính bằng con lăn chuột
-slider1 += mouse_wheel * 2.0;
-slider1 = min(max(slider1, 0), 100);
-mouse_wheel != 0 ? caller = 1;
-
-// Kiểm tra thao tác nhấp và kéo trên núm chính
-dist = sqrt((mouse_x-knob_x)^2+(mouse_y-knob_y)^2);
-mouse_down && (dragging==0) && (dist <= knob_r) ? (
-  dragging=1;
-  drag_start_y=mouse_y;
-  drag_start_val=slider1;
+// Preset Control
+// 1. Arrows (Cycle)
+mouse_y < h * 0.3 && mouse_click ? (
+  mouse_x < cx - lcd_w*0.3 ? ( // Left arrow area
+    slider2 -= 1; slider2 < 0 ? slider2 = 19;
+    caller = 1;
+  ) : mouse_x > cx + lcd_w*0.3 ? ( // Right arrow area
+    slider2 += 1; slider2 > 19 ? slider2 = 0;
+    caller = 1;
+  ) : (
+    // 2. Center Click (Popup Menu)
+    menu_str = #; 
+    strcpy(menu_str, ""); 
+    i=0;
+    loop(num_presets,
+      i == slider2 ? strcat(menu_str, "!") : strcat(menu_str, ""); 
+      strcat(menu_str, preset_names[i]);
+      i < num_presets-1 ? strcat(menu_str, "|");
+      i+=1;
+    );
+    
+    gfx_x = mouse_x; gfx_y = mouse_y;
+    selected = gfx_showmenu(menu_str);
+    selected > 0 ? (
+      slider2 = selected - 1;
+      caller = 1;
+    );
+  );
 );
 
-// Xử lý hành động kéo
-(dragging==1) ? (
-  sensitivity=(100/size)*0.4;
-  delta=(drag_start_y-mouse_y)*sensitivity;
-  old_slider1 = slider1;
-  slider1=drag_start_val+delta;
-  slider1=max(0,min(100,slider1));
-  old_slider1 != slider1 ? caller = 1;
+// Knob
+dist = sqrt((mouse_x-cx)^2 + (mouse_y-cy)^2);
+hover_knob = mouse_y > h*0.3 && dist < knob_r * 1.5;
+
+mouse_click && hover_knob ? (
+  time_precise() - last_click_time < 0.25 ? (
+    slider1 = 50;
+    caller = 1;
+    dragging = 0;
+  ) : (
+    dragging = 1;
+    drag_y = mouse_y;
+    drag_val = slider1;
+  );
+  last_click_time = time_precise();
 );
 
-// Thả kéo khi nút chuột được nhả ra
-mouse_up ? (
-  dragging=0;
+dragging ? (
+  // Slower sensitivity for De-Ess (0.75x) for precision
+  slider1 = drag_val + (drag_y - mouse_y) * 0.3;
+  slider1 = min(max(slider1, 0), 100);
+  caller = 1;
 );
+mouse_up ? dragging = 0;
 
-// Đặt lại con lăn chuột và lưu trạng thái chuột cuối cùng
-mouse_wheel = 0;
+// Wheel
+mouse_wheel != 0 ? (
+  slider1 += (mouse_wheel/120)*5;
+  slider1 = min(max(slider1, 0), 100);
+  caller = 1;
+  mouse_wheel = 0;
+);
 last_mouse_cap = mouse_cap;

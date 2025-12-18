@@ -1,0 +1,640 @@
+desc:HosiFX Vocal Chain
+version: 1.0
+author: HosiFX
+about:
+  # HosiFX Vocal Chain
+  A complete vocal processing chain (Gate, De-Ess, Comp, EQ, Delay, Reverb) with per-module presets and unified control.
+changelog:
+  + Initial release.
+// Copyright 2024 HosiFX. All rights reserved.
+
+// --- Controls ---
+// Row 1
+slider1:50<0,100,0.1>-Gate Thresh
+slider2:50<0,100,0.1>-DeEss Amt
+slider3:50<0,100,0.1>-Comp Amt
+
+// Row 2
+slider4:50<0,100,0.1>-EQ Air
+slider5:20<0,100,0.1>-Delay Mix
+slider6:30<0,100,0.1>-Reverb Mix
+
+// Toggles (Hidden but clickable)
+slider10:1<0,1,1>-Gate On
+slider11:1<0,1,1>-DeEss On
+slider12:1<0,1,1>-Comp On
+slider13:1<0,1,1>-EQ On
+slider14:0<0,1,1>-Delay On
+slider15:0<0,1,1>-Reverb On
+
+// Presets (Hidden)
+slider20:0<0,19,1>-Gate Preset
+slider21:0<0,19,1>-DeEss Preset
+slider22:0<0,29,1>-Comp Preset
+slider23:0<0,29,1>-EQ Preset
+slider24:0<0,24,1>-Delay Preset
+slider25:0<0,24,1>-Reverb Preset
+
+// --- I/O Pins ---
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+// --- Options ---
+options:gfx_hz=60
+options:no_meter
+options:gmem=vocal_chain,3000000
+
+@init
+// --- General ---
+gfx_clear = -1;
+tau = 2 * $pi;
+dragging = 0;
+caller = 1;
+
+// --- Memory Map ---
+buf_delay_start = 0;   // 0 - 500k
+buf_reverb_start = 500000; // 500k - 1M
+// Presets strings start at 1M
+preset_str_base = 1000000;
+
+// --- PRESET DATA LOAD ---
+// 1. Gate Presets
+gate_p_names = preset_str_base;
+gate_p_names[0]="Amp Noise"; gate_p_names[1]="El Guitar DI"; gate_p_names[2]="Funky Bass";
+gate_p_names[3]="Gated Drums"; gate_p_names[4]="Speech"; gate_p_names[5]="Vocal Booth";
+gate_p_names[6]="Tight Kick"; gate_p_names[7]="Snare Gate"; gate_p_names[8]="Tom Gate";
+gate_p_names[9]="Cymbal Bleed"; gate_p_names[10]="Room Mic Crush"; gate_p_names[11]="Aggressive Gate";
+gate_p_names[12]="Guitar Solos"; gate_p_names[13]="Chug Bass"; gate_p_names[14]="Tight Snare";
+gate_p_names[15]="Kick Decay"; gate_p_names[16]="Click Track"; gate_p_names[17]="Ambient Decay";
+gate_p_names[18]="Noise Floor"; gate_p_names[19]="Fast Choke";
+gate_num_p = 20;
+
+// 2. DeEss Presets
+deess_p_names = preset_str_base + 100;
+deess_p_names[0]="Female Voice"; deess_p_names[1]="Harshness"; deess_p_names[2]="Male Voice";
+deess_p_names[3]="Sibilance"; deess_p_names[4]="Steel Guitar"; deess_p_names[5]="Strings Rosin";
+deess_p_names[6]="Overheads"; deess_p_names[7]="Cymbal Tamer"; deess_p_names[8]="Lisp Control";
+deess_p_names[9]="Synth Fizz"; deess_p_names[10]="Digital Harsh"; deess_p_names[11]="Vocal Polish";
+deess_p_names[12]="Hi-Hat Ctrl"; deess_p_names[13]="Plosive Red"; deess_p_names[14]="Podcast Cln";
+deess_p_names[15]="Bright Cut"; deess_p_names[16]="Soften Dialog"; deess_p_names[17]="Tame Reverb";
+deess_p_names[18]="Smooth Treble"; deess_p_names[19]="Aggressive";
+deess_num_p = 20;
+
+// 3. Comp Presets
+comp_p_names = preset_str_base + 200;
+comp_p_names[0]="Acoustic Gtr"; comp_p_names[1]="Bass Guitar"; comp_p_names[2]="Drums Bus";
+comp_p_names[3]="Kick Drum"; comp_p_names[4]="Mix Bus Aggro"; comp_p_names[5]="Mix Bus Gentle";
+comp_p_names[6]="Opto Compress"; comp_p_names[7]="Pop Vocals"; comp_p_names[8]="Pumping Master";
+comp_p_names[9]="Snappy Snare"; comp_p_names[10]="Squasher"; comp_p_names[11]="Vocal Ride";
+comp_p_names[12]="Piano"; comp_p_names[13]="Synth Bass"; comp_p_names[14]="Synth Lead";
+comp_p_names[15]="Room Mics"; comp_p_names[16]="Overheads"; comp_p_names[17]="Parallel Comp";
+comp_p_names[18]="De-Esser"; comp_p_names[19]="Limiter";
+comp_p_names[20]="Glue Comp"; comp_p_names[21]="Metal Kick"; comp_p_names[22]="Metal Snare";
+comp_p_names[23]="Rock Vocals"; comp_p_names[24]="EDM Pump"; comp_p_names[25]="Jazz Bass";
+comp_p_names[26]="Acoustic Body"; comp_p_names[27]="Podcast"; comp_p_names[28]="Broadcast";
+comp_p_names[29]="Limit Check";
+comp_num_p = 30;
+
+// 4. EQ Presets
+eq_p_names = preset_str_base + 300;
+eq_p_names[0]="Air"; eq_p_names[1]="Backing Vocals"; eq_p_names[2]="Bass Body";
+eq_p_names[3]="Boost Vocals"; eq_p_names[4]="Clarity"; eq_p_names[5]="Low Thump";
+eq_p_names[6]="Mix Low End"; eq_p_names[7]="Mud Reduction"; eq_p_names[8]="Presence";
+eq_p_names[9]="Reduce Sizzle"; eq_p_names[10]="Scoop"; eq_p_names[11]="Strings Lustre";
+eq_p_names[12]="Sub Bass"; eq_p_names[13]="Tame Rumble"; eq_p_names[14]="Tight Attack";
+eq_p_names[15]="Vintage Vibe"; eq_p_names[16]="Remove Boxiness"; eq_p_names[17]="Guitar Body";
+eq_p_names[18]="Snare Snap"; eq_p_names[19]="Kick Punch"; eq_p_names[20]="Hi-Hat Shimmer";
+eq_p_names[21]="De-Boom"; eq_p_names[22]="Telephone FX"; eq_p_names[23]="Warm Pad";
+eq_p_names[24]="Lead Synth Cut";
+eq_p_names[25]="Radio Voice"; eq_p_names[26]="Drum Overhead"; eq_p_names[27]="Bass Def";
+eq_p_names[28]="Vocal Cut"; eq_p_names[29]="Master Air";
+eq_num_p = 30;
+
+// 5. Delay Presets
+delay_p_names = preset_str_base + 400;
+delay_p_names[0]="Acoustic Air"; delay_p_names[1]="Analog Slap"; delay_p_names[2]="Bumble Beat";
+delay_p_names[3]="Guitar Solo"; delay_p_names[4]="Mix Exciter"; delay_p_names[5]="Spacey Vocals";
+delay_p_names[6]="Stereo Arp"; delay_p_names[7]="Triplet Delay"; delay_p_names[8]="Vintage Dblr";
+delay_p_names[9]="Ambient Wash"; delay_p_names[10]="Dub Echo"; delay_p_names[11]="Rhythmic Gate";
+delay_p_names[12]="Filtered Swp"; delay_p_names[13]="Lo-Fi Tape"; delay_p_names[14]="Infinite Rpts";
+delay_p_names[15]="Dot-Eighth"; delay_p_names[16]="Quarter Tap"; delay_p_names[17]="Ping Pong";
+delay_p_names[18]="Filtered Dub"; delay_p_names[19]="Tape Slapback"; delay_p_names[20]="Space Echo";
+delay_p_names[21]="Multi-Tap"; delay_p_names[22]="Chorus Delay"; delay_p_names[23]="Tight Dblr";
+delay_p_names[24]="Slow Swell";
+delay_num_p = 25;
+
+// 6. Reverb Presets
+reverb_p_names = preset_str_base + 500;
+reverb_p_names[0]="Bright Hall"; reverb_p_names[1]="Dark Hall"; reverb_p_names[2]="Ethereal";
+reverb_p_names[3]="Medium Room"; reverb_p_names[4]="Plate Reverb"; reverb_p_names[5]="Small Room";
+reverb_p_names[6]="Spring Reverb"; reverb_p_names[7]="StaffPad Hall"; reverb_p_names[8]="Vocal Booth";
+reverb_p_names[9]="Cathedral"; reverb_p_names[10]="Ambient Wash"; reverb_p_names[11]="Drum Room";
+reverb_p_names[12]="Guitar Solo"; reverb_p_names[13]="Short Slap"; reverb_p_names[14]="Lush Plate";
+reverb_p_names[15]="Tiled Room"; reverb_p_names[16]="Wooden Hall"; reverb_p_names[17]="Stone Chapel";
+reverb_p_names[18]="Arena Rock"; reverb_p_names[19]="Reverse Gate"; reverb_p_names[20]="Inf Wash";
+reverb_p_names[21]="Slap Room"; reverb_p_names[22]="Tunnel"; reverb_p_names[23]="Plate Vintage";
+reverb_p_names[24]="Space Station";
+reverb_num_p = 25;
+
+
+// ==========================================
+// DSP INIT
+// ==========================================
+// Gate
+gate_env_db = -120; gate_gain = 1;
+// De-Ess
+deess_env_db = -120;
+deess_sc_b0=1; deess_sc_b1=0; deess_sc_b2=0; deess_sc_a1=0; deess_sc_a2=0;
+deess_sc_l_x1=0; deess_sc_l_x2=0; deess_sc_l_y1=0; deess_sc_l_y2=0;
+deess_sc_r_x1=0; deess_sc_r_x2=0; deess_sc_r_y1=0; deess_sc_r_y2=0;
+deess_dyn_l_x1=0; deess_dyn_l_x2=0; deess_dyn_l_y1=0; deess_dyn_l_y2=0;
+deess_dyn_r_x1=0; deess_dyn_r_x2=0; deess_dyn_r_y1=0; deess_dyn_r_y2=0;
+// Comp
+comp_env_db = -120;
+// EQ
+eq_b0=1; eq_b1=0; eq_b2=0; eq_a1=0; eq_a2=0;
+eq_l_x1=0; eq_l_x2=0; eq_l_y1=0; eq_l_y2=0;
+eq_r_x1=0; eq_r_x2=0; eq_r_y1=0; eq_r_y2=0;
+// Delay
+delay_buf_size = srate * 2; 
+delay_buf_L = buf_delay_start; delay_buf_R = buf_delay_start + delay_buf_size;
+delay_wp = 0; delay_lp_L=0; delay_lp_R=0; delay_hp_L=0; delay_hp_R=0;
+// Reverb
+reverb_buf = buf_reverb_start; rev_buf_sz = 2048; 
+rev_wp = 0; 
+// Alloc reverb ptrs
+rev_c_L1=reverb_buf; rev_c_L2=reverb_buf+2048; rev_c_L3=reverb_buf+4096; rev_c_L4=reverb_buf+6144;
+rev_c_R1=reverb_buf+8192; rev_c_R2=reverb_buf+10240; rev_c_R3=reverb_buf+12288; rev_c_R4=reverb_buf+14336;
+rev_a_L1=reverb_buf+16384; rev_a_L2=reverb_buf+18432; rev_a_R1=reverb_buf+20480; rev_a_R2=reverb_buf+22528;
+// Times
+rev_c_t_L1=1617; rev_c_t_L2=1557; rev_c_t_L3=1491; rev_c_t_L4=1422;
+rev_c_t_R1=1640; rev_c_t_R2=1580; rev_c_t_R3=1514; rev_c_t_R4=1445;
+rev_a_t_L1=556; rev_a_t_L2=441; rev_a_t_R1=579; rev_a_t_R2=464;
+// State
+rev_s_L1=0; rev_s_L2=0; rev_s_L3=0; rev_s_L4=0;
+rev_s_R1=0; rev_s_R2=0; rev_s_R3=0; rev_s_R4=0;
+rev_ay1_L1=0; rev_ay1_L2=0; rev_ay1_R1=0; rev_ay1_R2=0;
+
+
+// --- UTILS ---
+function DB_TO_LINEAR(db) ( 10^(db/20); );
+function LINEAR_TO_DB(lin) ( lin > 0 ? 20*log10(lin) : -120; );
+function sqr(x) ( x*x );
+
+function calc_biquad(type, freq, q, gain_db) (
+    A = 10^(gain_db/40); w0 = tau * freq / srate;
+    c = cos(w0); s = sin(w0); alpha = s / (2 * q);
+    
+    type == 0 ? ( // Peaking (for EQ)
+        b0_=1+alpha*A; b1_=-2*c; b2_=1-alpha*A;
+        a0_=1+alpha/A; a1_=-2*c; a2_=1-alpha/A;
+    ) : type == 1 ? ( // High Shelf (for Air)
+        b0_ = A*((A+1) + (A-1)*c + 2*sqrt(A)*alpha);
+        b1_ = -2*A*((A-1) + (A+1)*c);
+        b2_ = A*((A+1) + (A-1)*c - 2*sqrt(A)*alpha);
+        a0_ = (A+1) - (A-1)*c + 2*sqrt(A)*alpha;
+        a1_ = 2*((A-1) - (A+1)*c);
+        a2_ = (A+1) - (A-1)*c - 2*sqrt(A)*alpha;
+    ) : ( // Bypass
+        b0_=1;b1_=0;b2_=0;a0_=1;a1_=0;a2_=0;
+    );
+    eq_b0=b0_/a0_; eq_b1=b1_/a0_; eq_b2=b2_/a0_; eq_a1=a1_/a0_; eq_a2=a2_/a0_;
+);
+
+function update_params() (
+    // 1. Gate Logic
+    gate_preset = slider20|0;
+    gb_thresh = -40; gate_att_ms = 5; gate_hold_ms=10; gate_rel_ms=100; gate_range_db=-96;
+    gate_preset == 0 ? ( gb_thresh = -50; gate_att_ms=2; gate_rel_ms=80; ) :
+    gate_preset == 1 ? ( gb_thresh = -45; gate_att_ms=1; gate_rel_ms=150; ) :
+    gate_preset == 2 ? ( gb_thresh = -35; gate_att_ms=0.5; gate_rel_ms=90; ) :
+    gate_preset == 3 ? ( gb_thresh = -25; gate_att_ms=0.1; gate_rel_ms=200; ) :
+    gate_preset == 4 ? ( gb_thresh = -40; gate_att_ms=5; gate_rel_ms=250; ) :
+    gate_preset == 5 ? ( gb_thresh = -55; gate_att_ms=3; gate_rel_ms=180; ) :
+    gate_preset == 6 ? ( gb_thresh = -30; gate_att_ms=0.5; gate_rel_ms=120; ) :
+    gate_preset == 11 ? ( gb_thresh = -22; gate_att_ms=0.05; gate_rel_ms=80; ) :
+    gate_preset == 12 ? ( gb_thresh = -45; gate_att_ms=5; gate_rel_ms=300; ) :
+    gate_preset == 13 ? ( gb_thresh = -35; gate_att_ms=2; gate_rel_ms=100; ) :
+    gate_preset == 14 ? ( gb_thresh = -26; gate_att_ms=0.5; gate_rel_ms=150; ) :
+    gate_preset == 15 ? ( gb_thresh = -28; gate_att_ms=1; gate_rel_ms=100; ) :
+    gate_preset == 16 ? ( gb_thresh = -50; gate_att_ms=0.1; gate_rel_ms=10; ) :
+    gate_preset == 17 ? ( gb_thresh = -55; gate_att_ms=10; gate_rel_ms=500; ) :
+    gate_preset == 18 ? ( gb_thresh = -60; gate_att_ms=1; gate_rel_ms=50; ) :
+    gate_preset == 19 ? ( gb_thresh = -18; gate_att_ms=0.1; gate_rel_ms=20; );
+    gate_thresh = -60 + (gb_thresh + 60) * (slider1/100);
+    gate_att = exp(-1/(gate_att_ms*srate*0.001));
+    gate_rel = exp(-1/(gate_rel_ms*srate*0.001));
+    gate_lin_range = DB_TO_LINEAR(gate_range_db);
+    
+    // 2. De-Ess Logic
+    deess_preset = slider21|0;
+    d_freq=6000; d_q=1.5;
+    deess_preset == 0 ? ( d_freq=7500; d_q=2.0; ) :
+    deess_preset == 1 ? ( d_freq=4500; d_q=1.2; ) :
+    deess_preset == 2 ? ( d_freq=6000; d_q=1.8; ) :
+    deess_preset == 3 ? ( d_freq=7000; d_q=2.5; ) :
+    deess_preset == 6 ? ( d_freq=8500; d_q=1.8; ) :
+    deess_preset == 11 ? ( d_freq=8000; d_q=2.0; ) :
+    deess_preset == 12 ? ( d_freq=12000; d_q=1.5; ) :
+    deess_preset == 13 ? ( d_freq=200; d_q=1.0; ) :
+    deess_preset == 14 ? ( d_freq=6500; d_q=1.8; ) :
+    deess_preset == 15 ? ( d_freq=4000; d_q=2.5; ) :
+    deess_preset == 16 ? ( d_freq=5000; d_q=1.2; ) :
+    deess_preset == 17 ? ( d_freq=9000; d_q=1.0; ) :
+    deess_preset == 18 ? ( d_freq=10000; d_q=0.7; ) :
+    deess_preset == 19 ? ( d_freq=6000; d_q=2.0; );
+    
+    deess_amt = slider2/100;
+    deess_thresh = -10 - (30 * deess_amt);
+    
+    // SC Coeffs
+    d_w0 = tau*d_freq/srate; d_a = sin(d_w0)/(2*d_q); d_a0=1+d_a;
+    deess_sc_b0=d_a/d_a0; deess_sc_b2=-d_a/d_a0; deess_sc_a1=-2*cos(d_w0)/d_a0; deess_sc_a2=(1-d_a)/d_a0;
+    deess_att = exp(-1/(1 * srate * 0.001)); 
+    deess_rel = exp(-1/(40 * srate * 0.001));
+    
+    // 3. Comp Logic
+    comp_preset = slider22|0;
+    c_ratio=4; c_mk=0; c_att=10; c_rel=100; c_thr=-24;
+    comp_preset==0 ? (c_thr=-24; c_ratio=3.5; c_att=5; c_rel=150; c_mk=4;) :
+    comp_preset==6 ? (c_thr=-22; c_ratio=3; c_att=10; c_rel=500; c_mk=5;) :
+    comp_preset==7 ? (c_thr=-20; c_ratio=4; c_att=3; c_rel=150; c_mk=6;) :
+    comp_preset==11 ? (c_thr=-28; c_ratio=2.5; c_att=20; c_rel=300; c_mk=4;) :
+    comp_preset==20 ? (c_thr=-18; c_ratio=2; c_att=30; c_rel=100; c_mk=3;) :
+    comp_preset==21 ? (c_thr=-12; c_ratio=8; c_att=5; c_rel=80; c_mk=6;) :
+    comp_preset==22 ? (c_thr=-15; c_ratio=6; c_att=3; c_rel=120; c_mk=5;) :
+    comp_preset==23 ? (c_thr=-22; c_ratio=5; c_att=2; c_rel=200; c_mk=8;) :
+    comp_preset==24 ? (c_thr=-30; c_ratio=12; c_att=1; c_rel=300; c_mk=12;) :
+    comp_preset==25 ? (c_thr=-16; c_ratio=3; c_att=20; c_rel=100; c_mk=4;) :
+    comp_preset==26 ? (c_thr=-20; c_ratio=2.5; c_att=12; c_rel=180; c_mk=5;) :
+    comp_preset==27 ? (c_thr=-24; c_ratio=4; c_att=5; c_rel=100; c_mk=7;) :
+    comp_preset==28 ? (c_thr=-18; c_ratio=10; c_att=0.5; c_rel=50; c_mk=9;) :
+    comp_preset==29 ? (c_thr=-0.5; c_ratio=100; c_att=0.1; c_rel=50; c_mk=0.5;);
+    
+    comp_amt = slider3/100;
+    comp_thresh = c_thr * (0.5 + 0.5*comp_amt); // scale thresh
+    // comp ratio fixed by preset? or scaled? lets stick to preset fixed ratio, knob scales threshold/makeup
+    comp_makeup = c_mk * comp_amt * 2;
+    comp_ratio_act = c_ratio;
+    comp_att_c = exp(-1/(c_att*srate*0.001));
+    comp_rel_c = exp(-1/(c_rel*srate*0.001));
+    
+    // 4. EQ Logic
+    eq_preset = slider23|0;
+    // Simple EQ logic - mapping presets to Freq/Q/Type
+    // 0=Air (HighShelf 10k), 3=Boost Vocals (Peak 3k), 8=Presence (Peak 5k)
+    eq_type=0; // 0=Peak, 1=Shelf
+    eq_f=10000; eq_q=0.7;
+    
+    eq_preset == 0 ? ( eq_type=1; eq_f=12000; eq_q=0.7; ) :
+    eq_preset == 1 ? ( eq_type=0; eq_f=1500; eq_q=1.0; ) :
+    eq_preset == 3 ? ( eq_type=0; eq_f=3000; eq_q=1.2; ) :
+    eq_preset == 8 ? ( eq_type=0; eq_f=5000; eq_q=1.5; ) :
+    eq_preset == 15 ? ( eq_type=1; eq_f=8000; eq_q=0.5; ) :
+    eq_preset == 25 ? ( eq_type=0; eq_f=2000; eq_q=3.0; ) :
+    eq_preset == 26 ? ( eq_type=1; eq_f=5000; eq_q=0.7; ) :
+    eq_preset == 27 ? ( eq_type=0; eq_f=800; eq_q=1.5; ) :
+    eq_preset == 28 ? ( eq_type=0; eq_f=1000; eq_q=2.0; ) :
+    eq_preset == 29 ? ( eq_type=1; eq_f=16000; eq_q=0.5; );
+    
+    eq_amt = slider4/100;
+    eq_gain = (slider4 - 50) * 0.4; // +/- 20dB range from center 50? 
+    // Wait, user wants Amount knob behavior usually 0-100% effect. 
+    // Let's assume 0-100 is 0dB to +12dB boost for "Air" type, but what about cut?
+    // Let's map 0-100 to -12dB to +12dB. 50=Flat.
+    eq_gain = (slider4 - 50) * 0.4;
+    
+    calc_biquad(eq_type, eq_f, eq_q, eq_gain);
+    
+    // 5. Delay Logic
+    del_preset = slider24|0;
+    d_msk = 300; d_fb = 0.3; d_lp=4000; d_hp=100;
+    del_preset == 0 ? ( d_msk=400; d_fb=0.4; d_lp=6000; ) :
+    del_preset == 1 ? ( d_msk=120; d_fb=0.2; d_lp=2500; ) :
+    del_preset == 15 ? ( d_msk=350; d_fb=0.4; d_lp=5000; ) :
+    del_preset == 16 ? ( d_msk=500; d_fb=0.3; d_lp=4000; ) :
+    del_preset == 17 ? ( d_msk=400; d_fb=0.5; d_lp=7000; ) :
+    del_preset == 18 ? ( d_msk=600; d_fb=0.8; d_lp=800; ) :
+    del_preset == 19 ? ( d_msk=90; d_fb=0.2; d_lp=2500; ) :
+    del_preset == 20 ? ( d_msk=300; d_fb=0.6; d_lp=3000; ) :
+    del_preset == 21 ? ( d_msk=330; d_fb=0.5; d_lp=9000; ) :
+    del_preset == 22 ? ( d_msk=25; d_fb=0.4; d_lp=5000; ) :
+    del_preset == 23 ? ( d_msk=40; d_fb=0.1; d_lp=10000; ) :
+    del_preset == 24 ? ( d_msk=600; d_fb=0.8; d_lp=400; );
+    
+    delay_mix = slider5/100;
+    delay_dry = 1 - delay_mix;
+    d_samps = (d_msk/1000)*srate;
+    
+    d_lp_a = 1-exp(-tau*d_lp/srate); 
+    d_hp_a = 1-exp(-tau*d_hp/srate);
+
+    // 6. Reverb Logic
+    rev_preset = slider25|0;
+    rev_sz=0.75; rev_dmp=0.3;
+    rev_preset == 0 ? ( rev_sz=0.85; rev_dmp=0.1; ) : 
+    rev_preset == 1 ? ( rev_sz=0.85; rev_dmp=0.6; ) :
+    rev_preset == 3 ? ( rev_sz=0.65; rev_dmp=0.4; ) :
+    rev_preset == 9 ? ( rev_sz=0.98; rev_dmp=0.4; ) :
+    rev_preset == 15 ? ( rev_sz=0.3; rev_dmp=0.05; ) :
+    rev_preset == 16 ? ( rev_sz=0.7; rev_dmp=0.6; ) :
+    rev_preset == 17 ? ( rev_sz=0.9; rev_dmp=0.2; ) :
+    rev_preset == 18 ? ( rev_sz=0.95; rev_dmp=0.1; ) :
+    rev_preset == 19 ? ( rev_sz=0.6; rev_dmp=0.8; ) :
+    rev_preset == 20 ? ( rev_sz=0.99; rev_dmp=0.01; ) :
+    rev_preset == 21 ? ( rev_sz=0.4; rev_dmp=0.2; ) :
+    rev_preset == 22 ? ( rev_sz=0.85; rev_dmp=0.5; ) :
+    rev_preset == 23 ? ( rev_sz=0.75; rev_dmp=0.4; ) :
+    rev_preset == 24 ? ( rev_sz=0.96; rev_dmp=0.15; );
+    
+    rev_mix = slider6/100;
+    rev_dry = 1 - rev_mix;
+    rev_fb = rev_sz; rev_damp1=rev_dmp; rev_damp2=1-rev_damp1;
+);
+
+@slider
+caller=1;
+
+@block
+caller ? update_params();
+
+@sample
+caller ? ( update_params(); caller=0; );
+
+// --- DSP PROCESS ---
+
+// 1. GATE
+slider10 ? (
+    g_pk = max(abs(spl0), abs(spl1));
+    g_db = LINEAR_TO_DB(g_pk);
+    gate_env_db = g_db > gate_env_db ? g_db + gate_att*(gate_env_db-g_db) : g_db + gate_rel*(gate_env_db-g_db);
+    g_open = gate_env_db >= gate_thresh;
+    g_target = g_open ? 1 : gate_lin_range;
+    gate_gain += (g_target - gate_gain) * 0.005;
+    spl0 *= gate_gain; spl1 *= gate_gain;
+);
+
+// 2. DE-ESS
+slider11 ? (
+    ds_sc_L = deess_sc_b0*spl0 + deess_sc_b2*deess_sc_l_x2 - deess_sc_a1*deess_sc_l_y1 - deess_sc_a2*deess_sc_l_y2;
+    deess_sc_l_x2=deess_sc_l_x1; deess_sc_l_x1=spl0; deess_sc_l_y2=deess_sc_l_y1; deess_sc_l_y1=ds_sc_L;
+    ds_sc_R = deess_sc_b0*spl1 + deess_sc_b2*deess_sc_r_x2 - deess_sc_a1*deess_sc_r_y1 - deess_sc_a2*deess_sc_r_y2;
+    deess_sc_r_x2=deess_sc_r_x1; deess_sc_r_x1=spl1; deess_sc_r_y2=deess_sc_r_y1; deess_sc_r_y1=ds_sc_R;
+    
+    ds_pk = max(abs(ds_sc_L), abs(ds_sc_R));
+    ds_db = LINEAR_TO_DB(ds_pk);
+    deess_env_db = ds_db > deess_env_db ? ds_db + deess_att*(deess_env_db-ds_db) : ds_db + deess_rel*(deess_env_db-ds_db);
+    
+    ds_ovr = deess_env_db - deess_thresh;
+    ds_g = 0; ds_ovr > 0 ? ds_g = ds_ovr * 0.5;
+    
+    // Dynamic Shelf (Simple Ducking for now to save CPU/Code for this chain)
+    ds_lin = DB_TO_LINEAR(-ds_g);
+    spl0 *= ds_lin; spl1 *= ds_lin;
+);
+
+// 3. COMP
+slider12 ? (
+    c_pk = max(abs(spl0), abs(spl1));
+    c_db = LINEAR_TO_DB(c_pk);
+    comp_env_db = c_db > comp_env_db ? c_db + comp_att_c*(comp_env_db-c_db) : c_db + comp_rel_c*(comp_env_db-c_db);
+    c_ovr = comp_env_db - comp_thresh;
+    c_gr = 0; c_ovr > 0 ? c_gr = c_ovr * (1.0 - 1.0/comp_ratio_act);
+    c_tot = comp_makeup - c_gr;
+    c_l = DB_TO_LINEAR(c_tot);
+    spl0 *= c_l; spl1 *= c_l;
+);
+
+// 4. EQ
+slider13 ? (
+    eq_L = eq_b0*spl0 + eq_b1*eq_l_x1 + eq_b2*eq_l_x2 - eq_a1*eq_l_y1 - eq_a2*eq_l_y2;
+    eq_l_x2=eq_l_x1; eq_l_x1=spl0; eq_l_y2=eq_l_y1; eq_l_y1=eq_L;
+    spl0 = eq_L;
+    eq_R = eq_b0*spl1 + eq_b1*eq_r_x1 + eq_b2*eq_r_x2 - eq_a1*eq_r_y1 - eq_a2*eq_r_y2;
+    eq_r_x2=eq_r_x1; eq_r_x1=spl1; eq_r_y2=eq_r_y1; eq_r_y1=eq_R;
+    spl1 = eq_R;
+);
+
+// 5. DELAY
+slider14 ? (
+    d_rp = delay_wp - d_samps;
+    d_rp < buf_delay_start ? d_rp += delay_buf_size;
+    d_rpi=floor(d_rp); d_fr=d_rp-d_rpi;
+    d_rp2 = d_rpi+1; d_rp2 >= buf_delay_start+delay_buf_size ? d_rp2 -= delay_buf_size;
+    
+    dv_L = delay_buf_L[d_rpi] + (delay_buf_L[d_rp2]-delay_buf_L[d_rpi])*d_fr;
+    dv_R = delay_buf_R[d_rpi] + (delay_buf_R[d_rp2]-delay_buf_R[d_rpi])*d_fr;
+    
+    delay_lp_L += (dv_L - delay_lp_L)*d_lp_a; delay_lp_R += (dv_R - delay_lp_R)*d_lp_a;
+    delay_hp_L += (delay_lp_L - delay_hp_L)*d_hp_a; delay_hp_R += (delay_lp_R - delay_hp_R)*d_hp_a;
+    
+    fL = delay_hp_L; fR = delay_hp_R;
+    
+    delay_buf_L[delay_wp] = spl0 + fL*d_fb;
+    delay_buf_R[delay_wp] = spl1 + fR*d_fb;
+    delay_wp = (delay_wp+1) % delay_buf_size;
+    
+    spl0 = spl0*delay_dry + fL*delay_mix;
+    spl1 = spl1*delay_dry + fR*delay_mix;
+);
+
+// 6. REVERB
+slider15 ? (
+    in_m = (spl0+spl1)*0.5;
+    ro_L=0; ro_R=0;
+    
+    rp=(rev_wp-rev_c_t_L1+rev_buf_sz)%rev_buf_sz; del=rev_c_L1[rp]; ro_L+=del;
+    rev_s_L1=del*rev_damp2 + rev_s_L1*rev_damp1; rev_c_L1[rev_wp]=in_m + rev_s_L1*rev_fb;
+    rp=(rev_wp-rev_c_t_L2+rev_buf_sz)%rev_buf_sz; del=rev_c_L2[rp]; ro_L+=del;
+    rev_s_L2=del*rev_damp2 + rev_s_L2*rev_damp1; rev_c_L2[rev_wp]=in_m + rev_s_L2*rev_fb;
+    rp=(rev_wp-rev_c_t_L3+rev_buf_sz)%rev_buf_sz; del=rev_c_L3[rp]; ro_L+=del;
+    rev_s_L3=del*rev_damp2 + rev_s_L3*rev_damp1; rev_c_L3[rev_wp]=in_m + rev_s_L3*rev_fb;
+    rp=(rev_wp-rev_c_t_L4+rev_buf_sz)%rev_buf_sz; del=rev_c_L4[rp]; ro_L+=del;
+    rev_s_L4=del*rev_damp2 + rev_s_L4*rev_damp1; rev_c_L4[rev_wp]=in_m + rev_s_L4*rev_fb;
+
+    rp=(rev_wp-rev_c_t_R1+rev_buf_sz)%rev_buf_sz; del=rev_c_R1[rp]; ro_R+=del;
+    rev_s_R1=del*rev_damp2 + rev_s_R1*rev_damp1; rev_c_R1[rev_wp]=in_m + rev_s_R1*rev_fb;
+    rp=(rev_wp-rev_c_t_R2+rev_buf_sz)%rev_buf_sz; del=rev_c_R2[rp]; ro_R+=del;
+    rev_s_R2=del*rev_damp2 + rev_s_R2*rev_damp1; rev_c_R2[rev_wp]=in_m + rev_s_R2*rev_fb;
+    rp=(rev_wp-rev_c_t_R3+rev_buf_sz)%rev_buf_sz; del=rev_c_R3[rp]; ro_R+=del;
+    rev_s_R3=del*rev_damp2 + rev_s_R3*rev_damp1; rev_c_R3[rev_wp]=in_m + rev_s_R3*rev_fb;
+    rp=(rev_wp-rev_c_t_R4+rev_buf_sz)%rev_buf_sz; del=rev_c_R4[rp]; ro_R+=del;
+    rev_s_R4=del*rev_damp2 + rev_s_R4*rev_damp1; rev_c_R4[rev_wp]=in_m + rev_s_R4*rev_fb;
+
+    rp=(rev_wp-rev_a_t_L1+rev_buf_sz)%rev_buf_sz; del=rev_a_L1[rp];
+    rev_ay1_L1=ro_L + del*0.5; rev_a_L1[rev_wp]=rev_ay1_L1; ro_L = -ro_L + del;
+    rp=(rev_wp-rev_a_t_L2+rev_buf_sz)%rev_buf_sz; del=rev_a_L2[rp];
+    rev_ay1_L2=ro_L + del*0.5; rev_a_L2[rev_wp]=rev_ay1_L2; ro_L = -ro_L + del;
+    
+    rp=(rev_wp-rev_a_t_R1+rev_buf_sz)%rev_buf_sz; del=rev_a_R1[rp];
+    rev_ay1_R1=ro_R + del*0.5; rev_a_R1[rev_wp]=rev_ay1_R1; ro_R = -ro_R + del;
+    rp=(rev_wp-rev_a_t_R2+rev_buf_sz)%rev_buf_sz; del=rev_a_R2[rp];
+    rev_ay1_R2=ro_R + del*0.5; rev_a_R2[rev_wp]=rev_ay1_R2; ro_R = -ro_R + del;
+
+    rev_wp=(rev_wp+1)%rev_buf_sz;
+    spl0 = spl0*rev_dry + ro_L*rev_mix; spl1 = spl1*rev_dry + ro_R*rev_mix;
+);
+
+
+@gfx 800 500
+c_bgr=0.15; c_bgg=0.16; c_bgb=0.18;
+gfx_set(c_bgr, c_bgg, c_bgb, 1);
+gfx_rect(0,0,gfx_w,gfx_h);
+
+w = gfx_w; h = gfx_h;
+slot_w = w / 3;
+slot_h = h / 2 - 30; 
+y_start = 60;
+
+// Header
+gfx_setfont(1, "Impact", 32);
+gfx_set(1,1,1,0.6);
+gfx_measurestr("HOSIFX VOCAL CHAIN", tw, th);
+gfx_x = (w - tw)/2; gfx_y = 20;
+gfx_drawstr("HOSIFX VOCAL CHAIN");
+
+function draw_slot(sx, sy, sw, sh, title, s_conf, p_conf, r, g, b) (
+    // conf: s_idx=conf[0], sw_idx=conf[1]
+    // p_conf: p_idx=p_conf[0], p_arr=p_conf[1], p_num=p_conf[2]
+    
+    s_idx = s_conf; sw_idx = p_conf; // Wait, separate arguments better
+    
+    // Bg
+    gfx_set(r,g,b,0.08);
+    gfx_roundrect(sx+5, sy+5, sw-10, sh-10, 8);
+    gfx_rect(sx+5, sy+5, sw-10, sh-10);
+    
+    // Title
+    gfx_setfont(2, "Verdana", 14);
+    gfx_set(r,g,b,1);
+    gfx_measurestr(title, tw, th);
+    gfx_x = sx + (sw-tw)/2; gfx_y = sy + 15;
+    gfx_drawstr(title);
+    
+    // Switch
+    sw_x = sx + sw - 25; sw_y = sy + 15;
+    is_on = slider(sw_idx);
+    gfx_set(is_on?0.2:0.4, is_on?0.9:0.1, 0.2, 1);
+    gfx_circle(sw_x, sw_y, 4, 1);
+    mouse_cap&1 && !(last_cap&1) ? (
+        mouse_x > sw_x-8 && mouse_x < sw_x+8 && mouse_y > sw_y-8 && mouse_y < sw_y+8 ? (
+            slider(sw_idx) = !slider(sw_idx); caller=1;
+        );
+    );
+    
+    // Preset Display (New)
+    p_idx = slider(s_idx+20-1); // Shift from [1..6] to [20..25] logic is cumbersome.
+    // Let's pass explicit p_slider_idx
+    // See call site below.
+);
+
+// Advanced Slot Draw
+function draw_slot_full(sx, sy, sw, sh, title, s_idx, sw_idx, p_idx, p_names, p_num, r, g, b) (
+    // Bg
+    gfx_set(r,g,b,0.08);
+    gfx_roundrect(sx+5, sy+5, sw-10, sh-10, 8);
+    gfx_rect(sx+5, sy+5, sw-10, sh-10);
+    
+    // Title
+    gfx_setfont(2, "Verdana", 14);
+    gfx_set(r,g,b,1);
+    gfx_measurestr(title, tw, th);
+    gfx_x = sx + (sw-tw)/2; gfx_y = sy + 10;
+    gfx_drawstr(title);
+    
+    // Switch
+    sw_x = sx + sw - 20; sw_y = sy + 15;
+    is_on = slider(sw_idx);
+    gfx_set(is_on?0.2:0.4, is_on?0.9:0.1, 0.2, 1);
+    gfx_circle(sw_x, sw_y, 4, 1);
+    mouse_cap&1 && !(last_cap&1) ? (
+        mouse_x > sw_x-8 && mouse_x < sw_x+8 && mouse_y > sw_y-8 && mouse_y < sw_y+8 ? (
+            slider(sw_idx) = !slider(sw_idx); caller=1;
+        );
+    );
+    
+    // Preset Box (Clickable)
+    cur_p = slider(p_idx)|0;
+    cur_p < 0 ? cur_p=0; cur_p >= p_num ? cur_p=p_num-1;
+    p_ptr = p_names[cur_p];
+    
+    gfx_setfont(3, "Arial", 11);
+    gfx_measurestr(p_ptr, pw, ph);
+    px = sx + (sw-pw)/2; py = sy + 35;
+    
+    // Hitbox for preset
+    mouse_cap&1 && !(last_cap&1) && mouse_y > py-5 && mouse_y < py+ph+5 && mouse_x > sx+10 && mouse_x < sx+sw-10 ? (
+        // Popup
+        m_str=#; strcpy(m_str, "");
+        i=0; loop(p_num,
+            i==cur_p ? strcat(m_str,"!"); strcat(m_str, p_names[i]);
+            i<p_num-1 ? strcat(m_str, "|");
+            i+=1;
+        );
+        gfx_x=mouse_x; gfx_y=mouse_y;
+        res = gfx_showmenu(m_str);
+        res > 0 ? ( slider(p_idx) = res-1; caller=1; );
+    );
+    
+    gfx_set(r,g,b,0.2);
+    gfx_roundrect(sx+sw/2 - pw/2 - 5, py-2, pw+10, ph+4, 4);
+    gfx_set(r,g,b,0.9);
+    gfx_x = px; gfx_y = py;
+    gfx_drawstr(p_ptr);
+    
+    // Knob
+    k_x = sx + sw/2; k_y = sy + sh*0.65;
+    k_r = min(sw,sh) * 0.22;
+    
+    val = slider(s_idx);
+    norm = val/100;
+    ang_min = 2.35; ang_max = 7.06;
+    ang = ang_min + norm * (ang_max-ang_min);
+    
+    // Arc
+    gfx_set(r,g,b,1);
+    i=0; loop(3, gfx_arc(k_x, k_y, k_r+6-i, ang_min, ang, 1); i+=1; );
+    gfx_set(r,g,b,0.3);
+    gfx_arc(k_x, k_y, k_r+6, ang_min, ang_max, 1);
+    
+    // Body
+    gfx_set(0.1,0.1,0.1,1);
+    gfx_circle(k_x, k_y, k_r, 1);
+    d_r = k_r*0.7;
+    dx = k_x + cos(ang)*d_r; dy = k_y + sin(ang)*d_r;
+    gfx_set(r,g,b,1); gfx_circle(dx, dy, 4, 1);
+    
+    // Value
+    gfx_set(1,1,1,0.7);
+    sprintf(#v, "%.1f", val);
+    gfx_measurestr(#v, vw, vh);
+    gfx_x = k_x - vw/2; gfx_y = k_y + k_r + 8;
+    gfx_drawstr(#v);
+    
+    // Knob Drag
+    m_down = mouse_cap&1;
+    m_click = m_down && !(last_cap&1);
+    dist = sqrt(sqr(mouse_x-k_x)+sqr(mouse_y-k_y));
+    m_click && dist < k_r*1.5 ? ( dragging_s = s_idx; drag_y_s = mouse_y; drag_v_s = slider(s_idx); );
+    m_down && dragging_s == s_idx ? (
+        n_val = drag_v_s + (drag_y_s - mouse_y)*0.5;
+        n_val = min(max(n_val, 0), 100);
+        slider(s_idx) = n_val; caller=1;
+    );
+);
+
+// Row 1
+draw_slot_full(0, y_start, slot_w, slot_h, "GATE", 1, 10, 20, gate_p_names, gate_num_p, 0.9, 0.2, 0.3);
+draw_slot_full(slot_w, y_start, slot_w, slot_h, "DE-ESS", 2, 11, 21, deess_p_names, deess_num_p, 1.0, 0.85, 0.2);
+draw_slot_full(slot_w*2, y_start, slot_w, slot_h, "COMPRESS", 3, 12, 22, comp_p_names, comp_num_p, 1.0, 0.55, 0.1);
+
+// Row 2
+y2 = y_start + slot_h;
+draw_slot_full(0, y2, slot_w, slot_h, "EQ (AIR)", 4, 13, 23, eq_p_names, eq_num_p, 0.2, 0.9, 0.9);
+draw_slot_full(slot_w, y2, slot_w, slot_h, "DELAY", 5, 14, 24, delay_p_names, delay_num_p, 0.2, 0.4, 0.9);
+draw_slot_full(slot_w*2, y2, slot_w, slot_h, "REVERB", 6, 15, 25, reverb_p_names, reverb_num_p, 1.0, 0.3, 0.75);
+
+!mouse_cap ? dragging_s = 0;
+last_cap = mouse_cap;
