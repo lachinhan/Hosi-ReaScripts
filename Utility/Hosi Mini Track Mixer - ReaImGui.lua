@@ -1,7 +1,7 @@
 --[[
 @description    Hosi Mini Track Mixer (ReaImGui Version)
 @author         Hosi
-@version        1.9.5
+@version        1.9.6
 @reaper_version 6.0
 @provides
   [main] . > Hosi_Mini Track Mixer (ReaImGui).lua
@@ -17,6 +17,10 @@
   - SWS/S&M Extension (optional, for better track selection focus)
 
 @changelog
+  v1.9.6 (2026-01-08)
+  - Fixed: Crash when renaming tracks via context menu.
+  - Fixed: Renaming input not saving correctly due to API mismatch.
+  - Fixed: Renaming submission triggering prematurely on keystrokes.
   v1.9.5 (2025-Dec-17)
   - Add and Search Tags
   v1.9.4 (2025-Dec-11)
@@ -225,8 +229,8 @@ local has_sws_set_last_touched = type(reaper.SetLastTouchedTrack) == 'function'
 local new_view_modes = { "ALL", "FOLDERS", "FOLDERS & CHILDREN", "SELECTED", "SELECTED & CHILDREN", "ARMED", "HAS FX", "HAS ITEMS", "MUTED" }
 local state = {
     is_open = true,
-    edit_mode = "PAN", -- PAN, VOL, WIDTH, FX RACK, SENDS, RECEIVES, FX PARAMS, CHAN STRIP
-    edit_modes = { "PAN", "VOL", "WIDTH", "FX RACK", "SENDS", "RECEIVES", "FX PARAMS", "CHAN STRIP" },
+    edit_mode = "PAN", -- PAN, VOL, WIDTH, FX RACK, SENDS, RECEIVES, FX PARAMS, CHAN STRIP, AUTOMATION
+    edit_modes = { "PAN", "VOL", "WIDTH", "FX RACK", "SENDS", "RECEIVES", "FX PARAMS", "CHAN STRIP", "AUTOMATION" },
     view_mode = 1,
     view_mode_names = new_view_modes,
     view_mode_names_str = table.concat(new_view_modes, "\0") .. "\0",
@@ -418,6 +422,16 @@ function LoadProjectGroups()
     for i=1, 8 do
         if not state.group_names[i] then state.group_names[i] = "Group "..i end
     end
+end
+
+function GetAutomationModeName(mode)
+    if mode == 0 then return "Trim/Read", 0x888888AA
+    elseif mode == 1 then return "Read", 0x4A90E2AA -- Greenish Blue
+    elseif mode == 2 then return "Touch", 0xFFAA00AA -- Orange
+    elseif mode == 3 then return "Write", 0xFF0000AA -- Red
+    elseif mode == 4 then return "Latch", 0xAA00AAAA -- Purple
+    elseif mode == 5 then return "Latch Pre", 0x8888FFAA -- Light Blue
+    else return "Unknown", 0x888888AA end
 end
 
 
@@ -4096,6 +4110,56 @@ function loop()
                                         ::continue_fx_loop::
                                     end
                                 end
+                            elseif state.edit_mode == "AUTOMATION" then
+                                local auto_mode = math.floor(reaper.GetMediaTrackInfo_Value(track, "I_AUTOMODE"))
+                                local mode_name, mode_color_val = GetAutomationModeName(auto_mode)
+                                
+                                -- Use darker text for readability on bright backgrounds (Read/Write colors)
+                                local text_col = 0xFFFFFFFF
+                                if auto_mode == 1 or auto_mode == 3 then text_col = 0x000000FF end
+                                
+                                imgui.PushStyleColor(ctx, imgui.Col_Button, mode_color_val)
+                                imgui.PushStyleColor(ctx, imgui.Col_ButtonHovered, mode_color_val) 
+                                imgui.PushStyleColor(ctx, imgui.Col_ButtonActive, 0xFFFFFF88)
+                                imgui.PushStyleColor(ctx, imgui.Col_Text, text_col)
+                                
+                                if imgui.Button(ctx, mode_name .. "##automode"..i, 110, 0) then
+                                    imgui.OpenPopup(ctx, "AutoModePopup"..i)
+                                end
+                                
+                                imgui.PopStyleColor(ctx, 4)
+                                ShowTooltip("Click to change Automation Mode")
+                                
+                                if imgui.BeginPopup(ctx, "AutoModePopup"..i) then
+                                    imgui.Text(ctx, "Set Automation Mode:"); imgui.Separator(ctx)
+                                    for m = 0, 5 do
+                                        local m_name, _ = GetAutomationModeName(m)
+                                        if imgui.Selectable(ctx, m_name, auto_mode == m) then
+                                            reaper.SetMediaTrackInfo_Value(track, "I_AUTOMODE", m)
+                                            -- Trigger UI refresh to update color immediately
+                                            state.last_update_time = 0
+                                        end
+                                    end
+
+                                    
+                                    imgui.Separator(ctx)
+                                    if imgui.Selectable(ctx, "Clear All Automation") then
+                                        reaper.Undo_BeginBlock()
+                                        local env_count = reaper.CountTrackEnvelopes(track)
+                                        for e = 0, env_count - 1 do
+                                            local env = reaper.GetTrackEnvelope(track, e)
+                                            if env then
+                                                -- Delete all points from 0 to specific huge number (time)
+                                                reaper.DeleteEnvelopePointRange(env, 0, 999999999) 
+                                            end
+                                        end
+                                        -- Reset to Trim/Read? Optional. User might want to keep mode but clear data.
+                                        -- Let's keep the mode as is.
+                                        reaper.Undo_EndBlock("Clear Track Automation", -1)
+                                        state.last_update_time = 0
+                                    end
+                                    imgui.EndPopup(ctx)
+                                end
                             end
                             if state.isFolder[i] and state.folderCollapsed[i] then hide_children_of_collapsed_folder, collapsed_folder_depth = true, current_depth end
                         end
@@ -4470,21 +4534,45 @@ function loop()
             imgui.Text(ctx, "New Name:")
             imgui.SameLine(ctx)
             imgui.PushItemWidth(ctx, -1)
-            -- *** THIS IS THE FIX ***
-            -- Added 'nil' as the 6th argument
-            local name_changed, new_name_str = imgui.InputText(ctx, "##RenameInput", state.rename_item_new_name, 128, imgui.InputTextFlags_EnterReturnsTrue, nil)
+            -- Adjusted InputText to use 0 flags (standard) to ensure text updates are captured
+            local changed, new_name_str = imgui.InputText(ctx, "##RenameInput", state.rename_item_new_name)
+            if changed then state.rename_item_new_name = new_name_str end
             
-            -- Continuously update state
-            state.rename_item_new_name = new_name_str
+            -- Manual Enter Key handling
+            local enter_pressed = imgui.IsItemDeactivatedAfterEdit(ctx) and imgui.IsKeyPressed(ctx, imgui.Key_Enter)
             
             if imgui.IsWindowAppearing(ctx) then imgui.SetKeyboardFocusHere(ctx, -1) end -- Focus input on open
             imgui.PopItemWidth(ctx)
 
-            if imgui.Button(ctx, "OK", 120, 0) or name_changed then
+            if imgui.Button(ctx, "OK", 120, 0) or enter_pressed then
                 if state.rename_item_path and state.rename_item_new_name ~= "" then
-                    execute_menu_rename(state.rename_item_path, state.rename_item_new_name)
+                    if type(state.rename_item_path) == "userdata" then
+                        -- Handle Track Renaming (Userdata)
+                        if reaper.ValidatePtr(state.rename_item_path, "MediaTrack*") then
+                           local retval = reaper.GetSetMediaTrackInfo_String(state.rename_item_path, "P_NAME", state.rename_item_new_name, true)
+                           if retval then 
+                               reaper.Undo_OnStateChange("Rename Track")
+                               
+                               -- Force immediate internal update
+                               local check_retval, check_name = reaper.GetSetMediaTrackInfo_String(state.rename_item_path, "P_NAME", "", false)
+                               -- No console messages here
+                               
+                               reaper.UpdateArrange()
+                               ForceUIRefresh()
+                           else
+                               -- Fail silently or with subtle UI hint, but no console spam
+                           end
+                        else
+                           -- No console messages here
+                        end
+                    else
+                        -- Handle Menu Item Renaming (Table or String path)
+                        execute_menu_rename(state.rename_item_path, state.rename_item_new_name)
+                    end
                 end
-                state.rename_item_path = nil -- Reset path
+                
+                -- Only close if successful or cancelled? No, standard behavior close on OK.
+                state.rename_item_path = nil 
                 imgui.CloseCurrentPopup(ctx)
             end
             imgui.SameLine(ctx)
