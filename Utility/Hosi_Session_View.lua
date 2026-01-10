@@ -1,5 +1,5 @@
 -- @description Session Player (Ultimate Edition)
--- @version 3.0
+-- @version 3.1
 -- @author Hosi
 -- @about
 --   # Session Player
@@ -7,16 +7,17 @@
 --   
 --   ## Features
 --   - Clip Launching with Quantization
---   - Scene Management (Capture, Duplicate, Batch Actions)
+--   - Dynamic Scene Management (Add/Remove items and scenes on the fly)
 --   - Live Performance Recording to Timeline
 --   - Drag & Drop Support
---   - Waveform Preview
+--   - Optimized Waveform Preview
 -- @changelog
---   + Added Performance Recording (Global Rec) functionality
---   + Improved Scene Playback Logic (Overlay/Mixing Mode)
---   + Dynamic Scene Button States (Auto-detect playback)
---   + Added Scene Context Menu Actions (Batch Loop, Follow Actions)
---   + Fixed UI state synchronization issues
+--   + Added Dynamic Scene Management (Add/Remove Scenes instantly via UI)
+--   + Optimized Waveform Rendering (Visibility culling for high performance)
+--   + Improved Track Folder Logic (Prevents swallowing of external tracks like Send FX)
+--   + Added Persistence for Grid Size (Remembers Track and Scene counts)
+--   + Fixed "Ghost Waveform" visual bug when clearing cells
+--   + Added Auto-Waveform Generation for new items and duplicates
 -- @provides
 --   [main] .
 
@@ -25,7 +26,7 @@ local SCRIPT_NAME = "Session Player"
 
 -- ====== Constants ======
 local COLS_MAX = 32 
-local ROWS = 8
+local numRows = 8
 local LOOP_LOOKAHEAD = 8.0
 local STOP_DELAY_BARS = 0.5
 local SCENE_STOP_DELAY_BARS = 0.5
@@ -65,13 +66,13 @@ local performanceRecordingItems = {} -- [col] = item (Active recording items on 
 local selectedCell = -1
 
 -- Initialize Arrays
-for i = 1, COLS_MAX * ROWS do
+for i = 1, COLS_MAX * numRows do
     cellMemory[i] = { path = nil, loop = false, name = nil, color = nil, sourceGUID = nil, followAction = "None" }
     slotItem[i] = {}
     cellFlashTime[i] = 0
     cellLoop[i] = false
 end
-for r = 1, ROWS do
+for r = 1, numRows do
     scenePlaying[r] = false
     sceneFlashTime[r] = 0
     sceneNames[r] = "Scene " .. r -- Default names
@@ -191,6 +192,42 @@ local function deserializeTable(str)
     if f then return f() else return nil end
 end
 
+local function resizeScenes(targetRows)
+    if targetRows < 1 then return end
+    
+    if targetRows > numRows then
+        -- Expand
+        for i = (COLS_MAX * numRows) + 1, COLS_MAX * targetRows do
+            cellMemory[i] = { path = nil, loop = false, name = nil, color = nil, sourceGUID = nil, followAction = "None" }
+            slotItem[i] = {}
+            cellFlashTime[i] = 0
+            cellLoop[i] = false
+        end
+        for r = numRows + 1, targetRows do
+            scenePlaying[r] = false
+            sceneFlashTime[r] = 0
+            sceneNames[r] = "Scene " .. r
+        end
+    elseif targetRows < numRows then
+        -- Shrink
+        for i = (COLS_MAX * targetRows) + 1, COLS_MAX * numRows do
+            cellMemory[i] = nil
+            slotItem[i] = nil
+            cellFlashTime[i] = nil
+            cellLoop[i] = nil
+            slotPath[i] = nil
+            slotName[i] = nil
+        end
+        for r = targetRows + 1, numRows do
+            scenePlaying[r] = nil
+            sceneFlashTime[r] = nil
+            sceneNames[r] = nil
+        end
+    end
+    
+    numRows = targetRows
+end
+
 local function saveState()
     local serialized = serializeTable(cellMemory)
     reaper.SetProjExtState(0, "HosiSessionView", "CellData", serialized)
@@ -202,6 +239,9 @@ local function saveState()
     reaper.SetProjExtState(0, "HosiSessionView", "SceneNames", sceneNamesSerialized)
     reaper.SetProjExtState(0, "HosiSessionView", "RecMode", tostring(rec_length_mode))
     reaper.SetProjExtState(0, "HosiSessionView", "ShowWaveforms", show_waveforms and "1" or "0")
+    reaper.SetProjExtState(0, "HosiSessionView", "ShowWaveforms", show_waveforms and "1" or "0")
+    reaper.SetProjExtState(0, "HosiSessionView", "NumCols", tostring(numCols))
+    reaper.SetProjExtState(0, "HosiSessionView", "NumRows", tostring(numRows))
 end
 
 local function loadState()
@@ -240,6 +280,17 @@ local function loadState()
     
     local retval6, wfStr = reaper.GetProjExtState(0, "HosiSessionView", "ShowWaveforms")
     if retval6 == 1 then show_waveforms = (wfStr == "1") end
+    
+    local retval7, ncStr = reaper.GetProjExtState(0, "HosiSessionView", "NumCols")
+    if retval7 == 1 then numCols = tonumber(ncStr) end
+    
+    local retval8, nrStr = reaper.GetProjExtState(0, "HosiSessionView", "NumRows")
+    if retval8 == 1 then 
+        local nr = tonumber(nrStr)
+        if nr and nr ~= numRows then
+            resizeScenes(nr)
+        end
+    end
 end
 
 reaper.atexit(saveState)
@@ -339,20 +390,37 @@ local function syncTCP()
         setTrackName(reaper.GetTrack(0, pidx + i - 1), "Track " .. i)
     end
     
-    -- Remove excess tracks
+    -- Remove excess tracks (Safe Mode)
     for i = #kids, numCols + 1, -1 do
-        if kids[i] then reaper.DeleteTrack(kids[i]) end
+        if kids[i] and validTrack(kids[i]) then
+            -- SAFETY CHECK: Only delete if name is default "Track X" or empty.
+            -- This prevents deleting user's custom tracks that might have been accidentally "swallowed" into the folder.
+            local trName = getTrackName(kids[i])
+            if trName == "" or trName:match("^Track %d+$") then
+                 reaper.DeleteTrack(kids[i])
+            else
+                 -- User track found implies folder leak. DO NOT DELETE.
+                 -- Instead, we will fix the folder boundary below, effectively "ejecting" this track.
+            end
+        end
     end
     
-    -- Update Folder Structure (Don't rename existing tracks)
+    -- Update Folder Structure (Strict Enforcement)
     reaper.SetMediaTrackInfo_Value(parentTrack, "I_FOLDERDEPTH", 1)
-    kids = getChildTracks() 
-    for i, tr in ipairs(kids) do
-        reaper.SetMediaTrackInfo_Value(tr, "I_FOLDERDEPTH", (i == #kids) and -1 or 0)
-        -- Only set name if empty (new track)
-        local currentName = getTrackName(tr)
-        if currentName == "" then
-             setTrackName(tr, "Track " .. i)
+    
+    -- FORCE Update all session tracks by INDEX
+    -- This ensures we catch the newly added tracks which might not be in 'kids' yet
+    for i = 1, numCols do
+        local tr = reaper.GetTrack(0, pidx + i - 1)
+        if validTrack(tr) then
+            -- Last intended track closes the folder (-1)
+            reaper.SetMediaTrackInfo_Value(tr, "I_FOLDERDEPTH", (i == numCols) and -1 or 0)
+            
+            -- Only set name if empty (new track)
+            local currentName = getTrackName(tr)
+            if currentName == "" then
+                 setTrackName(tr, "Track " .. i)
+            end
         end
     end
 end
@@ -390,7 +458,7 @@ local function playSample(i)
     stopCell(i) 
     
     -- Vertical Exclusion: Stop all other cells in this column
-    for r = 1, ROWS do
+    for r = 1, numRows do
         local otherIdx = (r - 1) * COLS_MAX + col
         if otherIdx ~= i and slotItem[otherIdx] and #slotItem[otherIdx] > 0 then
             stopCell(otherIdx)
@@ -503,13 +571,13 @@ local function updateLoopedCell(cellIndex)
                  local row = math.floor((cellIndex - 1) / COLS_MAX) + 1
                  
                  if action == "Next" then
-                     if row < ROWS then target = cellIndex + COLS_MAX end
+                     if row < numRows then target = cellIndex + COLS_MAX end
                  elseif action == "Prev" then
                      if row > 1 then target = cellIndex - COLS_MAX end
                  elseif action == "First" then
                      target = col -- Row 1
                  elseif action == "Random" then
-                     local r = math.random(1, ROWS)
+                     local r = math.random(1, numRows)
                      target = (r - 1) * COLS_MAX + col
                  elseif action == "Stop" then
                      stopCell(cellIndex)
@@ -544,7 +612,7 @@ local sceneClipboard = nil
 local function captureScene(r)
     for c = 1, numCols do
         local playingInfo = nil
-        for rr = 1, ROWS do
+        for rr = 1, numRows do
             local idx = (rr - 1) * COLS_MAX + c
             if slotItem[idx] and #slotItem[idx] > 0 then
                 playingInfo = cellMemory[idx]
@@ -624,7 +692,7 @@ local function captureScene(targetRow)
         local foundPlayingIdx = nil
         
         -- Find playing cell in this column
-        for r = 1, ROWS do
+        for r = 1, numRows do
             local idx = (r - 1) * COLS_MAX + c
             if slotItem[idx] and #slotItem[idx] > 0 then
                 foundPlayingIdx = idx
@@ -661,7 +729,7 @@ local function captureScene(targetRow)
 end
 
 local function duplicateScene(r)
-    if r >= ROWS then return end
+    if r >= numRows then return end
     for c = 1, numCols do
         local srcIdx = (r - 1) * COLS_MAX + c
         local dstIdx = r * COLS_MAX + c
@@ -953,7 +1021,7 @@ local function updatePlayback()
     
     -- 1. Auto-Stop Logic: If Transport Stops, Reset Session
     if not isPlaying then
-        for i = 1, COLS_MAX * ROWS do
+        for i = 1, COLS_MAX * numRows do
              if slotItem[i] and #slotItem[i] > 0 then
                  stopCell(i)
              end
@@ -986,13 +1054,14 @@ local function updatePlayback()
     
 
 
-    for i = 1, COLS_MAX * ROWS do
+
+    for i = 1, COLS_MAX * numRows do
         if cellStopPending[i] and now >= cellStopPending[i] - 0.05 then
             cellStopPending[i] = nil
             stopCell(i)
         end
     end
-    for i = 1, COLS_MAX * ROWS do
+    for i = 1, COLS_MAX * numRows do
         if slotItem[i] and #slotItem[i] > 0 and not cellLoop[i] then
             local itm = slotItem[i][1]
             if reaper.ValidatePtr(itm, "MediaItem*") then
@@ -1022,6 +1091,13 @@ local function F1_AddLastTouchedItem()
     
     -- Special Handling for Internal MIDI (No File)
     if (not path or path == "") and reaper.TakeIsMIDI(take) then
+         -- Check if project is saved
+         local _, projFn = reaper.EnumProjects(-1)
+         if projFn == "" then
+             reaper.MB("Project must be saved before importing MIDI items.\n(Glue operation requires a valid project path to save the .mid file)", "Unsaved Project", 0)
+             return
+         end
+
          reaper.PreventUIRefresh(1)
          -- 1. Create Temp Track (Hidden logic optional, simply last track)
          reaper.InsertTrackAtIndex(reaper.CountTracks(0), false)
@@ -1087,6 +1163,8 @@ local function F1_AddLastTouchedItem()
     
     slotPath[cell] = path
     slotName[cell] = cellMemory[cell].name
+    
+    if show_waveforms then generateWaveform(cell) end
 end
 
 -- NEW: Delete Function
@@ -1097,6 +1175,7 @@ local function F2_ClearCell()
         slotPath[selectedCell] = nil
         slotName[selectedCell] = nil
         cellLoop[selectedCell] = false
+        cellWaveforms[selectedCell] = nil -- Clear cached waveform
     end
 end
 
@@ -1116,7 +1195,7 @@ local function F4_DuplicateCell()
     if selectedCell == -1 or not slotPath[selectedCell] then return end
     
     local targetCell = selectedCell + COLS_MAX
-    if targetCell > COLS_MAX * ROWS then return end -- Out of bounds
+    if targetCell > COLS_MAX * numRows then return end -- Out of bounds
     
     -- Copy Data
     cellMemory[targetCell] = {
@@ -1129,6 +1208,13 @@ local function F4_DuplicateCell()
     slotPath[targetCell] = cellMemory[selectedCell].path
     slotName[targetCell] = cellMemory[selectedCell].name
     cellLoop[targetCell] = cellMemory[selectedCell].loop
+    
+    -- Copy Waveform or Generate
+    if cellWaveforms[selectedCell] then
+        cellWaveforms[targetCell] = cellWaveforms[selectedCell]
+    elseif show_waveforms then
+        generateWaveform(targetCell)
+    end
 end
 
 -- NEW: Color Picker (F5)
@@ -1428,7 +1514,7 @@ local function gui()
 
             reaper.ImGui_TableNextRow(ctx, 0, 15) 
 
-            for r = 1, ROWS do
+            for r = 1, numRows do
                 reaper.ImGui_TableNextRow(ctx, 0, cell_h + 4)
                 
                 for c = 1, numCols do
@@ -1538,28 +1624,46 @@ local function gui()
 
                     -- WAVEFORM PREVIEW
                     if show_waveforms and cellWaveforms[i] then
-                         local peaks = cellWaveforms[i]
-                         local num_peaks = #peaks
-                         local center_y = min_y + cell_h * 0.5
-                         local scale = cell_h * 0.45 -- Leave some margin
+                         -- Optimization: Basic Window Intersection Check (Failsafe)
+                         local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
+                         local win_w, win_h = reaper.ImGui_GetWindowSize(ctx)
                          
-                         local wf_color = 0xFFFFFF50 -- Semi-transparent white
-                         if isPlaying then wf_color = 0x00FF0050 end -- Green tint if playing
+                         -- Define conservative clip rect (entire window area)
+                         local clip_x1 = win_x
+                         local clip_y1 = win_y
+                         local clip_x2 = win_x + win_w
+                         local clip_y2 = win_y + win_h
                          
-                         for px = 0, (num_peaks/2) - 1 do
-                             local min_v = peaks[px*2 + 1]
-                             local max_v = peaks[px*2 + 2]
+                         local visible = true
+                         -- Check intersection
+                         if max_x < clip_x1 or min_x > clip_x2 or max_y < clip_y1 or min_y > clip_y2 then
+                             visible = false
+                         end
+
+                         if visible then
+                             local peaks = cellWaveforms[i]
+                             local num_peaks = #peaks
+                             local center_y = min_y + cell_h * 0.5
+                             local scale = cell_h * 0.45 -- Leave some margin
                              
-                             if min_v and max_v then
-                                 local x = min_x + px
-                                 -- Limit x to max_x
-                                 if x < max_x then
-                                     local y1 = center_y - (max_v * scale)
-                                     local y2 = center_y - (min_v * scale)
-                                     -- Ensure at least 1 pixel height
-                                     if y2 - y1 < 1 then y2 = y1 + 1 end
-                                     
-                                     reaper.ImGui_DrawList_AddLine(draw_list, x, y1, x, y2, wf_color, 1.0)
+                             local wf_color = 0xFFFFFF50 -- Semi-transparent white
+                             if isPlaying then wf_color = 0x00FF0050 end -- Green tint if playing
+                             
+                             for px = 0, (num_peaks/2) - 1 do
+                                 local min_v = peaks[px*2 + 1]
+                                 local max_v = peaks[px*2 + 2]
+                                 
+                                 if min_v and max_v then
+                                     local x = min_x + px
+                                     -- Limit x to max_x
+                                     if x < max_x then
+                                         local y1 = center_y - (max_v * scale)
+                                         local y2 = center_y - (min_v * scale)
+                                         -- Ensure at least 1 pixel height
+                                         if y2 - y1 < 1 then y2 = y1 + 1 end
+                                         
+                                         reaper.ImGui_DrawList_AddLine(draw_list, x, y1, x, y2, wf_color, 1.0)
+                                     end
                                  end
                              end
                          end
@@ -1841,7 +1945,7 @@ local function gui()
                  reaper.ImGui_PushID(ctx, "StopBtns"..c)
                  
                  local trackPlaying = false
-                 for r=1,ROWS do 
+                 for r=1,numRows do 
                      if slotItem[(r-1)*COLS_MAX+c] and #slotItem[(r-1)*COLS_MAX+c]>0 then 
                          trackPlaying = true
                          break 
@@ -1852,7 +1956,7 @@ local function gui()
                      anyTrackPlaying = true
                      if reaper.ImGui_Button(ctx, "Stop", cell_w - 4, 25) then
                          local stopTime = atNextStopGrid(STOP_DELAY_BARS)
-                         for r=1,ROWS do 
+                         for r=1,numRows do 
                             local i = (r-1)*COLS_MAX + c
                             if slotItem[i] and #slotItem[i] > 0 then
                                 cellStopPending[i] = stopTime
@@ -1869,13 +1973,13 @@ local function gui()
                 reaper.ImGui_TableSetColumnIndex(ctx, numCols)
                 if reaper.ImGui_Button(ctx, "Stop All", 60, 25) then
                      local stopTime = atNextStopGrid(SCENE_STOP_DELAY_BARS)
-                     for i=1,COLS_MAX*ROWS do
+                     for i=1,COLS_MAX*numRows do
                         if slotItem[i] and #slotItem[i] > 0 then
                             cellStopPending[i] = stopTime
                             cellFlashTime[i] = reaper.time_precise()
                         end
                      end
-                     for r=1,ROWS do scenePlaying[r] = false end
+                     for r=1,numRows do scenePlaying[r] = false end
                 end
             end
             
@@ -2003,7 +2107,7 @@ local function gui()
                     show_waveforms = new_val
                     if show_waveforms then
                         -- Generate for all existing cells
-                        for i = 1, ROWS * COLS_MAX do
+                        for i = 1, numRows * COLS_MAX do
                             if slotPath[i] then generateWaveform(i) end
                         end
                     else
@@ -2032,6 +2136,26 @@ local function gui()
                 syncTCP()
             end
         end
+        
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_SameLine(ctx)
+        
+        if reaper.ImGui_Button(ctx, "+ Add Scene") then
+            resizeScenes(numRows + 1)
+        end
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Add a new Scene row") end
+        
+        reaper.ImGui_SameLine(ctx)
+        if reaper.ImGui_Button(ctx, "- Remove Scene") then
+            if numRows > 1 then
+                resizeScenes(numRows - 1)
+            end
+        end
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Remove the last Scene row") end
+
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_Separator(ctx)
         
         reaper.ImGui_SameLine(ctx)
         if reaper.ImGui_Button(ctx, "Mixer") then
