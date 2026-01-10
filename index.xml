@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="1bbb3abf79911a7cb4d11174471c598895ec5a0c">
+<index version="1" name="Hosi Scripts" commit="0690412f6e9a631bf46d04e33f51f02b36fbeaf4">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -900,6 +900,9 @@
       </version>
       <version name="1.9.5" author="Hosi" time="2025-12-17T16:55:03Z">
         <source main="main" file="Hosi_Mini Track Mixer (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/681e10e3356e7a32b14dc69eeca4f69115516ce4/Utility/Hosi%20Mini%20Track%20Mixer%20-%20ReaImGui.lua</source>
+      </version>
+      <version name="1.9.6" author="Hosi" time="2026-01-08T04:52:09Z">
+        <source main="main" file="Hosi_Mini Track Mixer (ReaImGui).lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/0690412f6e9a631bf46d04e33f51f02b36fbeaf4/Utility/Hosi%20Mini%20Track%20Mixer%20-%20ReaImGui.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi Panel.lua" type="script" desc="Hosi Panel (ReaImGui Version)">
