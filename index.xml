@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="dc723aa4863555956d2afe71397f9f37e41420c6">
+<index version="1" name="Hosi Scripts" commit="c96a35aad70ef52da8a50fb768614d7aa17bda39">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -967,10 +967,10 @@
 {\pard \ql \f0 \sa180 \li0 \fi0 A Grid-based Session View for REAPER, tailored for live performance and arrangement.\par}
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Features\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Clip Launching with Quantization\par}
-{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Scene Management (Capture, Duplicate, Batch Actions)\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Dynamic Scene Management (Add/Remove items and scenes on the fly)\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Live Performance Recording to Timeline\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Drag & Drop Support\par}
-{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Waveform Preview\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Optimized Waveform Preview\sa180\par}
 }
 ]]></description>
       </metadata>
@@ -981,6 +981,15 @@
 + Added Scene Context Menu Actions (Batch Loop, Follow Actions)
 + Fixed UI state synchronization issues]]></changelog>
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/dc723aa4863555956d2afe71397f9f37e41420c6/Utility/Hosi_Session_View.lua</source>
+      </version>
+      <version name="3.1" author="Hosi" time="2026-01-10T10:54:37Z">
+        <changelog><![CDATA[+ Added Dynamic Scene Management (Add/Remove Scenes instantly via UI)
++ Optimized Waveform Rendering (Visibility culling for high performance)
++ Improved Track Folder Logic (Prevents swallowing of external tracks like Send FX)
++ Added Persistence for Grid Size (Remembers Track and Scene counts)
++ Fixed "Ghost Waveform" visual bug when clearing cells
++ Added Auto-Waveform Generation for new items and duplicates]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c96a35aad70ef52da8a50fb768614d7aa17bda39/Utility/Hosi_Session_View.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Variator.lua" type="script" desc="Hosi Variator - Randomize properties for selected media items">
