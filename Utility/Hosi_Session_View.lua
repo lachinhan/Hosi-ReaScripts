@@ -25,6 +25,7 @@
 --   + Added MIDI Visualization (Piano Roll view for MIDI cells)
 --   + Added Dynamic Content Coloring (Notes/Waveforms inherit Track or Custom Cell colors)
 --   + Improved Global Recording Stability (Auto-save on exit, fixed data loss on playback restart)
+--   + Added Scene Follow Actions (Auto-sequence scenes: Next, First, Stop after N bars)
 -- @provides
 --   [main] .
 
@@ -38,7 +39,7 @@ local LOOP_LOOKAHEAD = 8.0
 local STOP_DELAY_BARS = 0.5
 local SCENE_STOP_DELAY_BARS = 0.5
 local REC_BARS = 1 -- Fixed 1 Bar recording for now (or use current quantize)
-local DONATE_URL = "https://paypal.me/nkstudio" -- CHANGE THIS TO YOUR LINK
+local DONATE_URL = "https://paypal.me/nkstudio" 
 
 -- ====== State ======
 local numCols = 8
@@ -65,6 +66,10 @@ local sceneTriggered = {}
 local sceneFlashTime = {}
 local queuedScene = nil
 local sceneNames = {} -- NEW: Store custom scene names
+local sceneFollowAction = {} -- "None", "Next", "First", "Stop"
+local sceneFollowDuration = {} -- Duration in bars (default 4)
+local activeSceneRow = -1 -- Currently active scene for follow action tracking
+local activeSceneStartTime = 0 
 local global_performance_record = false -- Toggle for "Global Record" mode
 local performanceRecordingItems = {} -- [col] = item (Active recording items on timeline)
 
@@ -82,6 +87,8 @@ for r = 1, numRows do
     scenePlaying[r] = false
     sceneFlashTime[r] = 0
     sceneNames[r] = "Scene " .. r -- Default names
+    sceneFollowAction[r] = "None"
+    sceneFollowDuration[r] = 4
 end
 
 
@@ -213,6 +220,8 @@ local function resizeScenes(targetRows)
             scenePlaying[r] = false
             sceneFlashTime[r] = 0
             sceneNames[r] = "Scene " .. r
+            sceneFollowAction[r] = "None"
+            sceneFollowDuration[r] = 4
         end
     elseif targetRows < numRows then
         -- Shrink
@@ -229,6 +238,8 @@ local function resizeScenes(targetRows)
             scenePlaying[r] = nil
             sceneFlashTime[r] = nil
             sceneNames[r] = nil
+            sceneFollowAction[r] = nil
+            sceneFollowDuration[r] = nil
         end
     end
     
@@ -244,8 +255,14 @@ local function saveState()
     -- New Data
     local sceneNamesSerialized = serializeTable(sceneNames)
     reaper.SetProjExtState(0, "HosiSessionView", "SceneNames", sceneNamesSerialized)
+    
+    local sfa = serializeTable(sceneFollowAction)
+    reaper.SetProjExtState(0, "HosiSessionView", "SceneFollowAction", sfa)
+    
+    local sfd = serializeTable(sceneFollowDuration)
+    reaper.SetProjExtState(0, "HosiSessionView", "SceneFollowDuration", sfd)
+    
     reaper.SetProjExtState(0, "HosiSessionView", "RecMode", tostring(rec_length_mode))
-    reaper.SetProjExtState(0, "HosiSessionView", "ShowWaveforms", show_waveforms and "1" or "0")
     reaper.SetProjExtState(0, "HosiSessionView", "ShowWaveforms", show_waveforms and "1" or "0")
     reaper.SetProjExtState(0, "HosiSessionView", "NumCols", tostring(numCols))
     reaper.SetProjExtState(0, "HosiSessionView", "NumRows", tostring(numRows))
@@ -280,6 +297,18 @@ local function loadState()
     if retval4 == 1 and snStr ~= "" then 
         local t = deserializeTable(snStr)
         if t then sceneNames = t end
+    end
+    
+    local retvalFA, faStr = reaper.GetProjExtState(0, "HosiSessionView", "SceneFollowAction")
+    if retvalFA == 1 and faStr ~= "" then 
+        local t = deserializeTable(faStr)
+        if t then sceneFollowAction = t end
+    end
+    
+    local retvalFD, fdStr = reaper.GetProjExtState(0, "HosiSessionView", "SceneFollowDuration")
+    if retvalFD == 1 and fdStr ~= "" then 
+        local t = deserializeTable(fdStr)
+        if t then sceneFollowDuration = t end
     end
     
     local retval5, rmStr = reaper.GetProjExtState(0, "HosiSessionView", "RecMode")
@@ -648,6 +677,9 @@ local function stopSceneRow(r)
         end
     end
     scenePlaying[r] = false
+    if activeSceneRow == r then
+        activeSceneRow = -1
+    end
 end
 
 -- ====== Scene Helpers (Moved here to access stopSceneRow) ======
@@ -1113,7 +1145,27 @@ end
 local function playSceneRow(r)
 
     sceneFlashTime[r] = reaper.time_precise()
-
+    
+    -- Track Active Scene for Follow Action
+    activeSceneRow = r
+    
+    -- Calculate "Start Time" for Follow Action
+    -- We use getQuantizedLaunchTime() logic, but simplified since playSample calculates it individually.
+    -- Better to use current time + quantization delay.
+    -- Or just use the time of the first triggered cell?
+    -- Let's approximate: Launch is "Now" (quantized).
+    -- If we use QN:
+    local playPos = ((reaper.GetPlayState() & 1) == 1) and reaper.GetPlayPosition() or reaper.GetCursorPosition()
+    local qn = reaper.TimeMap2_timeToQN(0, playPos)
+    local q = quantize_values[current_quantize_idx + 1]
+    if q > 0 then
+        local quantizedQN = math.ceil(qn / q) * q
+        if quantizedQN - qn < 0.01 then quantizedQN = quantizedQN + q end
+        activeSceneStartTime = reaper.TimeMap2_QNToTime(0, quantizedQN)
+    else
+        activeSceneStartTime = playPos
+    end
+    
     for c = 1, numCols do
         local i = (r - 1) * COLS_MAX + c
         if slotPath[i] then
@@ -1184,6 +1236,61 @@ local function updatePlayback()
             end
         end
         updateLoopedCell(i) 
+    end
+    
+    -- SCENE FOLLOW ACTIONS (Global Check)
+    if activeSceneRow > 0 and activeSceneRow <= numRows then
+        local action = sceneFollowAction[activeSceneRow]
+        local duration = sceneFollowDuration[activeSceneRow]
+        
+        if action and action ~= "None" and duration and duration > 0 then
+            -- Calculate Bars Elapsed
+            -- Convert StartTime to QN
+            local startQN = reaper.TimeMap2_timeToQN(0, activeSceneStartTime)
+            local currentQN = reaper.TimeMap2_timeToQN(0, now)
+            
+            local elapsedQN = currentQN - startQN
+            local durationQN = duration * 4 -- Duration in Bars (4 beats)
+            
+            -- Pre-roll trigger (0.9 bars before end?)
+            -- We want the Next Scene to LAUNCH at exactly Start + Duration.
+            -- So we must TRIGGER it before that.
+            -- Quantization is traditionally 1 Bar.
+            -- So we should trigger it slightly before the last bar starts?
+            -- E.g. at 3.9 bars?
+            
+            -- If we are within 1 beat of the transition point?
+            -- Let's say we want to trigger it 0.5 beats before the Quantization Grid of the Target Time.
+            -- Target Time = startQN + durationQN
+            
+            if elapsedQN >= (durationQN - 0.25) then
+                 -- Trigger Action!
+                 local target = -1
+                 
+                 if action == "Next" then
+                     if activeSceneRow < numRows then target = activeSceneRow + 1 end
+                 elseif action == "First" then
+                     target = 1
+                 elseif action == "Stop" then
+                     target = 0 -- Special code for Stop
+                 end
+                 
+                 if target ~= -1 then
+                     if target == 0 then
+                         stopSceneRow(activeSceneRow)
+                     else
+                         playSceneRow(target)
+                     end
+                     -- Reset activeSceneRow is handled by playSceneRow or stopSceneRow
+                     -- BUT playSceneRow sets it to Target.
+                     -- We must prevent re-triggering this frame?
+                     -- activeSceneStartTime will be updated by playSceneRow, so elapsedQN will reset.
+                 else
+                     -- Invalid target (e.g. Next at last row), just clear active
+                     activeSceneRow = -1
+                 end
+            end
+        end
     end
 end
 
@@ -2062,6 +2169,19 @@ local function gui()
                 
                 reaper.ImGui_DrawList_AddText(draw_list, tx, ty, 0xFFFFFFFF, label)
 
+                -- Follow Action Indicator
+                local sfa = sceneFollowAction[r]
+                if sfa and sfa ~= "None" then
+                    local dur = sceneFollowDuration[r] or 4
+                    local icon = ""
+                    if sfa == "Next" then icon = "->"
+                    elseif sfa == "First" then icon = "|<"
+                    elseif sfa == "Stop" then icon = "[]" end
+                    
+                    local info = icon .. " " .. dur
+                    reaper.ImGui_DrawList_AddText(draw_list, min_x + 4, max_y - 14, 0xAAAAAAFF, info)
+                end
+
                 -- Context Menu
                 if reaper.ImGui_BeginPopupContextItem(ctx) then
                     reaper.ImGui_TextDisabled(ctx, "Scene " .. r)
@@ -2073,14 +2193,26 @@ local function gui()
                         reaper.ImGui_EndMenu(ctx)
                     end
                     
-                    if reaper.ImGui_BeginMenu(ctx, "Set Row Follow Action") then
-                        if reaper.ImGui_MenuItem(ctx, "None") then setSceneFollowAction(r, "None") end
-                        if reaper.ImGui_MenuItem(ctx, "Next") then setSceneFollowAction(r, "Next") end
-                        if reaper.ImGui_MenuItem(ctx, "Prev") then setSceneFollowAction(r, "Prev") end
-                        if reaper.ImGui_MenuItem(ctx, "First") then setSceneFollowAction(r, "First") end
-                        if reaper.ImGui_MenuItem(ctx, "Random") then setSceneFollowAction(r, "Random") end
-                        if reaper.ImGui_MenuItem(ctx, "Stop") then setSceneFollowAction(r, "Stop") end
-                        reaper.ImGui_EndMenu(ctx)
+                    reaper.ImGui_Separator(ctx)
+                    
+                    -- NEW: Scene Follow Actions
+                    if reaper.ImGui_BeginMenu(ctx, "Follow Action") then
+                         local curAct = sceneFollowAction[r] or "None"
+                         if reaper.ImGui_MenuItem(ctx, "None", nil, curAct == "None") then sceneFollowAction[r] = "None" end
+                         if reaper.ImGui_MenuItem(ctx, "Next", nil, curAct == "Next") then sceneFollowAction[r] = "Next" end
+                         if reaper.ImGui_MenuItem(ctx, "First", nil, curAct == "First") then sceneFollowAction[r] = "First" end
+                         if reaper.ImGui_MenuItem(ctx, "Stop", nil, curAct == "Stop") then sceneFollowAction[r] = "Stop" end
+                         reaper.ImGui_EndMenu(ctx)
+                    end
+                    
+                    if reaper.ImGui_BeginMenu(ctx, "Follow Duration") then
+                         local curDur = sceneFollowDuration[r] or 4
+                         local durs = {1, 2, 4, 8, 16, 32}
+                         for _, d in ipairs(durs) do
+                             if reaper.ImGui_MenuItem(ctx, d .. " Bars", nil, curDur == d) then sceneFollowDuration[r] = d end
+                         end
+                         -- Custom Input? Maybe later.
+                         reaper.ImGui_EndMenu(ctx)
                     end
                     
                     reaper.ImGui_Separator(ctx)
