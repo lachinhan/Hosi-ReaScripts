@@ -1,5 +1,5 @@
 -- @description Session Player (Ultimate Edition)
--- @version 3.1
+-- @version 3.2
 -- @author Hosi
 -- @about
 --   # Session Player
@@ -18,6 +18,13 @@
 --   + Added Persistence for Grid Size (Remembers Track and Scene counts)
 --   + Fixed "Ghost Waveform" visual bug when clearing cells
 --   + Added Auto-Waveform Generation for new items and duplicates
+--   + Added Scene Color Customization (Right-click Scene -> Set Scene Color)
+--   + Optimized Memory Management (Auto-clear waveform cache)
+--   + Optimized Loop Engine (Uses B_LOOPSRC for infinite looping without item clutter)
+--   + Optimized Undo History (Prevents "Loop Extension" spam during playback)
+--   + Added MIDI Visualization (Piano Roll view for MIDI cells)
+--   + Added Dynamic Content Coloring (Notes/Waveforms inherit Track or Custom Cell colors)
+--   + Improved Global Recording Stability (Auto-save on exit, fixed data loss on playback restart)
 -- @provides
 --   [main] .
 
@@ -62,7 +69,6 @@ local global_performance_record = false -- Toggle for "Global Record" mode
 local performanceRecordingItems = {} -- [col] = item (Active recording items on timeline)
 
 
--- UI State
 local selectedCell = -1
 
 -- Initialize Arrays
@@ -217,6 +223,7 @@ local function resizeScenes(targetRows)
             cellLoop[i] = nil
             slotPath[i] = nil
             slotName[i] = nil
+            cellWaveforms[i] = nil -- Memory Cleanup
         end
         for r = targetRows + 1, numRows do
             scenePlaying[r] = nil
@@ -293,7 +300,33 @@ local function loadState()
     end
 end
 
-reaper.atexit(saveState)
+local function cleanupOnExit()
+    -- Finalize any active performance recordings
+    if global_performance_record then
+        local playPos = reaper.GetPlayPosition()
+        for col, item in pairs(performanceRecordingItems) do
+            if reaper.ValidatePtr(item, "MediaItem*") then
+                local startPos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                local length = playPos - startPos
+                
+                if length < 0.1 then
+                    -- Trash tiny items
+                    reaper.DeleteTrackMediaItem(reaper.GetMediaItemTrack(item), item)
+                else
+                    -- Finalize length
+                    reaper.SetMediaItemInfo_Value(item, "D_LENGTH", length)
+                    -- Turn off looping for the final item so it doesn't look weird
+                    reaper.SetMediaItemInfo_Value(item, "B_LOOPSRC", 0) 
+                    reaper.UpdateItemInProject(item)
+                end
+            end
+        end
+    end
+    
+    saveState()
+end
+
+reaper.atexit(cleanupOnExit)
 
 -- ====== Helper Functions ======
 
@@ -527,26 +560,37 @@ local function updateLoopedCell(cellIndex)
     local playPos = reaper.GetPlayPosition()
     
     -- LOOP LOGIC
+    -- LOOP LOGIC
     if cellLoop[cellIndex] then
+        -- OPTIMIZED: Extend item length using Loop Source
         if cellLoopLastEnd[cellIndex] < playPos + LOOP_LOOKAHEAD then
-            reaper.Undo_BeginBlock() 
-            local track = reaper.GetMediaItem_Track(item)
-            local newItem = reaper.AddMediaItemToTrack(track)
+            -- Ensure Loop Source is active
+            if reaper.GetMediaItemInfo_Value(item, "B_LOOPSRC") == 0 then
+                reaper.SetMediaItemInfo_Value(item, "B_LOOPSRC", 1)
+            end
+            
             local take = reaper.GetActiveTake(item)
             local src = reaper.GetMediaItemTake_Source(take)
-            local newTake = reaper.AddTakeToMediaItem(newItem)
-            reaper.SetMediaItemTake_Source(newTake, src)
-            reaper.SetMediaItemInfo_Value(newItem, "D_POSITION", cellLoopLastEnd[cellIndex])
-            reaper.SetMediaItemInfo_Value(newItem, "D_LENGTH", reaper.GetMediaItemInfo_Value(item, "D_LENGTH"))
-            reaper.UpdateItemInProject(newItem)
+            local srcLen, _ = reaper.GetMediaSourceLength(src)
+            if srcLen <= 0.001 then srcLen = 2.0 end -- Safety fallback
             
-            if not slotItem[cellIndex] then slotItem[cellIndex] = {} end
-            table.insert(slotItem[cellIndex], newItem)
+            -- Calculate target end time (keep decent buffer ahead)
+            local currentItemPos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+            local currentItemLen = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
             
-            reaper.Undo_EndBlock("Loop Extension", 0) 
+            -- Extend by source length chunks until we are safe
+            local targetEnd = playPos + LOOP_LOOKAHEAD + srcLen 
+            local newLen = targetEnd - currentItemPos
             
-            cellLoopLastEnd[cellIndex] = cellLoopLastEnd[cellIndex] + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-            ensureProjectExtendsTo(cellLoopLastEnd[cellIndex] + LOOP_LOOKAHEAD)
+            -- Snap newLen to exact multiple of srcLen (optional but cleaner for audio)
+            local loops = math.ceil(newLen / srcLen)
+            newLen = loops * srcLen
+            
+            reaper.SetMediaItemInfo_Value(item, "D_LENGTH", newLen)
+            reaper.UpdateItemInProject(item)
+            
+            cellLoopLastEnd[cellIndex] = currentItemPos + newLen
+            ensureProjectExtendsTo(cellLoopLastEnd[cellIndex] + LOOP_LOOKAHEAD) 
         end
     else
         -- FOLLOW ACTION LOGIC (Loop is OFF)
@@ -783,8 +827,8 @@ local function generateWaveform(i)
     local path = slotPath[i]
     if not path then return end
     
-    -- Skip MIDI files (Audio Accessor doesn't render peaks for them efficiently here)
-    if path:lower():match("%.mid$") or path:lower():match("%.midi$") then return end
+    -- Skip MIDI files check removed. Now we handle them!
+    local isMidi = path:lower():match("%.mid$") or path:lower():match("%.midi$")
     
     -- Create temp item to read source? Or use existing slotItem if available?
     -- Better: create a temporary source/accessor if not playing to avoid glitching playback,
@@ -816,6 +860,76 @@ local function generateWaveform(i)
     
     if not take or not reaper.ValidatePtr(take, "MediaItem_Take*") then return end
     
+    -- MIDI PARSING
+    if isMidi then
+        local notes = {}
+        local src = reaper.GetMediaItemTake_Source(take)
+        local len = reaper.GetMediaSourceLength(src)
+        if len <= 0.001 then len = 4.0 end -- Fallback length for empty MIDI
+        
+        -- Iterate notes
+        local retval, notecnt, _, _ = reaper.MIDI_CountEvts(take)
+        local minPitch = 127
+        local maxPitch = 0
+        local hasNotes = false
+        
+        -- Optimization: Limit to first 100 notes to save performance?
+        local limit = math.min(notecnt, 200) 
+        
+        for n = 0, limit - 1 do
+            local rv, sel, muted, startppq, endppq, chan, pitch, vel = reaper.MIDI_GetNote(take, n)
+            if rv then
+                hasNotes = true
+                if pitch < minPitch then minPitch = pitch end
+                if pitch > maxPitch then maxPitch = pitch end
+                
+                local start_sec = reaper.MIDI_GetProjTimeFromPPQPos(take, startppq)
+                -- MIDI_GetProjTimeFromPPQPos returns Project Time. 
+                -- We need relative time from item start? No, Take start is 0 in PPQ usually unless looped.
+                -- Actually GetMediaItemTake_Source refers to the source.
+                -- Let's use PPQ and convert to seconds relative to QN? 
+                -- Simpler: MIDI_GetProjTimeFromPPQPos is affected by Project Tempo map.
+                -- If we just created the item, it's at position 0?
+                -- Wait, we added temp item at cursor or something?
+                -- We added item to parentTrack. 
+                
+                -- Let's rely on basic PPQ to time linear assumption for preview or just use QN?
+                -- Better: item start is wherever we placed it.
+                -- Let's treat PPQ relative to start.
+                
+                local offset = reaper.GetMediaItemInfo_Value(reaper.GetMediaItemTake_Item(take), "D_POSITION")
+                start_sec = start_sec - offset
+                local end_sec = reaper.MIDI_GetProjTimeFromPPQPos(take, endppq) - offset
+                
+                table.insert(notes, {
+                    s = start_sec / len, -- Start Pct
+                    l = (end_sec - start_sec) / len, -- Length Pct
+                    p = pitch -- Pitch (Raw)
+                })
+            end
+        end
+        
+        -- Normalize Pitch
+        if not hasNotes then minPitch = 0; maxPitch = 127 end
+        local pitchRange = maxPitch - minPitch
+        if pitchRange < 12 then 
+            minPitch = minPitch - (12 - pitchRange)/2 
+            maxPitch = maxPitch + (12 - pitchRange)/2
+            pitchRange = 12 
+        end
+        
+        for _, note in ipairs(notes) do
+            note.np = (note.p - minPitch) / pitchRange -- Normalized Pitch (0 = Bottom/Low, 1 = Top/High)
+        end
+        
+        cellWaveforms[i] = { type="midi", notes=notes }
+        
+        if item_to_delete then
+            reaper.DeleteTrackMediaItem(reaper.GetMediaItemTrack(item_to_delete), item_to_delete)
+        end
+        return
+    end
+
     local accessor = reaper.CreateTakeAudioAccessor(take)
     local src = reaper.GetMediaItemTake_Source(take)
     local len = reaper.GetMediaSourceLength(src)
@@ -1028,7 +1142,7 @@ local function updatePlayback()
              -- Also clear stop pending
              cellStopPending[i] = nil
         end
-        -- performanceRecordingItems are cleared by stopCell
+        performanceRecordingItems = {} -- Release record items so they are safe
         return -- Exit early, no need to check progress
     end
     
@@ -1164,6 +1278,7 @@ local function F1_AddLastTouchedItem()
     slotPath[cell] = path
     slotName[cell] = cellMemory[cell].name
     
+    cellWaveforms[cell] = nil -- Clear old waveform
     if show_waveforms then generateWaveform(cell) end
 end
 
@@ -1310,6 +1425,7 @@ local function pasteCell(i)
     slotName[i] = cellClipboard.name
     cellLoop[i] = cellClipboard.loop
     -- Note: We don't auto-play paste, just fill slot.
+    cellWaveforms[i] = nil -- Clear old waveform
     if show_waveforms then generateWaveform(i) end
 end
 
@@ -1330,6 +1446,7 @@ local function importFileToCell(i)
             sourceGUID = nil, -- Imported file has no source GUID
             followAction = "None"
         }
+        cellWaveforms[i] = nil -- Clear old waveform
         if show_waveforms then generateWaveform(i) end
     end
 end
@@ -1641,28 +1758,87 @@ local function gui()
                          end
 
                          if visible then
-                             local peaks = cellWaveforms[i]
-                             local num_peaks = #peaks
-                             local center_y = min_y + cell_h * 0.5
-                             local scale = cell_h * 0.45 -- Leave some margin
+                             -- DETERMINE CONTENT COLOR (Notes / Waveform)
+                             -- Priority: Custom Color > Track Color > Default White
+                             local content_base_col = 0xFFFFFF00 -- Default Mask (White)
                              
-                             local wf_color = 0xFFFFFF50 -- Semi-transparent white
-                             if isPlaying then wf_color = 0x00FF0050 end -- Green tint if playing
+                             if cellMemory[i].color then
+                                 content_base_col = cellMemory[i].color
+                             elseif tracks[c] then
+                                 local tCol = reaper.GetTrackColor(tracks[c])
+                                 if tCol ~= 0 then
+                                     local r, g, b = reaper.ColorFromNative(tCol)
+                                     content_base_col = reaper.ImGui_ColorConvertDouble4ToU32(r/255, g/255, b/255, 1.0)
+                                 end
+                             end
                              
-                             for px = 0, (num_peaks/2) - 1 do
-                                 local min_v = peaks[px*2 + 1]
-                                 local max_v = peaks[px*2 + 2]
-                                 
-                                 if min_v and max_v then
-                                     local x = min_x + px
-                                     -- Limit x to max_x
-                                     if x < max_x then
-                                         local y1 = center_y - (max_v * scale)
-                                         local y2 = center_y - (min_v * scale)
-                                         -- Ensure at least 1 pixel height
-                                         if y2 - y1 < 1 then y2 = y1 + 1 end
+                             -- Adjust Alpha/Brightness for Content
+                             -- We want content to look "solid" or "bright" against the dimmed background
+                             local cr, cg, cb, ca = reaper.ImGui_ColorConvertU32ToDouble4(content_base_col)
+                             
+                             -- Make it slightly brighter/lighter to pop against background
+                             cr = math.min(1.0, cr * 1.5)
+                             cg = math.min(1.0, cg * 1.5)
+                             cb = math.min(1.0, cb * 1.5)
+                             local alpha = 0.9 -- High visibility
+                             
+                             if isPlaying then
+                                 -- If playing, maybe tint Green or just keep Bright?
+                                 -- Let's mix slightly with Green to show activity
+                                 cg = math.min(1.0, cg + 0.3)
+                                 alpha = 1.0
+                             end
+                             
+                             local content_color = reaper.ImGui_ColorConvertDouble4ToU32(cr, cg, cb, alpha)
+
+                             if cellWaveforms[i].type == "midi" then
+                                 -- DRAW MIDI
+                                 local notes = cellWaveforms[i].notes
+                                 if notes then
+                                     local content_w = max_x - min_x
+                                     local content_h = max_y - min_y
+                                     -- Add some padding
+                                     local pad = 2
+                                     
+                                     for _, n in ipairs(notes) do
+                                         local nx = min_x + (n.s * content_w)
+                                         local nw = math.max(1, n.l * content_w)
+                                         -- Invert Pitch: High pitch = Low Y (Top), Low pitch = High Y (Bottom)
+                                         -- 1.0 (High) -> min_y
+                                         -- 0.0 (Low)  -> max_y
+                                         local ny = max_y - (n.np * content_h) - pad
+                                         local nh = 3 -- Note height
                                          
-                                         reaper.ImGui_DrawList_AddLine(draw_list, x, y1, x, y2, wf_color, 1.0)
+                                         if nx < max_x then
+                                             -- Clip width
+                                             if nx + nw > max_x then nw = max_x - nx end
+                                             
+                                             reaper.ImGui_DrawList_AddRectFilled(draw_list, nx, ny - nh/2, nx + nw, ny + nh/2, content_color)
+                                         end
+                                     end
+                                 end
+                             else
+                                 -- DRAW AUDIO
+                                 local peaks = cellWaveforms[i]
+                                 local num_peaks = #peaks
+                                 local center_y = min_y + cell_h * 0.5
+                                 local scale = cell_h * 0.45 -- Leave some margin
+                                 
+                                 for px = 0, (num_peaks/2) - 1 do
+                                     local min_v = peaks[px*2 + 1]
+                                     local max_v = peaks[px*2 + 2]
+                                     
+                                     if min_v and max_v then
+                                         local x = min_x + px
+                                         -- Limit x to max_x
+                                         if x < max_x then
+                                             local y1 = center_y - (max_v * scale)
+                                             local y2 = center_y - (min_v * scale)
+                                             -- Ensure at least 1 pixel height
+                                             if y2 - y1 < 1 then y2 = y1 + 1 end
+                                             
+                                             reaper.ImGui_DrawList_AddLine(draw_list, x, y1, x, y2, content_color, 1.0)
+                                         end
                                      end
                                  end
                              end
@@ -1815,6 +1991,7 @@ local function gui()
                                     sourceGUID = nil 
                                 }
                                 cellLoop[i] = false
+                                cellWaveforms[i] = nil -- Clear old waveform
                                 if show_waveforms then generateWaveform(i) end
                             end
                         end
@@ -1837,6 +2014,7 @@ local function gui()
                 
                 reaper.ImGui_TableSetColumnIndex(ctx, numCols)
                  
+                
                 if isRowPlaying then
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00FF00AA) 
                 else
@@ -2061,12 +2239,14 @@ local function gui()
         
         if reaper.ImGui_BeginPopupModal(ctx, 'Color Picker', true, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
             if selectedCell ~= -1 then
-                local current_col = cellMemory[selectedCell].color and reaper.ImGui_ColorConvertU32ToDouble4(cellMemory[selectedCell].color) or 0xAAAAAAFF
-                -- We need a standard color picker
-                local retval, new_col = reaper.ImGui_ColorPicker4(ctx, "##cp", current_col, reaper.ImGui_ColorEditFlags_NoAlpha() | reaper.ImGui_ColorEditFlags_PickerHueBar())
+                -- CELL MODE
+                local current_col = cellMemory[selectedCell].color or 0xAAAAAAFF
+                local input_col = reaper.ImGui_ColorConvertNative(current_col)
+                
+                local retval, new_col = reaper.ImGui_ColorPicker4(ctx, "##cp", input_col, reaper.ImGui_ColorEditFlags_NoAlpha() | reaper.ImGui_ColorEditFlags_PickerHueBar())
                 
                 if retval then
-                     cellMemory[selectedCell].color = new_col
+                     cellMemory[selectedCell].color = reaper.ImGui_ColorConvertNative(new_col)
                 end
                 
                 if reaper.ImGui_Button(ctx, "Reset Color") then
@@ -2077,7 +2257,7 @@ local function gui()
                     reaper.ImGui_CloseCurrentPopup(ctx)
                 end
             else
-                reaper.ImGui_Text(ctx, "No cell selected.")
+                reaper.ImGui_Text(ctx, "No selection.")
                 if reaper.ImGui_Button(ctx, "Close") then reaper.ImGui_CloseCurrentPopup(ctx) end
             end
             reaper.ImGui_EndPopup(ctx)
