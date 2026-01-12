@@ -2600,7 +2600,7 @@ local function gui()
         end
         
         reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_Separator(ctx)
+
         reaper.ImGui_SameLine(ctx)
         
         if reaper.ImGui_Button(ctx, "+ Add Scene") then
@@ -2617,18 +2617,25 @@ local function gui()
         if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Remove the last Scene row") end
 
         reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_Separator(ctx)
+
         
         reaper.ImGui_SameLine(ctx)
         if reaper.ImGui_Button(ctx, "Mixer") then
-            local base = reaper.GetResourcePath() .. "/Scripts/Hosi/"
+            -- Use relative path based on this script's location
+            local script_path = debug.getinfo(1,'S').source:match("^@?(.+[\\/])")
+            
+            -- Fallback if debug.getinfo fails for some reason
+            if not script_path then 
+                script_path = reaper.GetResourcePath() .. "/Scripts/Hosi/" 
+            end
+
             local scriptName = "Hosi Mini Track Mixer - ReaImGui.lua"
-            local fullPath = base .. scriptName
+            local fullPath = script_path .. scriptName
             
             -- Check existence, fallback to Dev
             if not reaper.file_exists(fullPath) then
                 scriptName = "Hosi Mini Track Mixer - ReaImGui - Dev.lua"
-                fullPath = base .. scriptName
+                fullPath = script_path .. scriptName
             end
             
             if reaper.file_exists(fullPath) then
@@ -2639,7 +2646,7 @@ local function gui()
                      reaper.MB("Failed to register Mixer script.", "Error", 0)
                  end
             else
-                 reaper.MB("Could not find 'Hosi Mini Track Mixer - ReaImGui.lua' in Scripts/Hosi folder.", "Script Not Found", 0)
+                 reaper.MB("Could not find 'Hosi Mini Track Mixer - ReaImGui.lua' in " .. script_path, "Script Not Found", 0)
             end
         end
         
