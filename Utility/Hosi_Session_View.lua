@@ -2600,7 +2600,7 @@ local function gui()
         end
         
         reaper.ImGui_SameLine(ctx)
-
+        
         reaper.ImGui_SameLine(ctx)
         
         if reaper.ImGui_Button(ctx, "+ Add Scene") then
@@ -2617,36 +2617,44 @@ local function gui()
         if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Remove the last Scene row") end
 
         reaper.ImGui_SameLine(ctx)
-
         
         reaper.ImGui_SameLine(ctx)
+
         if reaper.ImGui_Button(ctx, "Mixer") then
-            -- Use relative path based on this script's location
-            local script_path = debug.getinfo(1,'S').source:match("^@?(.+[\\/])")
-            
-            -- Fallback if debug.getinfo fails for some reason
-            if not script_path then 
-                script_path = reaper.GetResourcePath() .. "/Scripts/Hosi/" 
+            -- 1. Determine local path dynamically
+            local function get_script_path()
+                local is_new_value, filename, sectionID, cmdID, mode, resolution, val = reaper.get_action_context()
+                if filename then return filename:match("(.+[\\/])") end
+                return debug.getinfo(1,'S').source:match("^@?(.+[\\/])")
             end
+
+            local script_path = get_script_path()
+            if not script_path then script_path = "" end -- Safety
 
             local scriptName = "Hosi Mini Track Mixer - ReaImGui.lua"
             local fullPath = script_path .. scriptName
             
-            -- Check existence, fallback to Dev
+
+
+            -- 3. Fallback: Check explicit Reapack path if not found locally
+            -- (Only if the user somehow separated them, though they should be together)
             if not reaper.file_exists(fullPath) then
-                scriptName = "Hosi Mini Track Mixer - ReaImGui - Dev.lua"
-                fullPath = script_path .. scriptName
+                 local reapackPath = reaper.GetResourcePath() .. "/Scripts/Hosi-ReaScripts/Utility/" .. scriptName
+                 if reaper.file_exists(reapackPath) then
+                     fullPath = reapackPath
+                 end
             end
             
+            -- 4. Execute
             if reaper.file_exists(fullPath) then
                  local cmdId = reaper.AddRemoveReaScript(true, 0, fullPath, true)
                  if cmdId ~= 0 then
                      reaper.Main_OnCommand(cmdId, 0)
                  else
-                     reaper.MB("Failed to register Mixer script.", "Error", 0)
+                     reaper.MB("Failed to register/launch Mixer script.\nPath: " .. fullPath, "Error", 0)
                  end
             else
-                 reaper.MB("Could not find 'Hosi Mini Track Mixer - ReaImGui.lua' in " .. script_path, "Script Not Found", 0)
+                 reaper.MB("Could not find '" .. scriptName .."'.\n\nLooked in:\n1. Same folder: " .. script_path .. "\n2. Reapack folder: Scripts/Hosi-ReaScripts/Utility/", "Script Not Found", 0)
             end
         end
         
