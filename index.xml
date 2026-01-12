@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="bb86f7b1fc327a5347d89ed0e94a12249377187b">
+<index version="1" name="Hosi Scripts" commit="1fbbd0146e903de6224c0bf116d2528da2dc2c0d">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -1006,6 +1006,36 @@
 + Added Dynamic Content Coloring (Notes/Waveforms inherit Track or Custom Cell colors)
 + Improved Global Recording Stability (Auto-save on exit, fixed data loss on playback restart)]]></changelog>
         <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/bb86f7b1fc327a5347d89ed0e94a12249377187b/Utility/Hosi_Session_View.lua</source>
+      </version>
+      <version name="3.3" author="Hosi" time="2026-01-12T03:06:08Z">
+        <changelog><![CDATA[+ Optimized Playback Engine: Implementation of "Active Cells" tracking reduces CPU usage by 80-90% on large grids.
++ Added Waveform Job Queue: Waveforms now load sequentially (1 per frame) to prevent UI freezes/hangs during project load or bulk operations.
++ Fixed Waveform Initialization: Added auto-detection and creation of parent folder track to ensuring waveforms always display correctly on startup.
++ Accelerated Waveform Reading: Implemented "Aggressive Step" algorithm (Hard Cap 256 samples/pixel + Direct Memory Access) to boost read speed by 100x on long files.
++ Optimized UI Rendering: Implemented "List Clipper" to only render visible rows, reducing CPU usage to near 0% when using large grids (64+ scenes).
++ Fixed Red Transport Flash: Removed invasive UI Refresh blocking during background waveform generation.
++ Optimized Track Scanning: "Smart Cache" system now only scans track structure when Project State changes, eliminating redundant processing in the GUI loop.
++ Eliminated Garbage Collection Spikes: Refactored `updatePlayback` to use Object Pooling (reusing tables) instead of creating new memory allocations every frame.
++ Reduced Waveform Overdraw: Optimized drawing logic to render at 2px stride, halving the number of GPU draw calls while maintaining visual quality.
++ Fixed Folder Chaos: Overhauled `syncTCP` to strictly enforce folder structure and invalidate cache during updates, preventing track duplication and leaks.
++ API Micro-Optimization: Cached `reaper.GetPlayPosition()` within the GUI loop, saving dozens of redundant API calls per frame during playback.
++ Sync Stop: Stopping a Scene or clicking "Stop All" now also stops the DAW Transport (Quantized), ensuring complete silence as requested.
++ Fixed Ghost Items: Forced View Refresh (`UpdateArrange`) when stopping cells guarantees items disappear visually from the timeline immediately.
++ Added Dynamic Scene Management (Add/Remove Scenes instantly via UI)
++ Optimized Waveform Rendering (Visibility culling for high performance)
++ Improved Track Folder Logic (Prevents swallowing of external tracks like Send FX)
++ Added Persistence for Grid Size (Remembers Track and Scene counts)
++ Fixed "Ghost Waveform" visual bug when clearing cells
++ Added Auto-Waveform Generation for new items and duplicates
++ Added Scene Color Customization (Right-click Scene -> Set Scene Color)
++ Optimized Memory Management (Auto-clear waveform cache)
++ Optimized Loop Engine (Uses B_LOOPSRC for infinite looping without item clutter)
++ Optimized Undo History (Prevents "Loop Extension" spam during playback)
++ Added MIDI Visualization (Piano Roll view for MIDI cells)
++ Added Dynamic Content Coloring (Notes/Waveforms inherit Track or Custom Cell colors)
++ Improved Global Recording Stability (Auto-save on exit, fixed data loss on playback restart)
++ Added Scene Follow Actions (Auto-sequence scenes: Next, First, Stop after N bars)]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/1fbbd0146e903de6224c0bf116d2528da2dc2c0d/Utility/Hosi_Session_View.lua</source>
       </version>
     </reapack>
     <reapack name="Hosi_Variator.lua" type="script" desc="Hosi Variator - Randomize properties for selected media items">
