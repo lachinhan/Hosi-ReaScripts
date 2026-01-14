@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Hosi Scripts" commit="1fbbd0146e903de6224c0bf116d2528da2dc2c0d">
+<index version="1" name="Hosi Scripts" commit="c03b92d81ea85f732237066a7d2f3893cb006a7b">
   <category name="AI Tool">
     <reapack name="Hosi_Demucs_Separator_Gui-Cross_Platform.lua" type="script" desc="Demucs Stem Separator (GUI Version)">
       <metadata>
@@ -754,6 +754,28 @@
     </reapack>
   </category>
   <category name="Midi">
+    <reapack name="Hosi_BitMidi_Finder.lua" type="script" desc="Hosi BitMidi Finder">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 Search and import MIDI files from BitMidi.com directly into REAPER. Features:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Search BitMidi database\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Preview MIDI files (with ReaSynth and Safety Limiter)\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab One-click Import (adds to project and auto-removes preview track)\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Modern Dark UI\sa180\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0" author="Hosi" time="2026-01-14T07:34:33Z">
+        <changelog><![CDATA[v1.0
+  + Initial Release
+  + Search, Preview, Import functionality
+  + Modern Dark UI]]></changelog>
+        <source main="main">https://github.com/lachinhan/Hosi-ReaScripts/raw/c03b92d81ea85f732237066a7d2f3893cb006a7b/Midi/Hosi_BitMidi_Finder.lua</source>
+      </version>
+    </reapack>
     <reapack name="Hosi_chords from midi item.lua" type="script" desc="Create chord regions from MIDI text events with simplified naming">
       <version name="0.1" author="Hosi" time="2025-10-01T04:06:44Z">
         <source main="main" file="Hosi_Create chord regions from MIDI item.lua">https://github.com/lachinhan/Hosi-ReaScripts/raw/f117ae00cbad9447fcb641acf7db4af8c7eb940f/Midi/Hosi_chords%20from%20midi%20item.lua</source>
