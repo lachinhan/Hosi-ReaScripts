@@ -1,14 +1,19 @@
 -- @description Hosi BitMidi Finder
--- @version 1.0
+-- @version 1.1
 -- @author Hosi
 -- @about
 --   Search and import MIDI files from BitMidi.com directly into REAPER.
 --   Features:
---   - Search BitMidi database
+--   - Search BitMidi database (Smart Caching included)
 --   - Preview MIDI files (with ReaSynth and Safety Limiter)
 --   - One-click Import (adds to project and auto-removes preview track)
 --   - Modern Dark UI
 -- @changelog
+--   v1.1
+--     + Added Smart Caching (Instant repeated searches, 24h expiration)
+--     + Improved Robust HTML Parsing (Handles quotes, attributes, and entities)
+--     + Added "Force Refresh" (Shift + Click Search)
+--     + Fixed Import bug (Prevented deletion of imported items when previewing)
 --   v1.0
 --     + Initial Release
 --     + Search, Preview, Import functionality
@@ -26,6 +31,7 @@ local FLT_MIN, FLT_MAX = reaper.ImGui_NumericLimits_Float()
 -- Configuration
 local CONFIG = {
     temp_dir = reaper.GetResourcePath() .. "/Scripts/", -- Temporary file location
+    cache_dir = reaper.GetResourcePath() .. "/Scripts/Hosi_BitMidi_Cache/", -- Cache location
     search_file = "bitmidi_search.html",
     detail_file = "bitmidi_detail.html",
     midi_file = "downloaded_midi.mid",
@@ -110,6 +116,48 @@ local function read_file(path)
     return content
 end
 
+-- Write text file
+local function write_file(path, content)
+    local f = io.open(path, "wb")
+    if not f then return false end
+    f:write(content)
+    f:close()
+    return true
+end
+
+-- Ensure Cache Directory Exists
+local function ensure_cache_dir()
+    if reaper.RecursiveCreateDirectory then
+        reaper.RecursiveCreateDirectory(CONFIG.cache_dir, 0)
+    else
+        -- Fallback for older Reaper versions, strict OS checks might be needed but assuming modern Reaper
+        os.execute('mkdir "' .. CONFIG.cache_dir .. '"') 
+    end
+end
+
+-- Get Cache Path from Query
+local function get_cache_path(query)
+    -- Sanitize query for filename
+    local safe_name = query:gsub("[^%w%s]", ""):gsub("%s+", "_"):lower()
+    return CONFIG.cache_dir .. "search_" .. safe_name .. ".html"
+end
+
+-- Helper: Decode HTML Entities
+local function html_decode(str)
+    local entities = {
+        ["&amp;"] = "&",
+        ["&quot;"] = '"',
+        ["&apos;"] = "'",
+        ["&lt;"] = "<",
+        ["&gt;"] = ">",
+        ["&#039;"] = "'"
+    }
+    for k, v in pairs(entities) do
+        str = str:gsub(k, v)
+    end
+    return str
+end
+
 -- Execute curl command (Blocking)
 -- Based on report: Use os.execute with cURL to download HTML
 local function run_curl(url, output_file)
@@ -127,7 +175,7 @@ end
 -- =========================================================
 
 -- 1. Search
-local function perform_search()
+local function perform_search(force_refresh)
     if state.search_query == "" then 
         state.status = "Please enter a keyword!"
         return 
@@ -137,25 +185,73 @@ local function perform_search()
     state.results = {} -- Clear old results
     state.selected_index = -1
     
-    -- Build search URL
-    local search_url = "https://bitmidi.com/search?q=" .. url_encode(state.search_query)
-    local output_path = get_path(CONFIG.search_file)
-
-    -- Call cURL
-    run_curl(search_url, output_path)
-
-    -- Read and Parse HTML
-    local content = read_file(output_path)
+    ensure_cache_dir()
+    local cache_path = get_cache_path(state.search_query)
+    local content = nil
+    
+    -- Check Cache (if not forced)
+    if not force_refresh and reaper.file_exists(cache_path) then
+        local f = io.open(cache_path, "rb")
+        if f then
+            local header = f:read("*l") -- Read first line
+            local body = f:read("*all")
+            f:close()
+            
+            -- Parsing Header: EXPIRY:<timestamp>
+            local timestamp = header and header:match("EXPIRY:(%d+)")
+            
+            -- Validate: Has timestamp, Body exists (>100 bytes), and Age < 24h
+            if timestamp and body and #body > 100 then
+                 local age = os.time() - tonumber(timestamp)
+                 if age < 86400 then -- 86400 seconds = 24 hours
+                     state.status = "Loading from cache..."
+                     content = body
+                 end
+            end
+        end
+    end
+    
     if not content then
-        state.status = "Error: Could not read downloaded data."
+        -- Build search URL
+        local search_url = "https://bitmidi.com/search?q=" .. url_encode(state.search_query)
+        local output_path = get_path(CONFIG.search_file)
+    
+        -- Call cURL
+        run_curl(search_url, output_path)
+    
+        -- Read and Parse HTML
+        local dl_content = read_file(output_path)
+        
+        -- Save to Cache only if valid
+        if dl_content and #dl_content > 100 then
+            state.status = "Saving to cache..."
+            content = dl_content -- Use downloaded content
+            
+            -- Write with Header
+            local f = io.open(cache_path, "wb")
+            if f then
+                f:write("EXPIRY:" .. os.time() .. "\n")
+                f:write(content)
+                f:close()
+            end
+        end
+    end
+
+    if not content then
+        state.status = "Error: Could not read data."
         return
     end
 
-    -- Use Lua Pattern to extract (As proposed in section 6.2 of the report)
-    -- This pattern finds <a> tags with href starting with / and captures the song name
-    -- BitMidi format: <a href="/song-slug">Song Name</a>
-    for link, name in string.gmatch(content, 'href="(/[^"]-)".->(.-)</a>') do
-        -- Filter out junk links (Login, Register, About, etc.)
+    -- Use Lua Pattern to extract (Robust Version)
+    -- 1. href=['"] : Start with href= and quote (single/double)
+    -- 2. (/[^'"]-) : Capture 1 -> Link (starts with / and no quotes)
+    -- 3. ['"]      : Closing quote
+    -- 4. [^>]*>    : Ignore other attributes until closing >
+    -- 5. (.-)</a>  : Capture 2 -> Song Name (until </a>)
+    local pattern = "href=['\"](/[^'\"]-)['\"][^>]*>(.-)</a>"
+
+    for link, name in string.gmatch(content, pattern) do
+        -- Filter out junk links
         if not link:match("search") and 
            not link:match("login") and 
            not link:match("register") and 
@@ -164,11 +260,17 @@ local function perform_search()
            not link:match("/random") and
            not link:match("/privacy") and
            not link:match("twitter") and
-           link:match("-") and -- BitMidi song slugs always have hyphens
+           link:match("-") and 
            name:len() > 1 then
            
-            -- Strip HTML tags from name if any (e.g. highlights)
+            -- 1. Strip HTML tags from name
             name = name:gsub("<[^>]+>", "")
+            
+            -- 2. Trim whitespace
+            name = name:match("^%s*(.-)%s*$")
+            
+            -- 3. Decode HTML Entities (e.g. &amp; -> &)
+            name = html_decode(name)
             
             table.insert(state.results, {name = name, link = link})
         end
@@ -267,7 +369,9 @@ local function preview_midi(index)
     local content = read_file(detail_path)
     if not content then return end
     
-    local midi_link = string.match(content, 'href="([^"]-%.mid)"')
+    -- Robust .mid link parsing (Single/Double quotes)
+    local midi_link = string.match(content, "href=['\"]([^'\"]-%.mid)['\"]")
+    
     if not midi_link then state.status = "Preview Error: No link"; return end
     
     if not midi_link:match("http") then midi_link = "https://bitmidi.com" .. midi_link end
@@ -381,8 +485,8 @@ local function download_and_import(index)
     local content = read_file(detail_path)
     if not content then return end
 
-    -- Find .mid link (Pattern 3 in report: href="... .mid")
-    local midi_link = string.match(content, 'href="([^"]-%.mid)"')
+    -- Find .mid link (Robust Pattern)
+    local midi_link = string.match(content, "href=['\"]([^'\"]-%.mid)['\"]")
     
     if not midi_link then
         state.status = "Error: Could not find download link on this page."
@@ -409,8 +513,18 @@ local function download_and_import(index)
     
     -- Add to new track or current track
     local track = reaper.GetSelectedTrack(0, 0)
+    
+    -- Fix: If selected track is Preview Track, ignore it (deselect) so we don't import onto it
+    if track then
+         local _, tr_name = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
+         if tr_name == state.preview_track_name then
+             reaper.SetTrackSelected(track, false) -- Deselect preview track
+             track = nil -- Force logic below to find another track or create new one
+         end
+    end
+    
     if not track then
-        -- If no track selected, add to end
+        -- If no track selected (or was preview), add to end
         reaper.InsertTrackAtIndex(reaper.CountTracks(0), true)
         track = reaper.GetTrack(0, reaper.CountTracks(0)-1)
     end
@@ -527,7 +641,12 @@ local function loop()
         reaper.ImGui_SameLine(ctx)
         
         if reaper.ImGui_Button(ctx, 'Search', 92, 0) or (is_input_active and is_enter) then
-            perform_search()
+            -- Force Refresh if Shift is held
+            local force = false
+            if reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Key_LeftShift()) or reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Key_RightShift()) then
+                force = true
+            end
+            perform_search(force)
         end
 
         reaper.ImGui_Spacing(ctx)
